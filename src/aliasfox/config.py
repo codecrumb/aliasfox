@@ -27,12 +27,12 @@ class Settings(BaseSettings):
     database_url: str | None = Field(None, validation_alias=_env("DATABASE_URL"))
     data_dir: Path = Field(Path("/data"), validation_alias=_env("DATA_DIR"))
     secret_key: str | None = Field(
-        None, validation_alias=AliasChoices("ALIASFOX_SECRET_KEY", "secret_key")
+        None, repr=False, validation_alias=AliasChoices("ALIASFOX_SECRET_KEY", "secret_key")
     )
     password_hash: str | None = Field(
-        None, validation_alias=AliasChoices("ALIASFOX_PASSWORD_HASH", "password_hash")
+        None, repr=False, validation_alias=AliasChoices("ALIASFOX_PASSWORD_HASH", "password_hash")
     )
-    icloud_cookie: str | None = Field(None, validation_alias=_env("ICLOUD_COOKIE"))
+    icloud_cookie: str | None = Field(None, repr=False, validation_alias=_env("ICLOUD_COOKIE"))
     allow_unauthenticated_network: bool = Field(
         False,
         validation_alias=AliasChoices(

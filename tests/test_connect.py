@@ -166,3 +166,10 @@ def test_seed_raises_when_env_cookie_invalid(store):
     with pytest.raises(InvalidCookie):
         seed_from_env(make_settings(COOKIE), store, transport=httpx.MockTransport(lambda r: httpx.Response(421)))
     assert store.load(1) is None
+
+
+def test_non_ascii_cookie_raises_invalid_cookie_without_value():
+    secret = "X-APPLE-WEBAUTH-USER=caféSECRET"
+    with pytest.raises(InvalidCookie) as ei:
+        connect_with_cookie(secret, transport=httpx.MockTransport(validate_ok))
+    assert "SECRET" not in str(ei.value)

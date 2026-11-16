@@ -316,3 +316,12 @@ def test_deleting_absent_cookie_is_not_a_change():
     c, _ = client_for(handler, on_state_change=calls.append)
     c.list()
     assert calls == []
+
+
+def test_list_raw_returns_result_dict_with_top_level_keys():
+    def handler(req):
+        return ok({"hmeEmails": [entry(1)], "selectedForwardTo": "x", "nextPage": "p"})
+
+    c, _ = client_for(handler)
+    raw = c.list_raw()
+    assert set(raw) == {"hmeEmails", "selectedForwardTo", "nextPage"}

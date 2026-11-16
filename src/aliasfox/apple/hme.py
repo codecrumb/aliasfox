@@ -197,8 +197,12 @@ class HmeClient:
         return result if isinstance(result, dict) else {}
 
     # -- operations ------------------------------------------------------------
+    def list_raw(self) -> dict:
+        """Return the raw `result` dict of the list endpoint (read-only)."""
+        return self._request("GET", EP_LIST)
+
     def list(self) -> list[Alias]:
-        result = self._request("GET", EP_LIST)
+        result = self.list_raw()
         return [_parse_alias(d) for d in result.get(F_LIST) or [] if isinstance(d, dict)]
 
     def generate(self) -> str:

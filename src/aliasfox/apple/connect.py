@@ -107,7 +107,7 @@ def _validate(
     try:
         with httpx.Client(transport=transport, timeout=30.0) as http:
             resp = http.post(VALIDATE_URL, headers=headers)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, UnicodeError, ValueError) as exc:
         raise InvalidCookie(f"validate request failed: {type(exc).__name__}") from None
     if not resp.is_success:
         raise InvalidCookie(f"iCloud rejected the cookie (HTTP {resp.status_code})")

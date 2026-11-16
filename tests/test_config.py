@@ -37,3 +37,10 @@ def test_env_aliases(monkeypatch):
     monkeypatch.setenv("PORT", "9000")
     s = Settings()
     assert (s.secret_key, s.aliasfox_mode, s.port) == ("k", "multi", 9000)
+
+
+def test_secrets_not_in_repr():
+    s = make(secret_key="KEYVALUE1", password_hash="HASHVALUE2", icloud_cookie="COOKIEVALUE3")
+    text = repr(s)
+    for v in ("KEYVALUE1", "HASHVALUE2", "COOKIEVALUE3"):
+        assert v not in text
