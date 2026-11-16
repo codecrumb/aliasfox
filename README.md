@@ -14,8 +14,8 @@ Docker Compose:
 
 ```sh
 cp .env.example .env
-python -m aliasfox gen-secret      # or: docker run --rm python:3.13-slim python -c "import secrets;print(secrets.token_urlsafe(48))"
-# put the value in .env as ALIASFOX_SECRET_KEY
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+# put the value in .env as ALIASFOX_SECRET_KEY (or use `python -m aliasfox gen-secret` once installed)
 docker compose up -d --build
 curl -s localhost:8080/healthz     # {"status":"ok"}
 ```
@@ -87,4 +87,4 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
   `/healthz` from an uptime service to limit spin-down.
 - Postgres: any `DATABASE_URL` works. With Neon use the pooled or direct connection string
   (`sslmode=require`); tables are created on startup.
-- Memory: designed to run in 512 MB (not yet measured; see the verification notes).
+- Memory: designed to run in 512 MB (not yet measured in a container).
