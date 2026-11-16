@@ -78,6 +78,25 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
 - 429 `rate_limited`: per-user limits on `?refresh=true` (at most one real refresh per 5 seconds, sooner
   calls are served from the cache) and on generate/reserve (10 per minute).
 
+## Web UI development
+
+The web app lives in `web/` (Svelte 5 + TypeScript + Vite). Node 22+ is needed.
+
+```bash
+cd web
+npm ci               # install the pinned dependencies
+npm run dev          # dev server; proxies /api and /healthz to http://127.0.0.1:8080
+npm run build        # writes src/aliasfox/static (git-ignored), served by the API at /
+npm test             # vitest (jsdom)
+npm run lint         # eslint; bans {@html}, innerHTML/outerHTML, eval and friends
+npm run check        # svelte-check (strict TypeScript)
+```
+
+Run the backend (`python -m aliasfox`) on port 8080 alongside `npm run dev`. The build must stay
+CSP-clean (`script-src 'self'; style-src 'self'`): no inline scripts or styles, no Svelte
+`transition:`/`animate:` directives. The Docker image builds the app in a `node:22-slim` stage and
+serves it from `/app/static` (`WEB_DIST_DIR`), so `docker build .` needs no local Node.
+
 ## Security model
 
 - Stored: only the Apple session blob (cookies and trust token), encrypted with AES-256-GCM using
