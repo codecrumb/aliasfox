@@ -209,3 +209,16 @@ def test_dockerfile_healthcheck_uses_port_and_safe_path():
     health = text[text.index("HEALTHCHECK") :].split("\nCMD [\"python\", \"-m\"")[0]
     assert "${PORT:-8080}" in health
     assert ":8080/healthz" not in health
+
+
+def test_compose_pins_host_and_port_and_env_example_is_safe():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    compose = (root / "docker-compose.yml").read_text()
+    assert "HOST: 0.0.0.0" in compose and 'PORT: "8080"' in compose
+    example = (root / ".env.example").read_text()  # template only, no real values
+    assert "TRUSTED_PROXY_HOPS" in example
+    assert "ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK" in example
+    assert "ALIASFOX_PASSWORD_HASH='$argon2id$" in example
+    assert "ALIASFOX_SECRET_KEY=\n" in example  # no value committed

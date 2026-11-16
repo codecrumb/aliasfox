@@ -1,8 +1,11 @@
 """Hide My Email HTTP client.
 
-Endpoints and payload/field names are reconstructed from other open-source
-projects and unverified against Apple; they are all kept in the constants
-below so a live spike can adjust them in one place.
+Endpoints and payload/field names were reconstructed from other open-source
+projects. The live spike (docs/spike-results.md) verified the read path (list
+endpoint and the alias field names). The write endpoints (generate, reserve,
+update, deactivate/reactivate, delete, updateForwardTo) are still unverified
+against Apple. Everything is kept in the constants below so it can be adjusted
+in one place.
 """
 
 import json
@@ -16,7 +19,7 @@ import httpx
 
 from aliasfox.sessions import AppleSessionState
 
-# --- Endpoints (unverified) -------------------------------------------------
+# --- Endpoints (list verified by the spike; the write endpoints are not) -------------------------------------------------
 EP_LIST = "/v2/hme/list"
 EP_GENERATE = "/v1/hme/generate"
 EP_RESERVE = "/v1/hme/reserve"
@@ -26,7 +29,7 @@ EP_REACTIVATE = "/v1/hme/reactivate"
 EP_DELETE = "/v1/hme/delete"
 EP_UPDATE_FORWARD_TO = "/v1/hme/updateForwardTo"
 
-# --- Request/response field names (unverified) ------------------------------
+# --- Request/response field names (alias fields verified by the spike; request bodies are not) ------------------------------
 LANG_CODE = "en-us"
 F_LIST = "hmeEmails"
 F_GENERATED = "hme"

@@ -20,7 +20,8 @@ docker compose up -d --build
 curl -s localhost:8080/healthz     # {"status":"ok"}
 ```
 
-The port is published on `127.0.0.1` only. Data lives in `./data`.
+The port is published on `127.0.0.1` only. Data lives in `./data`. On Linux the container runs as
+uid 10001, so create the directory first: `mkdir -p data && sudo chown 10001:10001 data`.
 
 Local with `uv`:
 
@@ -37,13 +38,14 @@ export ALIASFOX_SECRET_KEY="$(.venv/bin/python -m aliasfox gen-secret)" DATA_DIR
 | --- | --- | --- |
 | `ALIASFOX_SECRET_KEY` | none, required | Encrypts stored Apple sessions and signs login cookies. At least 32 characters or the app will not start. |
 | `AUTH_ENABLED` | `false` | Require an AliasFox password. Needed for any non-loopback bind. |
-| `ALIASFOX_PASSWORD_HASH` | none | Argon2id hash, required when auth is on. Make one with `python -m aliasfox hash-password`. Quote it in `.env` files (`'$argon2id$...'`) because `$` is interpolated; an unparsable hash refuses startup. |
+| `ALIASFOX_PASSWORD_HASH` | none | Argon2id hash, required when auth is on. Make one with `python -m aliasfox hash-password`. Put it in single quotes in `.env` files, e.g. `ALIASFOX_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'`, because `$` is interpolated otherwise; an unparsable hash refuses startup. |
 | `DATABASE_URL` | SQLite in `DATA_DIR` | Postgres URL. `postgres://` and `postgresql://` are normalised. |
 | `DATA_DIR` | `/data` | Where the SQLite file lives. |
 | `ICLOUD_COOKIE` | none | Local testing only: seeds a session at startup if none valid is stored. |
-| `TRUSTED_PROXY` | `false` | Use the rightmost `X-Forwarded-For` entry for rate limits. Only behind a proxy you control. |
+| `TRUSTED_PROXY` | `false` | Derive the client address for rate limits from `X-Forwarded-For`. Only behind a proxy you control. |
+| `TRUSTED_PROXY_HOPS` | `1` | Number of trusted proxies in front of the app: the client address is the Nth `X-Forwarded-For` entry from the right. Must match your real proxy chain (see Render below). |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | Bind address. A non-loopback host without auth is refused. |
-| `ALIASFOX_MODE` | `single` | `single` or `multi`. |
+| `ALIASFOX_MODE` | `single` | Only `single` works; `multi` is refused at startup until plan 3. |
 | `ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK` | `false` | Lets a container bind `0.0.0.0` with auth off. Only with a loopback-only published port. |
 
 ## Connecting to Apple
@@ -61,6 +63,21 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
 `X-APPLE-WEBAUTH-*` / `X-APPLE-DS-WEB-SESSION-TOKEN` cookie; AliasFox rejects both with a
 "truncated or corrupted" error. Cookie-Editor JSON and `curl -H 'Cookie: ...'` lines are accepted too.
 
+## API notes
+
+- A 401 is overloaded. Clients must branch on `detail`: `not_authenticated` (no or revoked AliasFox
+  cookie, log in again), `session_expired` (the Apple session is dead, reconnect), `apple_login_failed`
+  (bad Apple credentials) and `invalid_code` (wrong 2FA code, may retry).
+- Apple `success:false` replies map to 502 `apple_error`, never 401, because quota and validation
+  errors use the same shape.
+- 409 `not_connected` / `session_unreadable` mean reconnect. `/api/status` reports
+  `connected:false` (with `reason:"session_unreadable"` when the stored session cannot be read, for
+  example after the secret key changed).
+- 502 `apple_unreachable`: Apple could not be reached while checking a pasted cookie (the cookie
+  itself is not blamed, unlike 400 `invalid_cookie`).
+- 429 `rate_limited`: per-user limits on `?refresh=true` (at most one real refresh per 5 seconds, sooner
+  calls are served from the cache) and on generate/reserve (10 per minute).
+
 ## Security model
 
 - Stored: only the Apple session blob (cookies and trust token), encrypted with AES-256-GCM using
@@ -70,12 +87,13 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
   class names. Access logging is off. Validation errors do not echo input.
 - Login, Apple login, 2FA and cookie-paste attempts are rate limited per client address, with a
   global cap on Apple logins. Pending 2FA flows expire after 10 minutes and are capped.
-- `Host` and `Origin` are checked on unsafe requests; strict security headers (CSP, nosniff,
-  no-referrer, frame denial) are on every response and `/api/*` is `no-store`.
-- No HSTS here: terminate TLS at a reverse proxy and set HSTS there.
-- AliasFox session cookies are signed, not stored server-side, so they cannot be revoked
-  individually. Rotate `ALIASFOX_SECRET_KEY` to invalidate all of them (this also makes stored
-  Apple sessions unreadable, so you reconnect).
+- `Host` is checked only when auth is off (it must be loopback); `Origin` is checked on unsafe
+  requests only when the header is present. Strict security headers (CSP, nosniff, no-referrer,
+  frame denial) are on every response, including 4xx and unhandled 500s, and `/api/*` is `no-store`.
+  HSTS is added when the request arrived over https (directly or via a trusted proxy).
+- AliasFox session cookies are signed and carry a session epoch; logging out bumps it, which revokes
+  every outstanding cookie ("log out everywhere"). Rotating `ALIASFOX_SECRET_KEY` also invalidates
+  them (and makes stored Apple sessions unreadable, so you reconnect).
 
 ## Deployment notes
 
@@ -84,8 +102,20 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
 - Logging out revokes every outstanding session cookie ("log out everywhere"). Dev databases created before this change get the `users.session_epoch` column added automatically; Alembic migrations arrive with plan 3.
 - Public deployment: set `AUTH_ENABLED=true` and `ALIASFOX_PASSWORD_HASH`, remove
   `ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK`, and put a TLS-terminating proxy in front.
-- Render free tier has no persistent disk: set `DATABASE_URL` to a Postgres instance, and ping
-  `/healthz` from an uptime service to limit spin-down.
 - Postgres: any `DATABASE_URL` works. With Neon use the pooled or direct connection string
   (`sslmode=require`); tables are created on startup.
 - Memory: designed to run in 512 MB (not yet measured in a container).
+
+## Deploying to Render
+
+- Set `AUTH_ENABLED=true`, `ALIASFOX_PASSWORD_HASH` (single-quoted if it goes through a `.env`
+  file), `ALIASFOX_SECRET_KEY` (at least 32 characters) and `DATABASE_URL` (a Neon connection
+  string; Render's free tier has no persistent disk).
+- Set `TRUSTED_PROXY=true`. `TRUSTED_PROXY_HOPS` defaults to 1 and must be verified on the first
+  deploy, because Render's real proxy chain is unconfirmed: make 5 wrong-password logins from your
+  browser, then check that a 6th gets 429 while a login attempt from another network (for example
+  phone data) still gets 401. If both are throttled, or neither is, adjust `TRUSTED_PROXY_HOPS`.
+- Render injects `PORT` (usually 10000) and AliasFox binds to it automatically (the app reads
+  `PORT`; the Dockerfile's 8080 is only the local default and `EXPOSE` is documentation), so no port
+  setting is needed. The container `HEALTHCHECK` uses `${PORT:-8080}`.
+- Run a single worker (the default), and ping `/healthz` from an uptime service to limit spin-down.

@@ -1,8 +1,11 @@
 """Connect to iCloud with a browser-copied cookie and seed the session store.
 
-The validate endpoint, response field names and the web-auth cookie names
-below are reconstructed from other projects and unverified against Apple;
-a later live spike may adjust the constants.
+The validate endpoint, its response field names and the web-auth cookie names
+below were reconstructed from other projects and then verified by the live
+spike (docs/spike-results.md, 2026-11-16: validate works, the
+premiummailsettings URL is returned, the X-APPLE-WEBAUTH-* and
+X-APPLE-DS-WEB-SESSION-TOKEN cookies exist). Long-term session lifetime is
+still unmeasured.
 """
 
 import json
@@ -13,15 +16,15 @@ import httpx
 from aliasfox.apple.hme import apply_set_cookies, check_webservices_url
 from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
-# --- Unverified Apple details -------------------------------------------------
+# --- Apple details (verified by the live spike) -------------------------------------------------
 VALIDATE_URL = "https://setup.icloud.com/setup/ws/1/validate"
 F_WEBSERVICES = "webservices"
 F_PREMIUMMAIL = "premiummailsettings"
 F_URL = "url"
 F_DSINFO = "dsInfo"
 F_DSID = "dsid"
-# Assumption (unverified): a usable web session carries a cookie starting with
-# this prefix, or this exact one.
+# A usable web session carries a cookie starting with this prefix, or this
+# exact one (both seen in the spike).
 WEBAUTH_PREFIX = "X-APPLE-WEBAUTH-"
 WEBAUTH_EXACT = "X-APPLE-DS-WEB-SESSION-TOKEN"
 

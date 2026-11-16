@@ -9,6 +9,10 @@ services:
       - ./data:/data
     restart: unless-stopped
     environment:
+      # Pinned here because `environment` overrides env_file: a stray HOST or PORT
+      # in .env must not break the published port mapping.
+      HOST: 0.0.0.0
+      PORT: "8080"
       # Inside Docker the process must bind 0.0.0.0 to be reachable through the
       # published port, which would normally trip the "no public bind without auth"
       # guard. This override is safe ONLY because the port above is published on

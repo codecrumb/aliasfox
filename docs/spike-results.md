@@ -14,7 +14,7 @@ Record names, counts, booleans and timings only. No addresses, labels, notes, co
 - [x] `dsid` query param required (`--no-dsid`): no, list works without it
 - [x] `clientBuildNumber` / `clientId` params required (try without first): no, validate and list work without them
 - [x] List paginated (top-level result key names, any cursor/next marker): no; result keys forwardToEmails, hmeEmails, selectedForwardTo; all 411 returned in one response
-- [ ] Advanced Data Protection on for this account: 
+- [x] Advanced Data Protection on for this account: no, ADP is OFF (results here do not cover ADP accounts)
 
 ## pyicloud spike (`.venv/bin/python scripts/spike_pyicloud.py`)
 
