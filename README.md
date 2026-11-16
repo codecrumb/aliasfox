@@ -94,7 +94,8 @@ npm run check        # svelte-check (strict TypeScript)
 
 Run the backend (`python -m aliasfox`) on port 8080 alongside `npm run dev`. The build must stay
 CSP-clean (`script-src 'self'; style-src 'self'`): no inline scripts or styles, no Svelte
-`transition:`/`animate:` directives. The Docker image builds the app in a `node:22-slim` stage and
+`transition:`/`animate:` directives. The ESLint bans on HTML-injection sinks are defence in depth only;
+the CSP is the real backstop. The Docker image builds the app in a `node:22-slim` stage and
 serves it from `/app/static` (`WEB_DIST_DIR`), so `docker build .` needs no local Node.
 
 ## Security model
