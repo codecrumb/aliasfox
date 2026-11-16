@@ -52,11 +52,14 @@ class RateLimiter:
             self._events.setdefault(key, deque()).append(now)
             return True
 
-    def blocked(self, key: str) -> bool:
-        """True if the key is at its limit. Never records an event."""
+    def release(self, key: str) -> None:
+        """Give back the most recent event for the key (undo a reservation)."""
         with self._lock:
-            q = self._prune(key, self._clock())
-            return q is not None and len(q) >= self.max_events
+            q = self._events.get(key)
+            if q:
+                q.pop()
+                if not q:
+                    del self._events[key]
 
     def retry_after(self, key: str) -> int:
         """Whole seconds until the key has room again (0 if it already does)."""

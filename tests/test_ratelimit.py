@@ -32,18 +32,34 @@ def test_limiter_window_expires():
     assert rl.hit("a") is True
 
 
-def test_blocked_does_not_record_and_retry_after():
+def test_retry_after():
     clock = Clock()
     rl = RateLimiter(1, 60, clock=clock)
-    assert rl.blocked("a") is False
-    assert rl.blocked("a") is False  # checking never records
+    assert rl.retry_after("a") == 0
     rl.hit("a")
-    assert rl.blocked("a") is True
     clock.t += 10
     assert 49 <= rl.retry_after("a") <= 51
     clock.t += 51
-    assert rl.blocked("a") is False
     assert rl.retry_after("a") == 0
+
+
+def test_release_removes_most_recent_event():
+    clock = Clock()
+    rl = RateLimiter(2, 60, clock=clock)
+    rl.hit("a")
+    clock.t += 1
+    rl.hit("a")
+    rl.release("a")
+    assert rl.hit("a") is True
+    assert rl.hit("a") is False
+    rl.release("missing")  # no error
+
+
+def test_release_drops_empty_key():
+    rl = RateLimiter(2, 60, clock=Clock())
+    rl.hit("a")
+    rl.release("a")
+    assert "a" not in rl._events
 
 
 def test_reset_clears_key():

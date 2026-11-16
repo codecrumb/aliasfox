@@ -1,5 +1,7 @@
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -7,7 +9,7 @@ from fastapi.testclient import TestClient
 from itsdangerous import URLSafeTimedSerializer
 
 from aliasfox.auth import client_ip, current_user, install_auth
-from aliasfox.config import Settings
+from aliasfox.config import ConfigError, Settings
 from aliasfox.crypto import derive_key, hash_password
 
 PASSWORD = "correct horse battery staple"
@@ -316,3 +318,71 @@ def test_password_never_in_logs(pw_hash, caplog):
         assert secret not in text
     if cookie:
         assert cookie not in text
+
+
+@pytest.mark.parametrize("key", [None, ""])
+def test_install_auth_requires_secret_key(pw_hash, key):
+    with pytest.raises(ConfigError):
+        install_auth(FastAPI(), Settings(secret_key=key, password_hash=pw_hash, auth_enabled=True))
+
+
+def test_concurrent_wrong_passwords_capped_at_five(pw_hash, monkeypatch):
+    import aliasfox.auth as auth
+
+    calls = []
+    real = auth.verify_password
+
+    def counting(h, p):
+        calls.append(p)
+        return real(h, p)
+
+    monkeypatch.setattr(auth, "verify_password", counting)
+    app = build(pw_hash)
+    barrier = threading.Barrier(20)
+
+    def attempt(_):
+        c = client(app)
+        barrier.wait()
+        return login(c, "bad").status_code
+
+    with ThreadPoolExecutor(20) as ex:
+        codes = list(ex.map(attempt, range(20)))
+    assert len(calls) <= 5
+    assert codes.count(401) == len(calls)
+    assert codes.count(429) == 20 - len(calls)
+
+
+def test_ipv6_clients_keyed_by_slash_64(pw_hash):
+    c = client(build(pw_hash, trusted_proxy=True))
+    for i in range(5):
+        login(c, "bad", headers={"X-Forwarded-For": f"2001:db8:1:2::{i + 1}"})
+    r = login(c, "bad", headers={"X-Forwarded-For": "2001:db8:1:2:ffff::9"})
+    assert r.status_code == 429
+    r = login(c, "bad", headers={"X-Forwarded-For": "2001:db8:1:3::1"})
+    assert r.status_code == 401
+
+
+def test_global_failure_limit_blocks_new_logins_not_sessions(pw_hash):
+    c = client(build(pw_hash, trusted_proxy=True))
+    assert login(c, headers={"X-Forwarded-For": "5.5.5.5"}).status_code == 200
+    for i in range(30):
+        h = {"X-Forwarded-For": f"10.0.{i // 200}.{i % 200 + 1}"}
+        assert login(client(c.app), "bad", headers=h).status_code == 401
+    other = client(c.app)
+    r = login(other, PASSWORD, headers={"X-Forwarded-For": "11.1.1.1"})
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) > 0
+    # the existing session keeps working
+    assert c.get("/api/protected").status_code == 200
+
+
+def test_successful_login_releases_global_slot(pw_hash):
+    c = client(build(pw_hash))
+    for _ in range(40):
+        assert login(c).status_code == 200
+
+
+def test_password_max_length(pw_hash):
+    c = client(build(pw_hash))
+    assert login(c, "x" * 1025).status_code == 422
+    assert login(c, "x" * 1024).status_code == 401
