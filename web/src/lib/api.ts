@@ -25,20 +25,22 @@ function parseRetryAfter(res: Response): number | undefined {
   return Number.parseInt(raw.trim(), 10);
 }
 
-async function toError(res: Response): Promise<ApiError> {
+async function toError(res: Response, signal: AbortSignal): Promise<ApiError> {
   const retryAfter = parseRetryAfter(res);
   const extra: { retryAfter?: number; serverMessage?: string } = {};
   if (retryAfter !== undefined) extra.retryAfter = retryAfter;
   let detail = `http_${res.status}`;
   try {
-    const body: unknown = await res.json();
+    const body: unknown = await readJson(res, signal);
     if (body !== null && typeof body === 'object' && 'detail' in body) {
       const d = (body as { detail: unknown }).detail;
       if (typeof d === 'string' && d !== '') {
         detail = d;
-        if (d === 'apple_error' && 'message' in body) {
+        if ((d === 'apple_error' || d === 'invalid_cookie') && 'message' in body) {
           const m = (body as { message: unknown }).message;
-          if (typeof m === 'string') extra.serverMessage = m.slice(0, SERVER_MESSAGE_MAX);
+          if (typeof m === 'string') {
+            extra.serverMessage = Array.from(m).slice(0, SERVER_MESSAGE_MAX).join('');
+          }
         }
       } else if (Array.isArray(d)) {
         detail = 'validation_error';
@@ -47,7 +49,20 @@ async function toError(res: Response): Promise<ApiError> {
   } catch {
     // non-JSON or empty body: keep http_<status>
   }
+  if (signal.aborted) return new ApiError(0, 'network_error');
   return new ApiError(res.status, detail, extra);
+}
+
+// Reads the body but gives up as soon as the timeout aborts the request.
+function readJson(res: Response, signal: AbortSignal): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    res.json().then(resolve, reject);
+  });
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -59,20 +74,24 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   const controller = new AbortController();
   init.signal = controller.signal;
+  // The timer covers the whole exchange, including reading the body.
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  let res: Response;
   try {
-    res = await fetch(path, init);
-  } catch {
-    throw new ApiError(0, 'network_error');
+    let res: Response;
+    try {
+      res = await fetch(path, init);
+    } catch {
+      throw new ApiError(0, 'network_error');
+    }
+    if (!res.ok) throw await toError(res, controller.signal);
+    try {
+      return (await readJson(res, controller.signal)) as T;
+    } catch {
+      if (controller.signal.aborted) throw new ApiError(0, 'network_error');
+      throw new ApiError(res.status, 'bad_response');
+    }
   } finally {
     clearTimeout(timer);
-  }
-  if (!res.ok) throw await toError(res);
-  try {
-    return (await res.json()) as T;
-  } catch {
-    throw new ApiError(0, 'network_error');
   }
 }
 

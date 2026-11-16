@@ -243,7 +243,7 @@ describe('sessionStore', () => {
     await store.logout();
     expect(cb).toHaveBeenCalledTimes(1);
     expect(get(store).state).toBe('ready');
-    expect(get(store).cacheKey).toBeNull();
+    expect(get(store).cacheKey).toBe('KEY1'); // re-booted for a fresh key
   });
 
   it('a throwing callback does not stop the others', async () => {
@@ -267,5 +267,157 @@ describe('sessionStore', () => {
     off();
     await store.logout();
     expect(cb).not.toHaveBeenCalled();
+  });
+
+  describe('races and validation', () => {
+    function deferred() {
+      let resolve!: (r: Response) => void;
+      const promise = new Promise<Response>((r) => (resolve = r));
+      return { promise, resolve };
+    }
+    const connected = { connected: true, mode: 'live', auth_enabled: true };
+
+    it('(a) late status after logout cannot resurrect ready or cacheKey', async () => {
+      const d = deferred();
+      route({
+        'GET /api/session': () => json(SESSION),
+        'GET /api/status': () => d.promise,
+        'POST /api/auth/logout': () => json({ ok: true })
+      });
+      const { store } = await fresh();
+      const b = store.boot();
+      await vi.waitFor(() => expect(get(store).cacheKey).toBe('KEY1'));
+      await store.logout();
+      d.resolve(json(connected));
+      await b;
+      expect(get(store).state).toBe('login');
+      expect(get(store).cacheKey).toBeNull();
+    });
+
+    it('(a2) late session after logout cannot set cacheKey', async () => {
+      const d = deferred();
+      route({
+        'GET /api/session': () => d.promise,
+        'POST /api/auth/logout': () => json({ ok: true })
+      });
+      const { store } = await fresh();
+      const b = store.boot();
+      await store.logout();
+      d.resolve(json(SESSION));
+      await b;
+      expect(get(store).state).toBe('login');
+      expect(get(store).cacheKey).toBeNull();
+    });
+
+    it('(b) overlapping boots: newer result wins even if older resolves last', async () => {
+      const first = deferred();
+      let n = 0;
+      route({
+        'GET /api/session': () => (++n === 1 ? first.promise : json({ ...SESSION, cache_key: 'NEW' })),
+        'GET /api/status': () => json(connected)
+      });
+      const { store } = await fresh();
+      const b1 = store.boot();
+      const b2 = store.boot();
+      await b2;
+      expect(get(store).cacheKey).toBe('NEW');
+      first.resolve(json({ ...SESSION, cache_key: 'OLD' }));
+      await b1;
+      expect(get(store).cacheKey).toBe('NEW');
+      expect(get(store).state).toBe('ready');
+    });
+
+    it('(c) login whose re-boot is superseded by logout ends logged out', async () => {
+      const d = deferred();
+      route({
+        'POST /api/auth/login': () => json({ ok: true }),
+        'GET /api/session': () => d.promise,
+        'POST /api/auth/logout': () => json({ ok: true })
+      });
+      const { store } = await fresh();
+      const l = store.login('pw');
+      await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2));
+      await store.logout();
+      d.resolve(json(SESSION));
+      await l;
+      expect(get(store).state).toBe('login');
+      expect(get(store).cacheKey).toBeNull();
+    });
+
+    it('(d) markReady after logout does not set ready', async () => {
+      const d = deferred();
+      route({
+        'GET /api/session': () => d.promise,
+        'POST /api/auth/logout': () => json({ ok: true })
+      });
+      const { store } = await fresh();
+      const m = store.markReady();
+      await store.logout();
+      d.resolve(json(SESSION));
+      await m;
+      expect(get(store).state).toBe('login');
+      expect(get(store).cacheKey).toBeNull();
+    });
+
+    it('onApiError not_authenticated clears cacheKey', async () => {
+      route({
+        'GET /api/session': () => json(SESSION),
+        'GET /api/status': () => json(connected)
+      });
+      const { store, ApiError } = await fresh();
+      await store.boot();
+      store.onApiError(new ApiError(401, 'not_authenticated'));
+      expect(get(store).state).toBe('login');
+      expect(get(store).cacheKey).toBeNull();
+    });
+
+    it('logout with auth disabled re-boots for a fresh key', async () => {
+      let key = 'KEY1';
+      const off = { auth_enabled: false };
+      route({
+        'GET /api/session': () => json({ ...SESSION, ...off, cache_key: key }),
+        'GET /api/status': () => json({ ...connected, ...off }),
+        'POST /api/auth/logout': () => {
+          key = 'KEY2';
+          return json({ ok: true });
+        }
+      });
+      const { store } = await fresh();
+      await store.boot();
+      await store.logout();
+      expect(get(store).state).toBe('ready');
+      expect(get(store).cacheKey).toBe('KEY2');
+    });
+
+    it('rejects malformed session/status shapes with unexpected_response', async () => {
+      route({ 'GET /api/session': () => json({ cache_key: 5, mode: 'live', auth_enabled: true }) });
+      let { store } = await fresh();
+      await store.boot();
+      expect(get(store).state).toBe('error');
+      expect(get(store).errorText).toBe('unexpected_response');
+      expect(get(store).cacheKey).toBeNull();
+
+      route({ 'GET /api/session': () => json({ cache_key: 'k', mode: 'live', auth_enabled: 'yes' }) });
+      ({ store } = await fresh());
+      await store.boot();
+      expect(get(store).errorText).toBe('unexpected_response');
+
+      route({
+        'GET /api/session': () => json(SESSION),
+        'GET /api/status': () => json({ connected: 'true', mode: 'live', auth_enabled: true })
+      });
+      ({ store } = await fresh());
+      await store.boot();
+      expect(get(store).state).toBe('error');
+      expect(get(store).errorText).toBe('unexpected_response');
+    });
+
+    it('markReady rejects a malformed session', async () => {
+      route({ 'GET /api/session': () => json({ nope: 1 }) });
+      const { store } = await fresh();
+      await store.markReady();
+      expect(get(store).state).toBe('error');
+      expect(get(store).errorText).toBe('unexpected_response');
+    });
   });
 });

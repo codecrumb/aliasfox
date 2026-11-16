@@ -221,4 +221,44 @@ describe('api client', () => {
       '/api/aliases/a%2Fb%3Fc'
     ]);
   });
+
+  it('stalled response body times out as network_error', async () => {
+    vi.useFakeTimers();
+    mockFetch(
+      () => ({ ok: true, status: 200, headers: new Headers(), json: () => new Promise(() => {}) }) as unknown as Response
+    );
+    const p = catchErr(api.listAliases());
+    await vi.advanceTimersByTimeAsync(45_000);
+    const e = await p;
+    expect(e.status).toBe(0);
+    expect(e.detail).toBe('network_error');
+  });
+
+  it('2xx with invalid JSON is bad_response, not network_error', async () => {
+    mockFetch(() => respond('not json', 200));
+    const e = await catchErr(api.status());
+    expect(e.status).toBe(200);
+    expect(e.detail).toBe('bad_response');
+    expect(e.message).toBe('bad_response');
+  });
+
+  it('serverMessage is capped by code points, not UTF-16 units', async () => {
+    const msg = 'a'.repeat(199) + '\u{1F600}' + 'zzz';
+    mockFetch(() => respond({ detail: 'apple_error', message: msg }, 502));
+    const e = await catchErr(api.generate());
+    expect(e.serverMessage).toBe('a'.repeat(199) + '\u{1F600}');
+    expect(Array.from(e.serverMessage!)).toHaveLength(200);
+  });
+
+  it('invalid_cookie copies the server message too', async () => {
+    mockFetch(() => respond({ detail: 'invalid_cookie', message: 'bad cookie' }, 400));
+    const e = await catchErr(api.connectCookie('x'));
+    expect(e.detail).toBe('invalid_cookie');
+    expect(e.serverMessage).toBe('bad cookie');
+  });
+
+  it('other details do not carry serverMessage', async () => {
+    mockFetch(() => respond({ detail: 'not_connected', message: 'leak' }, 409));
+    expect((await catchErr(api.status())).serverMessage).toBeUndefined();
+  });
 });

@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { ApiError, api } from './api';
-import type { SessionState } from './types';
+import type { SessionInfo, SessionState } from './types';
 
 export interface SessionSnapshot {
   state: SessionState;
@@ -31,17 +31,40 @@ function detailOf(e: unknown): string {
   return e instanceof ApiError ? e.detail : 'network_error';
 }
 
+// Bumped by every boot() and logout(); an async step whose generation is stale drops its result.
+let gen = 0;
+
+const UNEXPECTED = 'unexpected_response';
+
+function validSession(s: unknown): s is SessionInfo {
+  return (
+    s !== null &&
+    typeof s === 'object' &&
+    typeof (s as SessionInfo).cache_key === 'string' &&
+    typeof (s as SessionInfo).auth_enabled === 'boolean'
+  );
+}
+
 async function boot(): Promise<void> {
+  const g = ++gen;
   try {
     const sess = await api.session();
+    if (g !== gen) return;
+    if (!validSession(sess)) {
+      patch({ state: 'error', errorText: UNEXPECTED, cacheKey: null });
+      return;
+    }
     patch({
       cacheKey: sess.cache_key,
-      mode: sess.mode,
+      mode: typeof sess.mode === 'string' ? sess.mode : null,
       authEnabled: sess.auth_enabled,
       errorText: null
     });
     const st = await api.status();
-    if (st.connected) {
+    if (g !== gen) return;
+    if (st === null || typeof st !== 'object' || typeof st.connected !== 'boolean') {
+      patch({ state: 'error', errorText: UNEXPECTED });
+    } else if (st.connected) {
       patch({ state: 'ready', reason: null });
     } else if (st.reason === 'session_unreadable') {
       patch({ state: 'reconnect', reason: 'session_unreadable' });
@@ -49,6 +72,7 @@ async function boot(): Promise<void> {
       patch({ state: 'connect', reason: null });
     }
   } catch (e) {
+    if (g !== gen) return;
     if (e instanceof ApiError && e.detail === 'not_authenticated') {
       patch({ state: 'login', cacheKey: null, reason: null, errorText: null });
     } else if (e instanceof ApiError && e.detail === 'not_connected') {
@@ -65,12 +89,14 @@ async function login(password: string): Promise<void> {
 }
 
 async function logout(): Promise<void> {
+  ++gen; // invalidate any in-flight boot/markReady immediately
   const { authEnabled } = get(store);
   try {
     await api.logout();
   } catch {
     // ignore: local state is wiped regardless
   }
+  ++gen;
   for (const cb of [...logoutCallbacks]) {
     try {
       cb();
@@ -79,6 +105,7 @@ async function logout(): Promise<void> {
     }
   }
   patch({ cacheKey: null, reason: null, errorText: null, state: authEnabled ? 'login' : 'ready' });
+  if (!authEnabled) await boot(); // fresh cacheKey/state; guarded by the generation counter
 }
 
 function onLogout(cb: () => void): () => void {
@@ -91,7 +118,7 @@ function onLogout(cb: () => void): () => void {
 function onApiError(e: ApiError): void {
   switch (e.detail) {
     case 'not_authenticated':
-      patch({ state: 'login' });
+      patch({ state: 'login', cacheKey: null });
       break;
     case 'not_connected':
       patch({ state: 'connect', reason: null });
@@ -106,10 +133,22 @@ function onApiError(e: ApiError): void {
 }
 
 async function markReady(): Promise<void> {
-  const sess = await api.session();
+  const g = gen;
+  let sess: SessionInfo;
+  try {
+    sess = await api.session();
+  } catch (e) {
+    if (g !== gen) return;
+    throw e;
+  }
+  if (g !== gen) return;
+  if (!validSession(sess)) {
+    patch({ state: 'error', errorText: UNEXPECTED, cacheKey: null });
+    return;
+  }
   patch({
     cacheKey: sess.cache_key,
-    mode: sess.mode,
+    mode: typeof sess.mode === 'string' ? sess.mode : null,
     authEnabled: sess.auth_enabled,
     state: 'ready',
     reason: null,
