@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from aliasfox.config import ConfigError, Settings
 from aliasfox.crypto import derive_key, verify_password
+from aliasfox.middleware import scope_is_https
 from aliasfox.ratelimit import RateLimiter
 
 COOKIE_NAME = "aliasfox_session"
@@ -64,12 +65,7 @@ def _serializer(settings: Settings) -> URLSafeTimedSerializer:
 
 
 def _is_https(request: Request, settings: Settings) -> bool:
-    if request.url.scheme == "https":
-        return True
-    return (
-        settings.trusted_proxy
-        and request.headers.get("x-forwarded-proto", "").split(",")[-1].strip().lower() == "https"
-    )
+    return scope_is_https(request.scope, settings.trusted_proxy)
 
 
 def _hostname(host_header: str) -> str:
@@ -77,6 +73,15 @@ def _hostname(host_header: str) -> str:
     if host.startswith("["):
         return host.split("]")[0] + "]"
     return host.split(":")[0]
+
+
+def _cookie_secure(request: Request, settings: Settings) -> bool:
+    """Secure when the request is https (directly or via a trusted proxy), and
+    also for ANY non-loopback host once auth is on: a TLS-terminating proxy that
+    we cannot see must not yield a downgradable session cookie."""
+    if _is_https(request, settings):
+        return True
+    return settings.auth_enabled and _hostname(request.headers.get("host", "")) not in LOCAL_HOSTNAMES
 
 
 def _throttled(retry_after: int) -> JSONResponse:
@@ -154,7 +159,7 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
             max_age=COOKIE_MAX_AGE,
             httponly=True,
             samesite="strict",
-            secure=_is_https(request, settings),
+            secure=_cookie_secure(request, settings),
             path="/",
         )
         return {"ok": True}
@@ -165,7 +170,7 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
             COOKIE_NAME,
             httponly=True,
             samesite="strict",
-            secure=_is_https(request, settings),
+            secure=_cookie_secure(request, settings),
             path="/",
         )
         return {"ok": True}

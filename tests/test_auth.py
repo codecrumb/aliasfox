@@ -75,6 +75,29 @@ def test_cookie_flags(pw_hash):
     assert "secure" not in h
 
 
+def test_cookie_secure_on_non_loopback_host_when_auth_enabled(pw_hash):
+    for base in ("http://aliasfox.onrender.com", "http://203.0.113.5:8080", "http://testserver"):
+        c = client(build(pw_hash), base=base)
+        assert "secure" in login(c).headers["set-cookie"].lower(), base
+
+
+@pytest.mark.parametrize(
+    "base", ["http://localhost", "http://127.0.0.1", "http://localhost:8080", "http://[::1]:8080"]
+)
+def test_cookie_not_secure_on_loopback_http(pw_hash, base):
+    c = client(build(pw_hash), base=base)
+    assert "secure" not in login(c).headers["set-cookie"].lower()
+
+
+def test_logout_cookie_secure_on_non_loopback(pw_hash):
+    c = client(build(pw_hash), base="https://aliasfox.onrender.com")
+    login(c)
+    assert "secure" in c.post("/api/auth/logout").headers["set-cookie"].lower()
+    c = client(build(pw_hash), base="http://localhost")
+    login(c)
+    assert "secure" not in c.post("/api/auth/logout").headers["set-cookie"].lower()
+
+
 def test_cookie_secure_on_https(pw_hash):
     c = client(build(pw_hash), base="https://localhost")
     assert "secure" in login(c).headers["set-cookie"].lower()
