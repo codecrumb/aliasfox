@@ -39,16 +39,33 @@ export interface KeyBinding {
   keys: string[][];
   label: string;
   combos: Combo[];
-  when?: 'searchEmpty' | 'searchNotEmpty';
+  when?: 'searchEmpty' | 'searchNotEmpty' | 'caretAtStart';
   note?: string;
 }
+
+/** Bindings that keep working while a key is held down (auto-repeat). Everything else fires once
+ * per physical press, so a held Enter or Shift+Enter can never repeat an account action. */
+const REPEATABLE: ReadonlySet<KeyId> = new Set<KeyId>(['up', 'down', 'pageUp', 'pageDown', 'first', 'last']);
+
+/**
+ * A confirmation dialog ignores Enter/Space (and keyboard-generated clicks) for this long after it
+ * opens, so the key press that opened it (e.g. Enter in the actions menu) can't also confirm it.
+ */
+export const CONFIRM_GUARD_MS = 250;
 
 export const KEYMAP: readonly KeyBinding[] = [
   { id: 'copy', keys: [['Enter']], label: 'Copy address', combos: [{ key: 'Enter' }] },
   { id: 'toggle', keys: [['Shift', 'Enter']], label: 'Turn the address on or off', combos: [{ key: 'Enter', shift: true }] },
   { id: 'new', keys: [['Alt', 'N']], label: 'New alias', combos: [{ code: 'KeyN', alt: true }] },
   { id: 'edit', keys: [['Alt', 'E']], label: 'Edit label and note', combos: [{ code: 'KeyE', alt: true }] },
-  { id: 'delete', keys: [['Alt', 'Backspace']], label: 'Delete', combos: [{ code: 'Backspace', alt: true }] },
+  {
+    id: 'delete',
+    keys: [['Alt', 'Backspace']],
+    label: 'Delete alias (when the search box is empty)',
+    combos: [{ code: 'Backspace', alt: true }],
+    // In a non-empty search Alt+Backspace is the platform's delete-word keystroke.
+    when: 'caretAtStart'
+  },
   {
     id: 'menu',
     keys: [['Ctrl', 'K'], ['⌘', 'K']],
@@ -76,6 +93,8 @@ export const KEYMAP: readonly KeyBinding[] = [
 
 export type KeyCtx = Record<KeyId, () => void> & {
   searchEmpty: boolean;
+  /** The search caret is at position 0 with no selection. */
+  caretAtStart?: boolean;
   /** A dialog or menu owns the keyboard. */
   blocked: boolean;
   mac: boolean;
@@ -99,14 +118,24 @@ export function isMac(): boolean {
   return /mac|iphone|ipad|ipod/i.test(p);
 }
 
+/** Option+letter on macOS: a dead key that WebKit/Chromium may report with keyCode 229. */
+export function isAltLetter(e: KeyboardEvent): boolean {
+  return e.altKey && !e.ctrlKey && !e.metaKey && /^Key[A-Z]$/.test(e.code);
+}
+
 /** Runs the matching action. Returns true (and prevents the default) when it handled the event. */
 export function handleKey(e: KeyboardEvent, ctx: KeyCtx): boolean {
-  if (ctx.blocked || e.isComposing || e.keyCode === 229) return false;
+  if (ctx.blocked || e.isComposing === true) return false;
+  // keyCode 229 without isComposing: an IME is processing the key (e.g. Safari's Enter that
+  // commits a composition). Ignore it, except Option+letter dead keys, matched by event.code.
+  if (e.keyCode === 229 && !isAltLetter(e)) return false;
   for (const b of KEYMAP) {
     if (b.when === 'searchEmpty' && !ctx.searchEmpty) continue;
     if (b.when === 'searchNotEmpty' && ctx.searchEmpty) continue;
+    if (b.when === 'caretAtStart' && !ctx.searchEmpty && !ctx.caretAtStart) continue;
     if (b.combos.some((c) => matches(e, c, ctx.mac))) {
       e.preventDefault();
+      if (e.repeat && !REPEATABLE.has(b.id)) return true; // swallowed: held keys act once
       ctx[b.id]();
       return true;
     }

@@ -136,4 +136,80 @@ describe('KEYMAP / handleKey', () => {
     expect(handleKey(plain, c)).toBe(false);
     expect(plain.defaultPrevented).toBe(false);
   });
+
+  it('auto-repeat is ignored for every action except navigation', () => {
+    const c = ctx();
+    const first = ev({ key: 'Enter', code: 'Enter', shiftKey: true });
+    expect(handleKey(first, c)).toBe(true);
+    for (let i = 0; i < 5; i++) handleKey(ev({ key: 'Enter', code: 'Enter', shiftKey: true, repeat: true }), c);
+    expect(c.toggle).toHaveBeenCalledTimes(1);
+    for (const init of [
+      { key: 'Enter', code: 'Enter' },
+      { key: 'n', code: 'KeyN', altKey: true },
+      { key: 'e', code: 'KeyE', altKey: true },
+      { key: 'Backspace', code: 'Backspace', altKey: true },
+      { key: 'k', code: 'KeyK', ctrlKey: true },
+      { key: '?', code: 'Slash', shiftKey: true }
+    ]) {
+      handleKey(ev({ ...init, repeat: true }), c);
+    }
+    for (const id of ['copy', 'new', 'edit', 'delete', 'menu', 'help'] as const) expect(c[id], id).not.toHaveBeenCalled();
+    const nav = ctx({ mac: true });
+    for (const init of [
+      { key: 'ArrowDown', code: 'ArrowDown' },
+      { key: 'ArrowUp', code: 'ArrowUp' },
+      { key: 'j', code: 'KeyJ', ctrlKey: true },
+      { key: 'k', code: 'KeyK', ctrlKey: true },
+      { key: 'PageDown', code: 'PageDown' },
+      { key: 'PageUp', code: 'PageUp' },
+      { key: 'Home', code: 'Home' },
+      { key: 'End', code: 'End' }
+    ]) {
+      expect(handleKey(ev({ ...init, repeat: true }), nav)).toBe(true);
+    }
+    expect(nav.down).toHaveBeenCalledTimes(2);
+    expect(nav.up).toHaveBeenCalledTimes(2);
+    expect(nav.pageDown).toHaveBeenCalledTimes(1);
+    expect(nav.pageUp).toHaveBeenCalledTimes(1);
+    expect(nav.first).toHaveBeenCalledTimes(1);
+    expect(nav.last).toHaveBeenCalledTimes(1);
+  });
+
+  it('Alt+Backspace deletes only with an empty search or the caret at the start; otherwise the browser deletes a word', () => {
+    const word = ev({ key: 'Backspace', code: 'Backspace', altKey: true });
+    const c = ctx({ searchEmpty: false, caretAtStart: false });
+    expect(handleKey(word, c)).toBe(false);
+    expect(word.defaultPrevented).toBe(false);
+    expect(c.delete).not.toHaveBeenCalled();
+    const c2 = ctx({ searchEmpty: false, caretAtStart: true });
+    expect(handleKey(ev({ key: 'Backspace', code: 'Backspace', altKey: true }), c2)).toBe(true);
+    expect(c2.delete).toHaveBeenCalledTimes(1);
+    const c3 = ctx({ searchEmpty: true, caretAtStart: false });
+    expect(handleKey(ev({ key: 'Backspace', code: 'Backspace', altKey: true }), c3)).toBe(true);
+    expect(c3.delete).toHaveBeenCalledTimes(1);
+    expect(KEYMAP.find((b) => b.id === 'delete')?.label).toBe('Delete alias (when the search box is empty)');
+  });
+
+  it('macOS dead keys: Option+N reported with keyCode 229 still runs the combo by code and prevents the default', () => {
+    const c = ctx();
+    const e = ev({ key: 'Dead', code: 'KeyN', altKey: true });
+    Object.defineProperty(e, 'keyCode', { value: 229 });
+    expect(handleKey(e, c)).toBe(true);
+    expect(c.new).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
+    const ed = ev({ key: 'Dead', code: 'KeyE', altKey: true });
+    Object.defineProperty(ed, 'keyCode', { value: 229 });
+    expect(handleKey(ed, c)).toBe(true);
+    expect(c.edit).toHaveBeenCalledTimes(1);
+  });
+
+  it('real IME composition (isComposing) still blocks every shortcut, and a bare 229 Enter (Safari IME commit) is ignored', () => {
+    const c = ctx();
+    expect(handleKey(ev({ key: 'n', code: 'KeyN', altKey: true, isComposing: true }), c)).toBe(false);
+    const enter = ev({ key: 'Enter', code: 'Enter' });
+    Object.defineProperty(enter, 'keyCode', { value: 229 });
+    expect(handleKey(enter, c)).toBe(false);
+    expect(c.new).not.toHaveBeenCalled();
+    expect(c.copy).not.toHaveBeenCalled();
+  });
 });
