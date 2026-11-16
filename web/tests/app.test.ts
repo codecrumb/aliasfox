@@ -59,14 +59,17 @@ describe('App shell', () => {
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();
   });
 
-  it.each(['connect', 'reconnect'])('%s shows the connect placeholder with Log out', async (st) => {
+  it.each(['connect', 'reconnect'])('%s renders ConnectApple with Log out and focuses its container', async (st) => {
     render(App);
-    setState(st);
-    expect(
-      await screen.findByText('Connect your Apple account — coming in the next task')
-    ).toBeInTheDocument();
+    setState(st, { reason: st === 'reconnect' ? 'session_expired' : null });
+    expect(await screen.findByLabelText('Apple ID')).toBeInTheDocument();
+    expect(document.querySelector('[data-screen="connect"]')).not.toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement?.closest('[data-screen="connect"]')).not.toBeNull()
+    );
     await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
     expect(s.logout).toHaveBeenCalledTimes(1);
+    setState('connect', { reason: null });
   });
 
   it('ready shows the palette placeholder with Log out', async () => {

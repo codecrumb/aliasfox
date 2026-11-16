@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ConnectApple from './components/ConnectApple.svelte';
   import Login from './components/Login.svelte';
   import StepTransition from './components/StepTransition.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -66,10 +67,7 @@
     {:else if screen === 'login'}
       <Login />
     {:else if screen === 'connect' || screen === 'reconnect'}
-      <section class="screen" data-screen="connect" tabindex="-1" aria-label="Connect your Apple account">
-        <p>Connect your Apple account — coming in the next task</p>
-        <button type="button" onclick={() => void sessionStore.logout()}>Log out</button>
-      </section>
+      <ConnectApple />
     {:else if screen === 'ready'}
       <section class="screen" data-screen="ready" tabindex="-1" aria-label="Palette">
         <p>Palette — coming soon</p>
