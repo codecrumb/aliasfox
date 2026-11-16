@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
 
   interface Props {
     onComplete: (code: string) => void;
@@ -16,7 +16,8 @@
   let invalid = $state(false);
   let shaking = $state(false);
   let lastFired = '';
-  let seenError = 0;
+  // A remount with a stale counter must not replay the old wrong-code state.
+  let seenError = untrack(() => error);
   let shakeTimer: ReturnType<typeof setTimeout> | undefined;
 
   function reducedMotion(): boolean {
@@ -67,12 +68,20 @@
   function oninput(e: Event, i: number): void {
     invalid = false;
     const el = e.currentTarget as HTMLInputElement;
-    const only = el.value.replace(/\D/g, '');
-    if (only === '') {
+    let only = el.value.replace(/\D/g, '');
+    if (el.value === '') {
       digits[i] = '';
       sync();
       return;
     }
+    if (only === '') {
+      // non-digit: ignore, keep whatever digit the box had
+      el.value = digits[i] ?? '';
+      return;
+    }
+    // typing over a filled box: old digit plus the new keystroke
+    const old = digits[i] ?? '';
+    if (only.length === 2 && old !== '') only = only[0] === old ? (only[1] ?? '') : (only[0] ?? '');
     // A multi-character value (autofill, IME) spreads over the following boxes.
     const end = fill(i, only);
     sync();
@@ -154,7 +163,7 @@
             value={digits[i]}
             type="text"
             inputmode="numeric"
-            maxlength={1}
+            maxlength={i === 0 ? LEN : 1}
             pattern="[0-9]"
             autocomplete={i === 0 ? 'one-time-code' : 'off'}
             aria-label={`Digit ${i + 1} of ${LEN}`}

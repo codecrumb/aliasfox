@@ -8,7 +8,7 @@
   import StepTransition from './StepTransition.svelte';
 
   type Scope = 'main' | 'cookie';
-  type Problem = { scope: Scope; kind: 'text'; text: string } | { scope: Scope; kind: 'limited' } | null;
+  type Problem = { scope: Scope; text: string } | null;
 
   const LIMITED = new Set(['too_many_attempts', 'rate_limited', 'busy']);
   const UNREACHABLE = new Set(['apple_unreachable', 'network_error', 'bad_response']);
@@ -31,6 +31,7 @@
   let busy = $state(false);
   let problem = $state<Problem>(null);
   let done = $state<{ scope: Scope; text: string } | null>(null);
+  let limited = $state<Scope | null>(null); // survives navigation; only the countdown clears it
   let remaining = $state(0);
   let announced = $state(0); // fixed when the limit hits; read once by screen readers
   let codeError = $state(0);
@@ -51,7 +52,7 @@
       remaining = n;
     },
     () => {
-      problem = null;
+      limited = null;
       remaining = 0;
       done = { scope: limitScope, text: 'You can try again now.' };
       const a = document.activeElement;
@@ -73,15 +74,14 @@
           ? 'Reconnect to continue.'
           : ''
   );
-  const locked = $derived(problem?.kind === 'limited' && remaining > 0);
+  const locked = $derived(limited !== null && remaining > 0);
   const truncated = $derived(cookie.includes('…') || cookie.includes('...'));
 
   const plural = (n: number): string => `${n} ${n === 1 ? 'second' : 'seconds'}`;
   function alertText(scope: Scope): string {
+    if (limited === scope) return `Too many attempts. Try again in about ${plural(announced)}.`;
     if (!problem || problem.scope !== scope) return '';
-    return problem.kind === 'text'
-      ? problem.text
-      : `Too many attempts. Try again in about ${plural(announced)}.`;
+    return problem.text;
   }
 
   onMount(() => {
@@ -93,6 +93,8 @@
   });
 
   function go(to: 1 | 2 | 3): void {
+    if (to === 3) codeError = 0; // a fresh code screen never inherits an old wrong-code state
+    if (to === 1) password = '';
     direction = to > step ? 'forward' : 'back';
     step = to;
     problem = null;
@@ -106,13 +108,14 @@
 
   function say(scope: Scope, text: string): void {
     done = null;
-    problem = { scope, kind: 'text', text };
+    problem = { scope, text };
   }
 
   function limit(scope: Scope, err: ApiError): void {
     limitScope = scope;
     done = null;
-    problem = { scope, kind: 'limited' };
+    problem = null;
+    limited = scope;
     announced = countdown.start(err.retryAfter ?? 30);
   }
 
@@ -120,7 +123,7 @@
     return msg ? Array.from(msg).slice(0, MESSAGE_MAX).join('') : '';
   }
 
-  // Returns true when the error was a not_authenticated hand-off to the session store.
+  // Maps a failed request to a message or state change; not_authenticated is handed to the session store.
   function handle(err: unknown, scope: Scope): void {
     const e = err instanceof ApiError ? err : new ApiError(0, 'network_error');
     const d = e.detail;
@@ -176,7 +179,7 @@
 
   function nextFromId(e: SubmitEvent): void {
     e.preventDefault();
-    if (appleId.trim() === '') return;
+    if (locked || appleId.trim() === '') return;
     appleId = appleId.trim();
     go(2);
   }
@@ -254,6 +257,7 @@
 
   function toggleCookie(): void {
     cookieOpen = !cookieOpen;
+    if (!cookieOpen) cookie = '';
     problem = problem?.scope === 'cookie' ? null : problem;
     if (cookieOpen) void tick().then(() => cookieInput?.focus());
   }
@@ -263,10 +267,10 @@
   <div class="messages">
     <p
       class="error"
-      class:visually-hidden={problem?.kind === 'limited' && problem.scope === scope}
+      class:visually-hidden={limited === scope}
       role="alert"
     >{alertText(scope)}</p>
-    {#if problem?.kind === 'limited' && problem.scope === scope}
+    {#if limited === scope}
       <p class="error countdown" aria-hidden="true">
         Too many attempts. Try again in {plural(remaining)}.
       </p>
@@ -300,7 +304,8 @@
             spellcheck="false"
             required
           />
-          <button type="submit" class="primary">Continue</button>
+          {@render messages('main')}
+          <button type="submit" class="primary" disabled={locked}>Continue</button>
         </form>
       {:else if step === 2}
         <h2>Enter your password</h2>
@@ -330,7 +335,7 @@
           </label>
           {@render messages('main')}
           <div class="actions">
-            <button type="button" onclick={() => go(1)}>Back</button>
+            <button type="button" disabled={busy} onclick={() => !busy && go(1)}>Back</button>
             <button type="submit" class="primary" disabled={busy || locked}>
               {busy ? 'Signing in…' : 'Continue'}
             </button>
@@ -342,7 +347,7 @@
         <CodeInput bind:this={code} onComplete={submitCode} error={codeError} disabled={busy || locked} />
         {@render messages('main')}
         <div class="actions">
-          <button type="button" onclick={() => go(2)}>Back</button>
+          <button type="button" disabled={busy} onclick={() => !busy && go(2)}>Back</button>
         </div>
       {/if}
     </div>
@@ -379,6 +384,7 @@
               spellcheck="false"
               autocomplete="off"
               autocapitalize="off"
+              autocorrect="off"
             ></textarea>
             {#if truncated}
               <p class="hint">This looks truncated — copy the cookie header again using Copy value.</p>

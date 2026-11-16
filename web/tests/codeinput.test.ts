@@ -42,7 +42,7 @@ describe('CodeInput', () => {
     expect(b).toHaveLength(6);
     b.forEach((el, i) => {
       expect(el.getAttribute('inputmode')).toBe('numeric');
-      expect(el.getAttribute('maxlength')).toBe('1');
+      expect(el.getAttribute('maxlength')).toBe(i === 0 ? '6' : '1');
       expect(el.getAttribute('pattern')).toBe('[0-9]');
       expect(el.getAttribute('aria-label')).toBe(`Digit ${i + 1} of 6`);
       expect(el.getAttribute('autocomplete')).toBe(i === 0 ? 'one-time-code' : 'off');
@@ -151,5 +151,52 @@ describe('CodeInput', () => {
   it('disabled disables every box', () => {
     render(CodeInput, { onComplete: vi.fn(), disabled: true });
     expect(boxes().every((x) => x.disabled)).toBe(true);
+  });
+
+  it('mounting with error > 0 shows a clean state (no stale wrong-code)', async () => {
+    mockMotion(false);
+    render(CodeInput, { onComplete: vi.fn(), error: 1 });
+    await tick();
+    const group = screen.getByRole('group', { name: 'Verification code' });
+    expect(group).not.toHaveClass('shake');
+    expect(group).not.toHaveClass('invalid');
+    expect(group.getAttribute('aria-invalid')).toBe('false');
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('a later error increment after a clean mount still triggers shake and red', async () => {
+    mockMotion(false);
+    const { rerender } = render(CodeInput, { onComplete: vi.fn(), error: 3 });
+    await rerender({ onComplete: vi.fn(), error: 4 });
+    await tick();
+    const group = screen.getByRole('group', { name: 'Verification code' });
+    expect(group).toHaveClass('shake');
+    expect(group).toHaveClass('invalid');
+  });
+
+  it('whole-code autofill into box 0 fills all boxes and fires once', async () => {
+    const onComplete = vi.fn();
+    render(CodeInput, { onComplete });
+    await type(0, '123456');
+    expect(boxes().map((x) => x.value)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(onComplete).toHaveBeenCalledExactlyOnceWith('123456');
+  });
+
+  it('box 0 always shows a single digit after typing over a filled box', async () => {
+    render(CodeInput, { onComplete: vi.fn() });
+    await type(0, '1');
+    expect(boxes()[0]?.value).toBe('1');
+    await type(0, '12'); // old digit plus the new keystroke
+    expect(boxes()[0]?.value).toBe('2');
+    expect(boxes()[1]?.value).toBe('');
+  });
+
+  it('a non-digit typed into a filled box is ignored and the digit stays', async () => {
+    render(CodeInput, { onComplete: vi.fn() });
+    await type(2, '5');
+    await type(2, 'x');
+    expect(boxes()[2]?.value).toBe('5');
+    await type(2, ''); // a real deletion still clears
+    expect(boxes()[2]?.value).toBe('');
   });
 });

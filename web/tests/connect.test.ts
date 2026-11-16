@@ -354,6 +354,154 @@ describe('cookie panel', () => {
   });
 });
 
+describe('fix round 1', () => {
+  const group = () => screen.getByRole('group', { name: 'Verification code' });
+  const expectClean = () => {
+    expect(group()).not.toHaveClass('invalid');
+    expect(group()).not.toHaveClass('shake');
+    expect(group().getAttribute('aria-invalid')).toBe('false');
+    expect(document.querySelector('.status')?.textContent).toBe('');
+  };
+
+  it('wrong code -> Back -> password -> code screen is clean, and a second wrong code still shakes', async () => {
+    verify.mockRejectedValue(new ApiError(401, 'invalid_code'));
+    render(ConnectApple);
+    await toCode();
+    await typeCode('111111');
+    await waitFor(() => expect(group()).toHaveClass('invalid'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByLabelText('Password');
+    await submitPassword();
+    await screen.findByRole('group', { name: 'Verification code' });
+    expectClean();
+    await typeCode('222222');
+    await waitFor(() => expect(group()).toHaveClass('invalid'));
+    expect(group()).toHaveClass('shake');
+  });
+
+  it('wrong code -> flow_expired -> password -> new code screen is clean', async () => {
+    verify
+      .mockRejectedValueOnce(new ApiError(401, 'invalid_code'))
+      .mockRejectedValueOnce(new ApiError(410, 'flow_expired'));
+    render(ConnectApple);
+    await toCode();
+    await typeCode('111111');
+    await waitFor(() => expect(group()).toHaveClass('invalid'));
+    await typeCode('222222');
+    await screen.findByText('That sign-in took too long. Enter your password again.');
+    await submitPassword();
+    await screen.findByRole('group', { name: 'Verification code' });
+    expectClean();
+  });
+
+  async function limitedAtPassword(retryAfter = 3) {
+    login.mockRejectedValue(new ApiError(429, 'rate_limited', { retryAfter }));
+    const r = render(ConnectApple);
+    await fireEvent.input(idField(), { target: { value: 'a@b.c' } });
+    await fireEvent.submit(idField().closest('form') as HTMLFormElement);
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.input(pwField(), { target: { value: 'x' } });
+    await fireEvent.submit(pwField().closest('form') as HTMLFormElement);
+    await vi.advanceTimersByTimeAsync(0);
+    return r;
+  }
+
+  it('rate limit is not bypassed by Back and Continue; polite end message appears once', async () => {
+    vi.useFakeTimers();
+    const { container } = await limitedAtPassword();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    expect(container.querySelector('.countdown')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    await fireEvent.submit(idField().closest('form') as HTMLFormElement);
+    expect(screen.queryByLabelText('Password')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    const said = Array.from(container.querySelectorAll('[role="status"]')).filter(
+      (n) => n.textContent === 'You can try again now.'
+    );
+    expect(said).toHaveLength(1);
+    await fireEvent.submit(idField().closest('form') as HTMLFormElement);
+    await screen.findByLabelText('Password');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('cookie panel close/reopen stays locked; end announcement only in the cookie scope', async () => {
+    vi.useFakeTimers();
+    cookieApi.mockRejectedValue(new ApiError(429, 'too_many_attempts', { retryAfter: 3 }));
+    const { container } = render(ConnectApple);
+    const toggle = screen.getByRole('button', { name: 'Use a cookie instead' });
+    await fireEvent.click(toggle);
+    const ta = screen.getByLabelText(/cookie/i, { selector: 'textarea' });
+    await fireEvent.input(ta, { target: { value: 'a=b' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Connect with cookie' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(container.querySelector('.countdown')).not.toBeNull();
+    await fireEvent.click(toggle);
+    await fireEvent.click(toggle);
+    const ta2 = screen.getByLabelText(/cookie/i, { selector: 'textarea' });
+    await fireEvent.input(ta2, { target: { value: 'c=d' } });
+    expect(screen.getByRole('button', { name: 'Connect with cookie' })).toBeDisabled();
+    expect(container.querySelector('.countdown')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(3000);
+    const said = Array.from(container.querySelectorAll('[role="status"]')).filter(
+      (n) => n.textContent === 'You can try again now.'
+    );
+    expect(said).toHaveLength(1);
+    expect(said[0]?.closest('#connect-cookie-panel')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Connect with cookie' })).toBeEnabled();
+  });
+
+  it('Back is disabled while a login is in flight; a late response lands on the code step', async () => {
+    let resolve: (v: { status: 'needs_2fa'; flow_id: string }) => void = () => {};
+    login.mockReturnValue(new Promise((r) => (resolve = r)));
+    render(ConnectApple);
+    await toPassword();
+    await submitPassword();
+    const back = screen.getByRole('button', { name: 'Back' });
+    expect(back).toBeDisabled();
+    await fireEvent.click(back);
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    resolve({ status: 'needs_2fa', flow_id: 'f' });
+    await screen.findByRole('group', { name: 'Verification code' });
+  });
+
+  it('Back is disabled while a code is being verified', async () => {
+    verify.mockReturnValue(new Promise(() => {}));
+    render(ConnectApple);
+    await toCode();
+    await typeCode('123456');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled());
+  });
+
+  it('typed-but-unsubmitted password is cleared when going Back to the Apple ID step', async () => {
+    render(ConnectApple);
+    await toPassword();
+    await fireEvent.input(pwField(), { target: { value: 'half-typed' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByLabelText('Apple ID');
+    await fireEvent.submit(idField().closest('form') as HTMLFormElement);
+    expect(pwField().value).toBe('');
+  });
+
+  it('cookie text is cleared when the panel is collapsed', async () => {
+    render(ConnectApple);
+    const ta = await openCookie();
+    await fireEvent.input(ta, { target: { value: 'a=b' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Use a cookie instead' }));
+    const again = await openCookie();
+    expect(again.value).toBe('');
+  });
+
+  it('cookie textarea turns autocorrect off', async () => {
+    render(ConnectApple);
+    const ta = await openCookie();
+    expect(ta.getAttribute('autocorrect')).toBe('off');
+  });
+});
+
 describe('source rules', () => {
   const read = (f: string) => readFileSync(resolve(import.meta.dirname, '../src/components', f), 'utf8');
   it('no console calls, innerHTML, or authored style attributes', () => {
