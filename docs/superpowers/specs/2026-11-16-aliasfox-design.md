@@ -192,3 +192,14 @@ Render free instance: filesystem is not durable, so Postgres is required there.
 ## 7. Left to the builder
 Project layout, exact libraries for fuzzy search and Argon2, migration tooling, test strategy,
 CSS and typography within "minimal, dark, fast", Docker base image and multi-stage build.
+
+## 10. Owner additions (2026-11-16, after the cookie spike)
+
+- AliasFox login second factor (plan 3): TOTP and passkeys (WebAuthn), either or both, optional per account; passkey-only login allowed. Separate from Apple's own 2FA.
+- XSS / session-theft hardening (owner concern: a user once read another user's data after a cookie hijack):
+  - Apple sessions never leave the server; the browser only holds AliasFox's own HttpOnly, SameSite=Strict cookie.
+  - Task 9 adds security headers with tests: a CSP forbidding inline and third-party scripts, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on `/api/*`.
+  - UI (plan 2): labels, notes and domains are untrusted text, rendered only as text nodes (no innerHTML; lint rule), no third-party scripts, no inline handlers.
+  - Multi-user (plan 3): the user id comes only from the signed login cookie, never from request input; tests prove user A cannot read or modify user B's session or aliases.
+- A general security audit by a Sonnet subagent (not Opus/Fable, owner's choice) after Task 10, covering the above.
+- Spike results (2026-11-16, see docs/spike-results.md): HME list returns all aliases in one response; dsid, clientBuildNumber and clientId are not required; Apple rotates cookies during a session; list latency 1.2-2.4 s for 411 aliases, so the UI always renders its cache first. Advanced Data Protection is off for the owner's account.
