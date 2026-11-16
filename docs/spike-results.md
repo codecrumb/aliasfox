@@ -5,15 +5,15 @@ Record names, counts, booleans and timings only. No addresses, labels, notes, co
 
 ## Cookie spike (`python scripts/spike.py [env-file] [--no-dsid]`)
 
-- [ ] Works (validate succeeds, list succeeds): 
-- [ ] Alias count / field names / origin values / isActive counts: 
-- [ ] Validate and list timings: 
-- [ ] Set-Cookie rotation changes cookies: 
+- [x] Works (validate succeeds, list succeeds): yes (2026-11-16, cookie pasted from icloud.com)
+- [x] Alias count / field names / origin values / isActive counts: 411 aliases; fields anonymousId, appBundleId, createTimestamp, domain, forwardToEmail, hme, isActive, label, note, origin, originAppName, recipientMailId; origins IN_APP 34, MAIL 21, ON_DEMAND 188, SAFARI 168; active 399, inactive 12
+- [x] Validate and list timings: validate 0.64-0.70s; list 1.16-2.39s for 411 aliases (Apple-side latency: UI must show cached list first)
+- [x] Set-Cookie rotation changes cookies: yes (write-back of rotated cookies is required, not optional)
 - [ ] Session still valid after 1 hour: 
 - [ ] Session still valid after 1 day: 
-- [ ] `dsid` query param required (`--no-dsid`): 
-- [ ] `clientBuildNumber` / `clientId` params required (try without first): 
-- [ ] List paginated (top-level result key names, any cursor/next marker): 
+- [x] `dsid` query param required (`--no-dsid`): no, list works without it
+- [x] `clientBuildNumber` / `clientId` params required (try without first): no, validate and list work without them
+- [x] List paginated (top-level result key names, any cursor/next marker): no; result keys forwardToEmails, hmeEmails, selectedForwardTo; all 411 returned in one response
 - [ ] Advanced Data Protection on for this account: 
 
 ## pyicloud spike (`.venv/bin/python scripts/spike_pyicloud.py`)
