@@ -8,7 +8,7 @@
   --border: #262a33;
   --text: #e8e9ec;
   --muted: #8d93a0;
-  --field-border: #666d7b; /* 3.5:1 on surface, WCAG 1.4.11 */
+  --field-border: #666d7b; /* input outline: 3.5:1 on surface (--border is only 1.26:1); WCAG 1.4.11 */
   --accent: #ff8a3d;
   --accent-contrast: #1a0e05;
   --danger: #ff6b6b;

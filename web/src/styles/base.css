@@ -141,7 +141,10 @@ label {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: var(--space-6) var(--gutter);
+  padding-top: max(var(--space-6), env(safe-area-inset-top));
+  padding-bottom: max(var(--space-6), env(safe-area-inset-bottom));
+  padding-left: max(var(--gutter), env(safe-area-inset-left));
+  padding-right: max(var(--gutter), env(safe-area-inset-right));
 }
 .screen {
   width: 100%;
@@ -155,7 +158,7 @@ label {
   color: var(--muted);
 }
 
-@keyframes -global-aliasfox-pulse {
+@keyframes aliasfox-pulse {
   0%,
   100% {
     opacity: 1;
@@ -180,4 +183,9 @@ label {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Screen containers receive focus programmatically only; no ring on a non-interactive region. */
+[data-screen]:focus {
+  outline: none;
 }

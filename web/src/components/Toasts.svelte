@@ -17,9 +17,9 @@
   .toasts {
     position: fixed;
     z-index: var(--z-toast);
-    left: var(--gutter);
-    right: var(--gutter);
-    bottom: var(--gutter);
+    left: max(var(--gutter), env(safe-area-inset-left));
+    right: max(var(--gutter), env(safe-area-inset-right));
+    bottom: max(var(--gutter), env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     align-items: center;

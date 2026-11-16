@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import type { Writable } from 'svelte/store';
 
 vi.mock('../src/lib/session', async () => {
@@ -85,8 +86,54 @@ describe('App shell', () => {
     expect(s.boot).toHaveBeenCalledTimes(2);
   });
 
-  it('always mounts the toast live region', () => {
+  it('always mounts the toast container', () => {
     const { container } = render(App);
-    expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
+    expect(container.querySelector('.toasts[aria-live="polite"]')).not.toBeNull();
+  });
+
+  it('moves focus to the new screen container when the old one unmounts', async () => {
+    render(App);
+    setState('login');
+    const pw = await screen.findByLabelText('Password');
+    expect(pw).toHaveFocus(); // Login focuses its own input: already inside the screen
+    setState('ready');
+    await screen.findByText('Palette — coming soon');
+    await waitFor(() => {
+      const el = document.activeElement as HTMLElement;
+      expect(el.getAttribute('data-screen')).toBe('ready');
+    });
+  });
+
+  it('focuses the error screen container', async () => {
+    render(App);
+    setState('error', { errorText: 'x' });
+    await screen.findByRole('button', { name: 'Retry' });
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement).getAttribute('data-screen')).toBe('error')
+    );
+  });
+
+  it('does not steal focus when an input inside the new screen has it', async () => {
+    render(App);
+    setState('login');
+    const pw = await screen.findByLabelText('Password');
+    await tick();
+    expect(pw).toHaveFocus();
+    expect(document.activeElement?.getAttribute('data-screen')).toBeNull();
+  });
+
+  it('does not steal focus from elsewhere (e.g. an open dialog)', async () => {
+    render(App);
+    const dlg = document.createElement('div');
+    dlg.setAttribute('role', 'dialog');
+    const btn = document.createElement('button');
+    dlg.appendChild(btn);
+    document.body.appendChild(dlg);
+    btn.focus();
+    setState('ready');
+    await screen.findByText('Palette — coming soon');
+    await tick();
+    expect(btn).toHaveFocus();
+    dlg.remove();
   });
 });
