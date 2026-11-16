@@ -92,3 +92,24 @@ def test_derive_cache_key_unit():
     assert k == derive_key(SECRET, info=b"aliasfox-cache-v1|1|0")
     # delimiter prevents (1, 10) colliding with (11, 0)
     assert derive_cache_key(SECRET, 1, 10) != derive_cache_key(SECRET, 11, 0)
+
+
+def test_session_uses_epoch_validated_by_current_user(tmp_path, pw_hash):
+    c = authed(tmp_path, pw_hash)
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, user_id):
+            self.calls += 1
+            return 0 if self.calls == 1 else 99
+
+        def bump(self, user_id):  # pragma: no cover
+            raise AssertionError
+
+    c.app.state.epochs = store = Flaky()
+    r = c.get("/api/session")
+    assert r.status_code == 200
+    assert decode(r.json()["cache_key"]) == derive_cache_key(SECRET, 1, 0)
+    assert store.calls == 1

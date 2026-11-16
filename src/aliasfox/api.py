@@ -134,7 +134,7 @@ def build_router(
     def session(request: Request, user_id: User):
         if not settings.secret_key:
             raise HTTPException(status_code=500, detail="internal_error")
-        epoch = request.app.state.epochs.get(user_id) or 0
+        epoch = request.state.session_epoch  # the one current_user validated
         key = derive_cache_key(settings.secret_key, user_id, epoch)
         return {
             "cache_key": base64.urlsafe_b64encode(key).rstrip(b"=").decode(),

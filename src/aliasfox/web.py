@@ -7,15 +7,16 @@ their JSON 404."""
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from starlette.convertors import Convertor, register_url_convertor
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 DEFAULT_DIST = Path(__file__).parent / "static"
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
-RESERVED = ("api", "healthz")
+RESERVED = ("api", "healthz", "assets")
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -28,9 +29,20 @@ class ImmutableStaticFiles(StaticFiles):
         return response
 
 
-def _reserved(path: str) -> bool:
-    first = path.lstrip("/").split("/", 1)[0]
-    return first in RESERVED
+class _SpaPathConvertor(Convertor):
+    """Like `path`, but never matches the reserved prefixes: those requests fall
+    through to the real routes (native 404/405) instead of being swallowed."""
+
+    regex = r"(?!(?:" + "|".join(RESERVED) + r")(?:/|$)).*"
+
+    def convert(self, value: str) -> str:
+        return str(value)
+
+    def to_string(self, value: str) -> str:
+        return str(value)
+
+
+register_url_convertor("spa_path", _SpaPathConvertor())
 
 
 def _safe_file(root: Path, rel: str) -> Path | None:
@@ -64,13 +76,11 @@ def install_web(app: FastAPI, dist_dir: Path | None = None) -> None:
         app.mount("/assets", ImmutableStaticFiles(directory=assets), name="assets")
 
     @app.api_route(
-        "/{full_path:path}",
-        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        "/{full_path:spa_path}",
+        methods=["GET", "HEAD"],
         include_in_schema=False,
     )
-    def spa(full_path: str, request: Request):
-        if request.method not in ("GET", "HEAD") or _reserved(full_path):
-            raise HTTPException(status_code=404)
+    def spa(full_path: str):
         target = _safe_file(root, full_path)
         return FileResponse(
             target or index, headers={"Cache-Control": NO_CACHE}

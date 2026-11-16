@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 
 import aliasfox.main as main_mod
 from aliasfox.config import Settings
-from aliasfox.web import install_web
 
 SECRET = "web-test-secret-key-0123456789abcdef"
 INDEX = "<!doctype html><html><body><div id=root></div></body></html>"
@@ -22,8 +21,7 @@ def dist(tmp_path):
 
 def make_client(tmp_path, dist_dir, **settings_kw):
     settings = Settings(secret_key=SECRET, data_dir=tmp_path / "data", **settings_kw)
-    app = main_mod.create_app(settings)
-    install_web(app, dist_dir)
+    app = main_mod.create_app(settings, dist_dir=dist_dir)
     return TestClient(app, base_url="http://localhost")
 
 
@@ -155,3 +153,58 @@ def test_bad_host_still_applies_to_html_when_auth_off(tmp_path, dist):
     r = c.get("/", headers={"host": "evil.example"})
     assert r.status_code == 403 and r.json() == {"detail": "bad_host"}
     assert c.get("/healthz", headers={"host": "evil.example"}).status_code == 200
+
+
+def test_wrong_methods_keep_native_404_405(tmp_path, dist):
+    c = make_client(tmp_path, dist)
+    assert c.post("/healthz").status_code == 405
+    assert c.get("/api/auth/login").status_code == 405
+    assert c.head("/api/aliases").status_code == 409
+    r = c.post("/api/nope")
+    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
+    r = c.post("/")
+    assert r.status_code == 405 and INDEX not in r.text
+
+
+def test_assets_prefix_is_reserved(tmp_path, dist):
+    c = make_client(tmp_path, dist)
+    for path in ("/assets", "/assets/nope.js"):
+        r = c.get(path)
+        assert r.status_code == 404 and INDEX not in r.text
+    d = tmp_path / "noassets"
+    d.mkdir()
+    (d / "index.html").write_text(INDEX)
+    c = make_client(tmp_path, d)
+    for path in ("/assets", "/assets/nope.js"):
+        r = c.get(path)
+        assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
+    assert c.get("/").text == INDEX
+
+
+def test_create_app_dist_dir_param_and_env_do_not_touch_default(tmp_path, dist, monkeypatch):
+    import aliasfox.web as web_mod
+
+    fake_default = tmp_path / "default"
+    fake_default.mkdir()
+    (fake_default / "index.html").write_text("DEFAULT")
+    monkeypatch.setattr(web_mod, "DEFAULT_DIST", fake_default)
+    # env wins over the default location
+    monkeypatch.setenv("WEB_DIST_DIR", str(dist))
+    settings = Settings(secret_key=SECRET, data_dir=tmp_path / "data")
+    c = TestClient(main_mod.create_app(settings), base_url="http://localhost")
+    assert c.get("/").text == INDEX
+    # explicit dist_dir wins over env
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "index.html").write_text("OTHER")
+    c = TestClient(main_mod.create_app(settings, dist_dir=other), base_url="http://localhost")
+    assert c.get("/").text == "OTHER"
+    assert (fake_default / "index.html").read_text() == "DEFAULT"
+
+
+def test_suite_is_hermetic_about_real_static_dir(tmp_path):
+    c = TestClient(
+        main_mod.create_app(Settings(secret_key=SECRET, data_dir=tmp_path / "d")),
+        base_url="http://localhost",
+    )
+    assert c.get("/").status_code == 404

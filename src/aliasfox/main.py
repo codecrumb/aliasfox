@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -64,6 +65,7 @@ def create_app(
     service: AliasService | None = None,
     store: SessionStore | None = None,
     login_flow: LoginFlow | None = None,
+    dist_dir: Path | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     validate_startup(settings)
@@ -91,7 +93,7 @@ def create_app(
 
     app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
-    install_web(app)  # after the API router: its catch-all must not shadow /api
+    install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
     # add_middleware: last added is outermost.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(BodyLimitMiddleware)
