@@ -1,0 +1,19 @@
+services:
+  aliasfox:
+    build: .
+    env_file: .env
+    ports:
+      # Loopback only. Do not change to "8080:8080" without enabling auth (below).
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    environment:
+      # Inside Docker the process must bind 0.0.0.0 to be reachable through the
+      # published port, which would normally trip the "no public bind without auth"
+      # guard. This override is safe ONLY because the port above is published on
+      # 127.0.0.1, so only this machine can reach it.
+      # For a public deployment: remove this line, set AUTH_ENABLED=true and
+      # ALIASFOX_PASSWORD_HASH in .env, and put a TLS-terminating reverse proxy
+      # in front (and set TRUSTED_PROXY=true only if that proxy sets X-Forwarded-For).
+      ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK: "true"
