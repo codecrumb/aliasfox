@@ -313,3 +313,13 @@ async def test_close_failure_does_not_break_success(store, tracker):
 async def test_is_connected(svc):
     assert await svc.is_connected(1) is True
     assert await svc.is_connected(99) is False
+
+
+async def test_forget_drops_list_cache_only_for_that_user():
+    from aliasfox.service import AliasService
+
+    svc = AliasService(object())
+    svc._cache[1] = (0.0, [])
+    svc._cache[2] = (0.0, [])
+    await svc.forget(1)
+    assert 1 not in svc._cache and 2 in svc._cache

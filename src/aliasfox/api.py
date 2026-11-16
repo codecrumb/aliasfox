@@ -6,11 +6,27 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+from aliasfox.apple.connect import InvalidCookie, connect_with_cookie
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
-from aliasfox.auth import current_user
+from aliasfox.apple.login import (
+    AppleLoginFailed,
+    FlowExpired,
+    InvalidCode,
+    LoginFlow,
+    TooManyFlows,
+)
+from aliasfox.auth import client_ip, current_user, limiter_key
+from aliasfox.ratelimit import RateLimiter
 from aliasfox.service import AliasService, NotConnected
 from aliasfox.sessions import SessionStore
+
+APPLE_WINDOW_SECONDS = 15 * 60
+LOGIN_PER_IP = 5
+LOGIN_GLOBAL = 15
+VERIFY_PER_IP = 10
+HME_MESSAGE_MAX = 200
 
 AliasId = Annotated[str, Path(min_length=1, max_length=128)]
 
@@ -34,6 +50,29 @@ class ForwardBody(BaseModel):
     address: str = Field(min_length=1, max_length=320)
 
 
+class CookieBody(BaseModel):
+    cookie: str = Field(max_length=16384)
+
+
+class AppleLoginBody(BaseModel):
+    apple_id: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+    china: bool = False
+
+
+class VerifyBody(BaseModel):
+    flow_id: str = Field(min_length=1, max_length=128)
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+def _rate_limited(retry_after: int) -> JSONResponse:
+    return JSONResponse(
+        {"detail": "rate_limited"},
+        status_code=429,
+        headers={"Retry-After": str(max(1, retry_after))},
+    )
+
+
 def alias_json(a: Alias) -> dict:
     return {
         "anonymous_id": a.anonymous_id,
@@ -50,8 +89,24 @@ def alias_json(a: Alias) -> dict:
     }
 
 
-def build_router(service: AliasService, store: SessionStore | None, settings) -> APIRouter:
-    # `store` is unused here; Task 9b's connect routes use it.
+def build_router(
+    service: AliasService,
+    store: SessionStore | None,
+    settings,
+    login_flow: LoginFlow | None = None,
+) -> APIRouter:
+    if store is None:
+        raise RuntimeError("the connect routes need a SessionStore")
+    login_flow = login_flow or LoginFlow()
+    login_ip = RateLimiter(LOGIN_PER_IP, APPLE_WINDOW_SECONDS)
+    login_global = RateLimiter(LOGIN_GLOBAL, APPLE_WINDOW_SECONDS)
+    verify_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
+    cookie_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
+    global_key = "global"
+
+    def key_of(request: Request) -> str:
+        return limiter_key(client_ip(request, trusted_proxy=settings.trusted_proxy))
+
     router = APIRouter(prefix="/api")
     User = Annotated[int, Depends(current_user)]
 
@@ -95,6 +150,69 @@ def build_router(service: AliasService, store: SessionStore | None, settings) ->
             "auth_enabled": settings.auth_enabled,
         }
 
+    # --- Apple connect -------------------------------------------------------
+    # Limiter slots are reserved BEFORE touching Apple and are NOT given back on
+    # failure (each attempt can push a 2FA prompt and failures can lock the
+    # account). They are released only if the attempt never reached Apple.
+
+    async def _save(user_id: int, state) -> None:
+        await run_in_threadpool(store.save, user_id, state)
+        await service.forget(user_id)
+
+    @router.post("/connect/cookie")
+    async def connect_cookie(body: CookieBody, request: Request, user_id: User):
+        key = key_of(request)
+        if not cookie_ip.hit(key):
+            return _rate_limited(cookie_ip.retry_after(key))
+        try:
+            state = await run_in_threadpool(connect_with_cookie, body.cookie)
+        except InvalidCookie as exc:
+            return JSONResponse(
+                {"detail": "invalid_cookie", "message": str(exc)}, status_code=400
+            )
+        await _save(user_id, state)
+        return {"status": "ok"}
+
+    @router.post("/connect/login")
+    async def connect_login(body: AppleLoginBody, request: Request, user_id: User):
+        key = key_of(request)
+        if not login_ip.hit(key):
+            return _rate_limited(login_ip.retry_after(key))
+        if not login_global.hit(global_key):
+            login_ip.release(key)
+            return _rate_limited(login_global.retry_after(global_key))
+        try:
+            result = await run_in_threadpool(
+                login_flow.start,
+                user_id,
+                body.apple_id,
+                body.password,
+                china=body.china,
+            )
+        except TooManyFlows:
+            login_ip.release(key)  # never reached Apple
+            login_global.release(global_key)
+            raise
+        if result.status == "ok":
+            await _save(user_id, result.state)
+            return {"status": "ok"}
+        return {"status": "needs_2fa", "flow_id": result.flow_id}
+
+    @router.post("/connect/verify")
+    async def connect_verify(body: VerifyBody, request: Request, user_id: User):
+        key = key_of(request)
+        if not verify_ip.hit(key):
+            return _rate_limited(verify_ip.retry_after(key))
+        state = await run_in_threadpool(login_flow.verify, user_id, body.flow_id, body.code)
+        await _save(user_id, state)
+        return {"status": "ok"}
+
+    @router.delete("/connect")
+    async def disconnect(user_id: User):
+        await run_in_threadpool(store.delete, user_id)
+        await service.forget(user_id)
+        return {"status": "disconnected"}
+
     return router
 
 
@@ -113,3 +231,19 @@ def install_error_handlers(app: FastAPI) -> None:
             {"detail": "apple_error", "code": exc.code, "message": exc.message},
             status_code=502,
         )
+
+    @app.exception_handler(AppleLoginFailed)
+    async def apple_login_failed(request: Request, exc: AppleLoginFailed):
+        return JSONResponse({"detail": "apple_login_failed"}, status_code=401)
+
+    @app.exception_handler(InvalidCode)
+    async def invalid_code(request: Request, exc: InvalidCode):
+        return JSONResponse({"detail": "invalid_code"}, status_code=401)
+
+    @app.exception_handler(FlowExpired)
+    async def flow_expired(request: Request, exc: FlowExpired):
+        return JSONResponse({"detail": "flow_expired"}, status_code=410)
+
+    @app.exception_handler(TooManyFlows)
+    async def too_many_flows(request: Request, exc: TooManyFlows):
+        return JSONResponse({"detail": "too_many_attempts"}, status_code=429)

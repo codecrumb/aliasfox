@@ -85,6 +85,11 @@ class AliasService:
 
         return await run_in_threadpool(work)
 
+    async def forget(self, user_id: int) -> None:
+        """Drop the user's cached alias list (after connect/disconnect)."""
+        async with self._lock(user_id):
+            self._cache.pop(user_id, None)
+
     async def _mutate(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
         result = await self._run(user_id, call)
         self._cache.pop(user_id, None)

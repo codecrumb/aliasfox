@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 
 from aliasfox.api import build_router, install_error_handlers
+from aliasfox.apple.login import LoginFlow
 from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.crypto import derive_key
@@ -39,6 +40,7 @@ def create_app(
     *,
     service: AliasService | None = None,
     store: SessionStore | None = None,
+    login_flow: LoginFlow | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     validate_startup(settings)
@@ -54,7 +56,7 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(build_router(service, store, settings))
+    app.include_router(build_router(service, store, settings, login_flow or LoginFlow()))
     install_error_handlers(app)
     install_security_headers(app)
     return app

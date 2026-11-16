@@ -6,7 +6,9 @@ from aliasfox.auth import COOKIE_NAME
 from aliasfox.config import Settings
 from aliasfox.crypto import hash_password
 from aliasfox.main import create_app
+from aliasfox.db import init_db
 from aliasfox.service import NotConnected
+from aliasfox.sessions import SessionStore
 
 SECRET = "unit-test-secret-key"
 COOKIE_TEXT = "X-APPLE-WEBAUTH-USER=SUPERSECRETCOOKIE"
@@ -20,6 +22,17 @@ ALIAS = Alias(
     raw={"originAppName": "Safari", "appBundleId": "com.apple.mobilesafari"},
 )
 BARE = Alias("id2", "b@icloud.com", "", "", False, "", "", "", None)
+
+
+def memory_store():
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    eng = create_engine(
+        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
+    init_db(eng)
+    return SessionStore(eng, b"k" * 32)
 
 
 class FakeService:
@@ -69,7 +82,9 @@ def svc():
 
 def make_client(svc, **kw):
     settings = Settings(secret_key=SECRET, **kw)
-    return TestClient(create_app(settings, service=svc), base_url="http://localhost")
+    return TestClient(
+        create_app(settings, service=svc, store=memory_store()), base_url="http://localhost"
+    )
 
 
 @pytest.fixture
@@ -234,7 +249,9 @@ def auth_client(svc):
     settings = Settings(
         secret_key=SECRET, auth_enabled=True, password_hash=hash_password("pw-pw-pw")
     )
-    return TestClient(create_app(settings, service=svc), base_url="http://localhost")
+    return TestClient(
+        create_app(settings, service=svc, store=memory_store()), base_url="http://localhost"
+    )
 
 
 @pytest.mark.parametrize("method,path,body", ALL_ROUTES)
