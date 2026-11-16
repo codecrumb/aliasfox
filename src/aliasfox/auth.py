@@ -1,4 +1,5 @@
 import ipaddress
+import threading
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -14,7 +15,8 @@ COOKIE_NAME = "aliasfox_session"
 COOKIE_MAX_AGE = 7 * 24 * 3600
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 15 * 60
-GLOBAL_MAX_FAILURES = 30
+LOGIN_CONCURRENCY = 2  # Argon2 uses 64 MiB each: bound the memory an anonymous caller can pin
+LOGIN_SLOT_WAIT_SECONDS = 5
 LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "[::1]"}
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 GUARD_EXEMPT_PATHS = {"/healthz"}
@@ -104,11 +106,10 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
     _serializer(settings)  # fail fast: no fallback signing key
     app.state.settings = settings
     app.state.login_limiter = limiter = RateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
-    # Global failed-login budget across all IPs. Trade-off: an attacker can
-    # exhaust it and block NEW logins for up to 15 minutes, but cannot log in;
-    # existing signed session cookies keep working.
-    global_limiter = RateLimiter(GLOBAL_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
-    global_key = "global"
+    # Process-wide bound on concurrent password verifications. There is
+    # deliberately NO global failure lockout: a few attacker IPs could keep the
+    # owner out forever. The per-IP limiter plus this bound cap the damage.
+    verify_slots = threading.BoundedSemaphore(LOGIN_CONCURRENCY)
 
     @app.middleware("http")
     async def request_guards(request: Request, call_next):
@@ -132,14 +133,21 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
         # so only failures stay counted (and concurrent guesses cannot race past).
         if not limiter.hit(ip):
             return _throttled(limiter.retry_after(ip))
-        if not global_limiter.hit(global_key):
-            limiter.release(ip)
-            return _throttled(global_limiter.retry_after(global_key))
         stored = settings.password_hash
-        if not settings.auth_enabled or not stored or not verify_password(stored, body.password):
+        if not settings.auth_enabled or not stored:
+            return JSONResponse({"detail": "invalid_credentials"}, status_code=401)
+        if not verify_slots.acquire(timeout=LOGIN_SLOT_WAIT_SECONDS):
+            limiter.release(ip)  # never verified: not a failed guess
+            return JSONResponse(
+                {"detail": "busy"}, status_code=429, headers={"Retry-After": "5"}
+            )
+        try:
+            ok = verify_password(stored, body.password)
+        finally:
+            verify_slots.release()
+        if not ok:
             return JSONResponse({"detail": "invalid_credentials"}, status_code=401)
         limiter.release(ip)
-        global_limiter.release(global_key)
         response.set_cookie(
             COOKIE_NAME,
             _serializer(settings).dumps({"u": USER_ID}),

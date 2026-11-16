@@ -362,24 +362,97 @@ def test_ipv6_clients_keyed_by_slash_64(pw_hash):
     assert r.status_code == 401
 
 
-def test_global_failure_limit_blocks_new_logins_not_sessions(pw_hash):
-    c = client(build(pw_hash, trusted_proxy=True))
-    assert login(c, headers={"X-Forwarded-For": "5.5.5.5"}).status_code == 200
-    for i in range(30):
-        h = {"X-Forwarded-For": f"10.0.{i // 200}.{i % 200 + 1}"}
-        assert login(client(c.app), "bad", headers=h).status_code == 401
-    other = client(c.app)
-    r = login(other, PASSWORD, headers={"X-Forwarded-For": "11.1.1.1"})
-    assert r.status_code == 429
-    assert int(r.headers["retry-after"]) > 0
-    # the existing session keeps working
-    assert c.get("/api/protected").status_code == 200
+def _fresh_ip_headers(i):
+    return {"X-Forwarded-For": f"10.{i // 250}.{(i // 25) % 10}.{i % 25 + 1}"}
 
 
-def test_successful_login_releases_global_slot(pw_hash):
-    c = client(build(pw_hash))
-    for _ in range(40):
-        assert login(c).status_code == 200
+def test_no_global_failure_lockout_many_ips_never_block_owner(pw_hash):
+    app = build(pw_hash, trusted_proxy=True)
+    barrier = threading.Barrier(12)
+
+    def attempt(i):
+        barrier.wait()
+        return login(client(app), "bad", headers=_fresh_ip_headers(i)).status_code
+
+    with ThreadPoolExecutor(12) as ex:
+        codes = list(ex.map(attempt, range(12)))
+    assert set(codes) <= {401, 429}
+    # 60 more failures from distinct IPs: no global budget exists to exhaust
+    for i in range(100, 160):
+        assert login(client(app), "bad", headers=_fresh_ip_headers(i)).status_code == 401
+    r = login(client(app), PASSWORD, headers={"X-Forwarded-For": "11.1.1.1"})
+    assert r.status_code == 200
+
+
+def test_no_global_limiter_left_in_auth_module():
+    import aliasfox.auth as auth
+
+    assert not hasattr(auth, "GLOBAL_MAX_FAILURES")
+
+
+def test_password_verification_concurrency_capped_at_two(pw_hash, monkeypatch):
+    import aliasfox.auth as auth
+
+    lock = threading.Lock()
+    state = {"now": 0, "max": 0, "calls": 0}
+
+    def slow_verify(h, p):
+        with lock:
+            state["now"] += 1
+            state["calls"] += 1
+            state["max"] = max(state["max"], state["now"])
+        time.sleep(0.15)
+        with lock:
+            state["now"] -= 1
+        return False
+
+    monkeypatch.setattr(auth, "verify_password", slow_verify)
+    app = build(pw_hash, trusted_proxy=True)
+    barrier = threading.Barrier(8)
+
+    def attempt(i):
+        barrier.wait()
+        return login(client(app), "bad", headers=_fresh_ip_headers(i)).status_code
+
+    with ThreadPoolExecutor(8) as ex:
+        codes = list(ex.map(attempt, range(8)))
+    assert state["max"] == 2
+    assert state["calls"] == 8
+    assert codes == [401] * 8
+
+
+def test_busy_returns_429_after_wait_and_does_not_burn_ip_budget(pw_hash, monkeypatch):
+    import aliasfox.auth as auth
+
+    release = threading.Event()
+    entered = threading.Semaphore(0)
+
+    def blocking_verify(h, p):
+        entered.release()
+        release.wait(10)
+        return False
+
+    monkeypatch.setattr(auth, "verify_password", blocking_verify)
+    monkeypatch.setattr(auth, "LOGIN_SLOT_WAIT_SECONDS", 0.2)
+    assert auth.LOGIN_CONCURRENCY == 2
+    app = build(pw_hash, trusted_proxy=True)
+    with ThreadPoolExecutor(2) as ex:
+        futs = [
+            ex.submit(lambda i=i: login(client(app), "bad", headers=_fresh_ip_headers(i)))
+            for i in range(2)
+        ]
+        entered.acquire(timeout=5)
+        entered.acquire(timeout=5)
+        same_ip = {"X-Forwarded-For": "99.9.9.9"}
+        for _ in range(8):  # busy responses must not consume the IP failure budget
+            r = login(client(app), "bad", headers=same_ip)
+            assert r.status_code == 429
+            assert r.json() == {"detail": "busy"}
+            assert r.headers["retry-after"] == "5"
+        release.set()
+        assert [f.result().status_code for f in futs] == [401, 401]
+    monkeypatch.setattr(auth, "verify_password", lambda h, p: False)
+    assert login(client(app), "bad", headers=same_ip).status_code == 401
 
 
 def test_password_max_length(pw_hash):
