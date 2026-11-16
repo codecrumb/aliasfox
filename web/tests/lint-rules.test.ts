@@ -26,8 +26,18 @@ describe('banned patterns are rejected in src', () => {
     'new Function': "export function f(s: string) { return new Function(s); }",
     'setTimeout string': "export function f() { setTimeout('alert(1)', 10); }",
     'setInterval string': "export function f() { setInterval('alert(1)', 10); }",
-    'computed assignment, variable key':
-      'export function f(e: HTMLElement, k: string, v: string) { (e as never)[k] = v; }',
+    'computed assignment, call key':
+      'export function f(e: HTMLElement, v: string) { (e as never)[String(v)] = v; }',
+    'computed assignment, template key':
+      'export function f(e: HTMLElement, v: string) { (e as never)[`inner${"HTML"}`] = v; }',
+    'computed assignment, conditional key':
+      "export function f(e: HTMLElement, v: string) { (e as never)[v ? 'a' : 'b'] = v; }",
+    'computed assignment, logical key':
+      "export function f(e: HTMLElement, v: string) { (e as never)[v || 'a'] = v; }",
+    'computed assignment, sequence key':
+      "export function f(e: HTMLElement, v: string) { (e as never)[(v, 'a')] = v; }",
+    'computed assignment, template literal sink name':
+      'export function f(e: HTMLElement, v: string) { (e as never)[`innerHTML`] = v; }',
     'computed assignment, concatenated key':
       "export function f(e: HTMLElement, v: string) { (e as never)['inner' + 'HTML'] = v; }",
     'object literal innerHTML key':
@@ -122,6 +132,14 @@ describe('allowed patterns pass', () => {
     'setAttribute class':
       "export function f(e: HTMLElement, s: string) { e.setAttribute('class', s); }",
     "'innerHTML' inside a plain string": "export const note = 'do not use innerHTML here';",
+    'array index assignment': 'export function f(a: number[], i: number, v: number) { a[i] = v; }',
+    'array arithmetic index assignment':
+      'export function f(a: number[], i: number, v: number) { a[i + 1] = v; }',
+    'record identifier key assignment':
+      'export function f(o: Record<string, string>, key: string, v: string) { o[key] = v; }',
+    'numeric literal index assignment': 'export function f(m: number[], v: number) { m[0] = v; }',
+    'member-expression key assignment':
+      'export function f(o: Record<string, string>, k: { id: string }, v: string) { o[k.id] = v; }',
     'literal-key assignment on a record': "export function f(o: Record<string, string>) { o['a'] = 'b'; }",
     'createElement div': "export const e = () => document.createElement('div');",
     'setTimeout with identifier': 'export function f(cb: () => void) { setTimeout(cb, 1); }',

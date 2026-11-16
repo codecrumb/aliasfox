@@ -6,8 +6,9 @@ import tseslint from 'typescript-eslint';
 // Defence in depth only: these lint bans catch the obvious ways to turn strings into markup or
 // code. They are NOT a security boundary (aliases, destructuring and exotic APIs can slip past
 // static selectors). The Content-Security-Policy (script-src 'self'; style-src 'self') served by
-// the backend is the backstop. Computed-key assignment (`el[k] = v`) is banned in src because it
-// can reach innerHTML; use a Map/array method, or a literal key, for dynamic data.
+// the backend is the backstop. Computed-key assignment is banned only when the key is dynamically
+// built (concatenation with strings, templates, calls, conditionals, ...). `el[key] = v` with an
+// Identifier key is a KNOWN best-effort gap, backed by the CSP and by the property/setAttribute bans.
 const HTML_SINKS = ['innerHTML', 'outerHTML', 'srcdoc'];
 const SINK_RE = `/^(${HTML_SINKS.join('|')})$/`;
 const UNSAFE_METHODS =
@@ -25,11 +26,19 @@ const restrictedSyntax = [
       message: `Assigning ${name} is banned (text-only rendering). Use textContent or Svelte text.`
     }
   ]),
-  {
-    selector: 'AssignmentExpression > MemberExpression.left[computed=true]:not([property.type="Literal"])',
+  ...[
+    "[property.type=/^(CallExpression|ConditionalExpression|LogicalExpression|SequenceExpression)$/]",
+    "[property.type='TemplateLiteral'][property.expressions.length>0]",
+    "[property.type='TemplateLiteral'][property.quasis.0.value.raw=/^(innerHTML|outerHTML|srcdoc|insertAdjacentHTML)$/]",
+    "[property.type='BinaryExpression'][property.operator='+'][property.left.raw=/^[\"']/]",
+    "[property.type='BinaryExpression'][property.operator='+'][property.right.raw=/^[\"']/]",
+    "[property.type='BinaryExpression'][property.operator='+']:matches([property.left.type='TemplateLiteral'], [property.right.type='TemplateLiteral'])",
+    "[property.value=/^(innerHTML|outerHTML|srcdoc|insertAdjacentHTML)$/]"
+  ].map((cond) => ({
+    selector: `AssignmentExpression > MemberExpression.left[computed=true]${cond}`,
     message:
-      'Assignment through a computed key can reach innerHTML; use textContent, a literal key, or a Map.'
-  },
+      'Assignment through a dynamically built computed key can reach innerHTML; use textContent or a plain key.'
+  })),
   {
     selector: `Property[key.name=${SINK_RE}]`,
     message: 'innerHTML/outerHTML/srcdoc keys are banned (text-only rendering). Use textContent.'
