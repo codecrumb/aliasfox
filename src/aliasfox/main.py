@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from aliasfox.api import build_router, install_error_handlers
 from aliasfox.auth import install_auth
@@ -7,6 +7,31 @@ from aliasfox.crypto import derive_key
 from aliasfox.db import init_db, make_engine
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
+
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+}
+
+
+def install_security_headers(app: FastAPI) -> None:
+    """Add last so it is the OUTERMOST middleware: the Host/Origin guards still run
+    before any route, but their 403 responses pass back through here."""
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def create_app(
@@ -31,4 +56,5 @@ def create_app(
 
     app.include_router(build_router(service, store, settings))
     install_error_handlers(app)
+    install_security_headers(app)
     return app
