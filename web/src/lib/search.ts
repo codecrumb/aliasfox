@@ -52,7 +52,7 @@ function scan(index: Index, terms: string[]): Alias[] {
   const out: Alias[] = [];
   const { haystack, aliases } = index;
   for (let i = 0; i < haystack.length; i++) {
-    const h = haystack[i];
+    const h = haystack[i] ?? '';
     let ok = true;
     for (const t of terms) {
       if (!h.includes(t)) {
@@ -60,7 +60,8 @@ function scan(index: Index, terms: string[]): Alias[] {
         break;
       }
     }
-    if (ok) out.push(aliases[i]);
+    const a = aliases[i];
+    if (ok && a !== undefined) out.push(a);
   }
   return out;
 }
@@ -73,6 +74,15 @@ function fuzzyEligible(needle: string, terms: string[]): boolean {
   return !terms.some((t) => t.startsWith('-') || t.startsWith('^') || t.startsWith('!'));
 }
 
+function pick(index: Index, idxs: number[]): Alias[] {
+  const out: Alias[] = [];
+  for (const i of idxs) {
+    const a = index.aliases[i];
+    if (a !== undefined) out.push(a);
+  }
+  return out;
+}
+
 export function query(index: Index, text: string): Alias[] {
   const needle = normalize(String(text)).slice(0, MAX_NEEDLE).trim();
   if (needle === '') return index.newestFirst.slice();
@@ -81,8 +91,8 @@ export function query(index: Index, text: string): Alias[] {
   try {
     const [idxs, info, order] = index.fuzzy.search(index.haystack, needle, MAX_FUZZY_TERMS, INFO_THRESH);
     if (idxs === null) return scan(index, terms);
-    if (info !== null && order !== null) return order.map((o) => index.aliases[info.idx[o]]);
-    return idxs.map((i) => index.aliases[i]);
+    if (info !== null && order !== null) return pick(index, order.map((o) => info.idx[o] ?? -1));
+    return pick(index, idxs);
   } catch {
     return scan(index, terms);
   }

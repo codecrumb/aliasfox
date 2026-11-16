@@ -104,7 +104,7 @@ describe('crypto', () => {
     await expect(decryptJson(a, new Uint8Array(5))).rejects.toThrow();
     await expect(decryptJson(b, blob)).rejects.toThrow();
     const t = blob.slice();
-    t[t.length - 20] ^= 1;
+    t[t.length - 20] = (t[t.length - 20] ?? 0) ^ 1;
     await expect(decryptJson(a, t)).rejects.toThrow();
     // same key, different AAD
     const raw = await crypto.subtle.importKey('raw', new Uint8Array(32).fill(7), 'AES-GCM', false, [
@@ -155,7 +155,7 @@ describe('cache', () => {
     await cache.save(key, [alias(1)]);
     const rec = (await rawRecord()) as { v: number; blob: Uint8Array };
     const blob = new Uint8Array(rec.blob);
-    blob[blob.length - 5] ^= 0xff;
+    blob[blob.length - 5] = (blob[blob.length - 5] ?? 0) ^ 0xff;
     await putRaw({ v: 1, blob });
     expect(await cache.load(key)).toBeNull();
     expect(await rawRecord()).toBeUndefined();

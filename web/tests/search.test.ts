@@ -95,7 +95,7 @@ describe('search', () => {
     const idx = buildIndex(list);
     expect(list).toEqual(copy);
     for (let i = 0; i < hostile.length; i++) {
-      const needle = hostile[i].slice(0, 50);
+      const needle = (hostile[i] ?? '').slice(0, 50);
       const r = query(idx, needle);
       expect(r.some((a) => a === list[i])).toBe(true);
     }
