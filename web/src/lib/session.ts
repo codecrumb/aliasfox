@@ -84,7 +84,9 @@ async function boot(): Promise<void> {
 }
 
 async function login(password: string): Promise<void> {
+  const g = gen;
   await api.login(password);
+  if (g !== gen) return;
   await boot();
 }
 

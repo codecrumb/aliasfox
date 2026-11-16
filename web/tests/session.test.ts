@@ -147,6 +147,33 @@ describe('sessionStore', () => {
     expect(get(store).state).toBe('ready');
   });
 
+  it('logout during in-flight login ends logged out', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let authed = false;
+    route({
+      'GET /api/session': () =>
+        authed ? json(SESSION) : json({ detail: 'not_authenticated' }, 401),
+      'GET /api/status': () => json({ connected: true, mode: 'live', auth_enabled: true }),
+      'POST /api/auth/login': async () => {
+        await gate;
+        authed = true;
+        return json({ ok: true });
+      },
+      'POST /api/auth/logout': () => json({ ok: true })
+    });
+    const { store } = await fresh();
+    await store.boot();
+    const p = store.login('pw');
+    await store.logout();
+    release();
+    await p;
+    expect(get(store).state).toBe('login');
+    expect(get(store).cacheKey).toBeNull();
+  });
+
   it('login failure rejects and leaves state at login', async () => {
     route({
       'GET /api/session': () => json({ detail: 'not_authenticated' }, 401),
