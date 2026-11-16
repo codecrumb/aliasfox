@@ -218,6 +218,92 @@ def test_request_2fa_failure_is_non_fatal():
     assert f.verify(1, res.flow_id, "123456")
 
 
+def test_hsa2_account_has_both_flags_and_proceeds_to_2fa():
+    # pyicloud 2026.11.2: requires_2sa is also True for HSA2 accounts
+    f, fac = flow(make_factory(requires_2fa=True, requires_2sa=True))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    assert res.status == "needs_2fa"
+    assert fac.cls.instances[0].requested
+    assert f.verify(1, res.flow_id, "123456").dsid == "999"
+    assert not os.path.exists(fac.cls.instances[0].cookie_directory)
+
+
+def test_legacy_2sa_only_fails_closed_and_removes_dir():
+    f, fac = flow(make_factory(requires_2fa=False, requires_2sa=True))
+    with pytest.raises(AppleLoginFailed):
+        f.start(1, APPLE_ID, PASSWORD)
+    assert not os.path.exists(fac.cls.instances[0].cookie_directory)
+    assert not f._flows and f._starting == 0
+
+
+def test_sweep_does_not_remove_dir_while_verify_in_progress():
+    clock = Clock()
+    entered, release = threading.Event(), threading.Event()
+    fac = make_factory(requires_2fa=True)
+
+    def slow(self, code):
+        entered.set()
+        assert release.wait(5)
+        return code == self.good_code
+
+    fac.cls.validate_2fa_code = slow
+    f, _ = flow(fac, clock=clock, ttl_seconds=600)
+    res = f.start(1, APPLE_ID, PASSWORD)
+    d = fac.cls.instances[0].cookie_directory
+    out = []
+    t = threading.Thread(target=lambda: out.append(f.verify(1, res.flow_id, "123456")))
+    t.start()
+    assert entered.wait(5)
+    clock.t = 10_000  # flow is now expired
+    f.cancel("other")  # triggers a sweep on another thread
+    assert os.path.isdir(d)
+    release.set()
+    t.join(5)
+    assert out and not os.path.exists(d)
+
+
+def test_dir_recreated_by_pyicloud_during_verify_is_removed_after():
+    fac = make_factory(requires_2fa=True)
+
+    def recreate(self, code):
+        import shutil
+
+        shutil.rmtree(self.cookie_directory)
+        os.makedirs(self.cookie_directory)
+        open(os.path.join(self.cookie_directory, "session"), "w").write("tok")
+        return True
+
+    fac.cls.validate_2fa_code = recreate
+    f, _ = flow(fac)
+    res = f.start(1, APPLE_ID, PASSWORD)
+    f.verify(1, res.flow_id, "123456")
+    assert not os.path.exists(fac.cls.instances[0].cookie_directory)
+
+
+def test_mkdtemp_failure_does_not_leak_pending_slot(monkeypatch):
+    import tempfile
+
+    f, fac = flow(max_pending=1)
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
+    for _ in range(3):
+        with pytest.raises(OSError):
+            f.start(1, APPLE_ID, PASSWORD)
+    monkeypatch.undo()
+    assert f.start(1, APPLE_ID, PASSWORD).status == "needs_2fa"
+
+
+def test_cancel_user_removes_only_that_users_flows():
+    f, fac = flow()
+    a = f.start(1, APPLE_ID, PASSWORD)
+    b = f.start(2, APPLE_ID, PASSWORD)
+    f.cancel_user(1)
+    d1, d2 = (i.cookie_directory for i in fac.cls.instances)
+    assert not os.path.exists(d1) and os.path.isdir(d2)
+    with pytest.raises(FlowExpired):
+        f.verify(1, a.flow_id, "123456")
+    assert f.verify(2, b.flow_id, "123456")
+
+
 def test_security_key_cannot_complete():
     f, fac = flow(make_factory(requires_2fa=True, kind="security_key"))
     with pytest.raises(AppleLoginFailed):

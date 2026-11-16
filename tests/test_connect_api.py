@@ -313,3 +313,42 @@ def test_connect_routes_require_auth(method, path, body):
     )
     r = c.request(method, path, json=body)
     assert r.status_code == 401 and r.json() == {"detail": "not_authenticated"}
+
+
+def test_disconnect_cancels_pending_flows(env):
+    fid = env.client.post("/api/connect/login", json=LOGIN).json()["flow_id"]
+    d = env.api_cls.made[0].dir
+    assert env.client.delete("/api/connect").status_code == 200
+    assert not os.path.exists(d)
+    r = env.client.post("/api/connect/verify", json={"flow_id": fid, "code": CODE})
+    assert r.status_code == 410 and r.json() == {"detail": "flow_expired"}
+
+
+def test_hsa2_both_flags_end_to_end(env):
+    env.api_cls.requires_2sa = True
+    fid = env.client.post("/api/connect/login", json=LOGIN).json()["flow_id"]
+    r = env.client.post("/api/connect/verify", json={"flow_id": fid, "code": CODE})
+    assert r.json() == {"status": "ok"}
+
+
+LONG_PW = "L0ngSecretPw" * 100
+COOKIE_SECRET = "SECRETCOOKIE" + "x" * 17000
+
+
+@pytest.mark.parametrize(
+    "path,body,secret",
+    [
+        ("/api/connect/login", {"password": PASSWORD}, PASSWORD),
+        ("/api/connect/login", {"apple_id": APPLE_ID, "password": LONG_PW}, LONG_PW[:40]),
+        ("/api/connect/login", {"apple_id": APPLE_ID, "password": PASSWORD, "china": PASSWORD}, PASSWORD),
+        ("/api/connect/cookie", {"cookie": COOKIE_SECRET}, "SECRETCOOKIE"),
+        ("/api/connect/verify", {"flow_id": "f", "code": "12ab56"}, "12ab56"),
+        ("/api/connect/verify", {"flow_id": "f", "code": "1234567"}, "1234567"),
+    ],
+)
+def test_422_never_echoes_input(env, path, body, secret):
+    r = env.client.post(path, json=body)
+    assert r.status_code == 422
+    assert secret not in r.text
+    for item in r.json()["detail"]:
+        assert set(item) == {"loc", "msg", "type"}

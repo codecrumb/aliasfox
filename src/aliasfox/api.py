@@ -3,6 +3,7 @@ user id handed to the service comes only from there, never from request input.""
 
 from typing import Annotated
 
+from fastapi.exceptions import RequestValidationError
 from fastapi import APIRouter, Depends, FastAPI, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -209,6 +210,7 @@ def build_router(
 
     @router.delete("/connect")
     async def disconnect(user_id: User):
+        await run_in_threadpool(login_flow.cancel_user, user_id)
         await run_in_threadpool(store.delete, user_id)
         await service.forget(user_id)
         return {"status": "disconnected"}
@@ -217,6 +219,16 @@ def build_router(
 
 
 def install_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        # FastAPI's default echoes `input` (and `ctx`): that would leak submitted
+        # passwords, cookies and 2FA codes. Keep only loc/msg/type.
+        detail = [
+            {"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")}
+            for e in exc.errors()
+        ]
+        return JSONResponse({"detail": detail}, status_code=422)
+
     @app.exception_handler(NotConnected)
     async def not_connected(request: Request, exc: NotConnected):
         return JSONResponse({"detail": "not_connected"}, status_code=409)

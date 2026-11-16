@@ -122,13 +122,26 @@ class LoginFlow:
         self._starting = 0  # slots reserved by in-progress start() calls
 
     def _sweep(self) -> None:
+        """Remove expired flows. A flow whose lock is held is mid-verify: leave
+        it (verify removes its own directory) so pyicloud never writes tokens
+        into a directory we already deleted."""
         now = self._clock()
         with self._lock:
-            dead = [k for k, f in self._flows.items() if f.expires <= now]
-            flows = [self._flows.pop(k) for k in dead]
-        for f in flows:
-            _rmdir(f.directory)
-            f.service = None
+            for key, f in list(self._flows.items()):
+                if f.expires > now or not f.lock.acquire(blocking=False):
+                    continue
+                try:
+                    del self._flows[key]
+                    _rmdir(f.directory)
+                    f.service = None
+                finally:
+                    f.lock.release()
+
+    def _destroy(self, flow: _Flow) -> None:
+        """Remove an already-unregistered flow once any in-progress verify ends."""
+        with flow.lock:
+            _rmdir(flow.directory)
+            flow.service = None
 
     def _drop(self, flow_id: str, flow: _Flow) -> None:
         with self._lock:
@@ -145,9 +158,10 @@ class LoginFlow:
             if len(self._flows) + self._starting >= self._max_pending:
                 raise TooManyFlows()
             self._starting += 1
-        directory = tempfile.mkdtemp(prefix="aliasfox-login-")  # mode 0700
+        directory: str | None = None
         keep = False
         try:
+            directory = tempfile.mkdtemp(prefix="aliasfox-login-")  # mode 0700
             try:
                 api = self._factory(
                     apple_id, password, cookie_directory=directory, china_mainland=china
@@ -158,10 +172,15 @@ class LoginFlow:
             finally:
                 password = None  # drop our reference; pyicloud holds its own copy
             try:
-                if not (api.requires_2fa or api.requires_2sa):
+                if api.requires_2fa:
+                    # NB: pyicloud also reports requires_2sa for HSA2 accounts, so
+                    # 2FA must be decided first.
+                    if getattr(api, "two_factor_delivery_method", "") == "security_key":
+                        raise AppleLoginFailed()  # hardware key unsupported
+                elif api.requires_2sa:
+                    raise AppleLoginFailed()  # legacy 2SA only: unsupported
+                else:
                     return LoginResult("ok", None, _build_state(api))
-                if api.requires_2sa or getattr(api, "two_factor_delivery_method", "") == "security_key":
-                    raise AppleLoginFailed()  # legacy 2SA / hardware key unsupported
                 try:
                     api.request_2fa_code()
                 except Exception as exc:  # Apple may have pushed the code anyway
@@ -180,7 +199,7 @@ class LoginFlow:
         finally:
             with self._lock:
                 self._starting -= 1
-            if not keep:
+            if not keep and directory is not None:
                 _rmdir(directory)
 
     def verify(self, user_id: int, flow_id: str, code: str) -> AppleSessionState:
@@ -223,5 +242,12 @@ class LoginFlow:
         with self._lock:
             flow = self._flows.pop(flow_id, None)
         if flow is not None:
-            _rmdir(flow.directory)
-            flow.service = None
+            self._destroy(flow)
+
+    def cancel_user(self, user_id: int) -> None:
+        self._sweep()
+        with self._lock:
+            keys = [k for k, f in self._flows.items() if f.user_id == user_id]
+            flows = [self._flows.pop(k) for k in keys]
+        for flow in flows:
+            self._destroy(flow)
