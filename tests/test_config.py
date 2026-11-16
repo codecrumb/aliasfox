@@ -23,7 +23,17 @@ def test_public_bind_allowed_with_escape_hatch():
 
 
 def test_public_bind_allowed_with_auth():
-    validate_startup(make(host="0.0.0.0", auth_enabled=True))
+    validate_startup(make(host="0.0.0.0", auth_enabled=True, password_hash="h"))
+
+
+@pytest.mark.parametrize("pw", [None, ""])
+def test_auth_enabled_requires_password_hash(pw):
+    with pytest.raises(ConfigError):
+        validate_startup(make(auth_enabled=True, password_hash=pw))
+
+
+def test_auth_enabled_with_password_hash_ok():
+    validate_startup(make(auth_enabled=True, password_hash="h"))
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])

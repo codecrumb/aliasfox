@@ -52,6 +52,8 @@ def get_settings() -> Settings:
 def validate_startup(s: Settings) -> None:
     if not s.secret_key:
         raise ConfigError("ALIASFOX_SECRET_KEY is required")
+    if s.auth_enabled and not s.password_hash:
+        raise ConfigError("ALIASFOX_PASSWORD_HASH is required when AUTH_ENABLED=true")
     if (
         s.host not in LOCAL_HOSTS
         and not s.auth_enabled
