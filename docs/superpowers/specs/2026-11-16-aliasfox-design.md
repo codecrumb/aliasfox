@@ -212,3 +212,11 @@ CSS and typography within "minimal, dark, fast", Docker base image and multi-sta
 - Wrong code: the whole six-box group shakes briefly (like Telegram) and turns red, and stays red until the user starts typing again, after which it returns to the normal colour.
 - Accessibility (designer's addition): honour `prefers-reduced-motion` (no slide or shake; use a colour change only), keep focus on the active field, announce the error to screen readers, and make every step usable with the keyboard alone (Enter advances, Backspace in an empty box moves back).
 - Security note: the password field uses `autocomplete="current-password"`; the Apple password is sent once to `/api/connect/login` and never stored client-side.
+
+## 11. Plan 2 (UI) decisions (owner, 2026-11-16)
+
+- The UI is served by the same FastAPI service (one deployment), built from `web/` (Svelte + TypeScript + Vite) in a Docker build stage; no separate hosting. The owner is fine with any framework and a build step; the designer's call is Svelte for small bundle and CSP-friendly output.
+- Object storage: not needed (no files stored; aliases are not persisted server-side).
+- Multiple Apple accounts per user (an account switcher): deferred to plan 3, because it changes the database schema and needs migrations (Alembic). Plan 3 also decides authentication: recommendation is Neon Auth for identity/MFA with a server-held master key and per-user wrapped data keys (no second encryption password).
+- Browser cache key: `GET /api/session` returns a key derived from the server secret, user id and session epoch (logout bumps the epoch, which invalidates old caches).
+- Plan: docs/superpowers/plans/2026-11-16-aliasfox-ui.md. Live checks the owner will help with after UI deploy (VPN available for location switching): Render proxy/hops throttle test, wrong-then-right 2FA code, session lifetime.
