@@ -31,6 +31,7 @@
   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px var(--border);
 
+  --z-modal: 50;
   --z-toast: 100;
 
   --dur-fast: 120ms;
