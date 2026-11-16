@@ -75,3 +75,15 @@ def test_pyicloud_refuses_without_tty():
         stdin=subprocess.DEVNULL, capture_output=True, text=True,
     )
     assert r.returncode == 2
+
+
+def test_spike_results_separates_write_questions():
+    from pathlib import Path
+
+    text = (Path(__file__).parent.parent / "docs" / "spike-results.md").read_text()
+    header = "## Requires a write test — needs explicit owner consent — not part of this spike"
+    readonly, _, writes = text.partition(header)
+    assert writes
+    for q in ("Generate without reserve consumes quota", "`update_metadata` with `note` omitted"):
+        assert q in writes and q not in readonly
+    assert "$TMPDIR/aliasfox-spike-*" in readonly

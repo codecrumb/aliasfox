@@ -15,10 +15,10 @@ Record names, counts, booleans and timings only. No addresses, labels, notes, co
 - [ ] `clientBuildNumber` / `clientId` params required (try without first): 
 - [ ] List paginated (top-level result key names, any cursor/next marker): 
 - [ ] Advanced Data Protection on for this account: 
-- [ ] Generate without reserve consumes quota (record the generate response key names only): 
-- [ ] `update_metadata` with `note` omitted keeps or clears the note: 
 
 ## pyicloud spike (`.venv/bin/python scripts/spike_pyicloud.py`)
+
+Note: if the script is killed (terminal closed / SIGKILL), delete any leftover `$TMPDIR/aliasfox-spike-*` directories because they may contain session tokens.
 
 - [ ] Login works: 
 - [ ] 2FA required, and kind (trusted device / SMS / security key): 
@@ -27,6 +27,11 @@ Record names, counts, booleans and timings only. No addresses, labels, notes, co
 - [ ] `api.hidemyemail` lists (count only): 
 - [ ] What `login.py` can extract from the session for cookies and webservices URL: 
 - [ ] Apple challenges datacenter IPs (deferred to the Render deploy): 
+
+## Requires a write test — needs explicit owner consent — not part of this spike
+
+- [ ] Generate without reserve consumes quota (record the generate response key names only): 
+- [ ] `update_metadata` with `note` omitted keeps or clears the note: 
 
 ## Decision
 

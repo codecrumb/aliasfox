@@ -325,3 +325,26 @@ def test_list_raw_returns_result_dict_with_top_level_keys():
     c, _ = client_for(handler)
     raw = c.list_raw()
     assert set(raw) == {"hmeEmails", "selectedForwardTo", "nextPage"}
+
+
+@pytest.mark.parametrize("exc", [UnicodeEncodeError("ascii", "x", 0, 1, SECRET), ValueError(SECRET)])
+def test_unicode_and_value_errors_become_hme_error_without_values(exc):
+    def boom(req):
+        raise exc
+
+    c, _ = client_for(boom)
+    with pytest.raises(HmeError) as ei:
+        c.list()
+    text = " ".join([str(ei.value), repr(ei.value), repr(ei.value.args)])
+    assert SECRET not in text
+    assert ei.value.__cause__ is None
+    assert ei.value.__suppress_context__
+
+
+def test_unencodable_cookie_value_becomes_hme_error():
+    state = make_state()
+    state.cookies["bad"] = "café€\ud800"
+    c, _ = client_for(lambda r: ok({}), state)
+    with pytest.raises(HmeError) as ei:
+        c.list()
+    assert "€" not in str(ei.value)

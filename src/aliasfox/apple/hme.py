@@ -178,6 +178,9 @@ class HmeClient:
             )
         except httpx.HTTPError as exc:
             raise HmeError(None, f"network error: {type(exc).__name__}") from None
+        except (UnicodeError, ValueError):
+            # Raised while encoding the request; the message may echo header values.
+            raise HmeError(None, "invalid request") from None
         self._merge_cookies(resp)
         if resp.status_code in _EXPIRED_STATUSES:
             raise SessionExpired(resp.status_code, "session expired")
