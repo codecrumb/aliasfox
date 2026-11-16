@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
 from aliasfox.api import build_router, install_error_handlers
@@ -12,37 +12,17 @@ from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.crypto import derive_key
 from aliasfox.db import init_db, make_engine
+from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
+    SECURITY_HEADERS,
+    BodyLimitMiddleware,
+    SecurityHeadersMiddleware,
+)
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
 
 log = logging.getLogger(__name__)
 
 SWEEP_INTERVAL_SECONDS = 60
-
-SECURITY_HEADERS = {
-    "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-    ),
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "X-Frame-Options": "DENY",
-}
-
-
-def install_security_headers(app: FastAPI) -> None:
-    """Add last so it is the OUTERMOST middleware: the Host/Origin guards still run
-    before any route, but their 403 responses pass back through here."""
-
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        response = await call_next(request)
-        for name, value in SECURITY_HEADERS.items():
-            response.headers[name] = value
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
-        return response
-
 
 def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlow):
     async def sweep_loop() -> None:
@@ -99,5 +79,7 @@ def create_app(
 
     app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
-    install_security_headers(app)
+    # add_middleware: last added is outermost.
+    app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware, trusted_proxy=settings.trusted_proxy)
     return app
