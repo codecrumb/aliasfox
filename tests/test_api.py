@@ -1,3 +1,4 @@
+import re
 import pytest
 from fastapi.testclient import TestClient
 
@@ -248,11 +249,6 @@ def test_status_route(svc):
 
 # --- auth enabled -----------------------------------------------------------
 
-ALL_ROUTES = [("get", "/api/aliases", None), ("get", "/api/status", None)] + [
-    (m, p, b) for m, p, b, _ in MUTATIONS
-]
-
-
 @pytest.fixture
 def auth_client(svc):
     settings = Settings(
@@ -263,11 +259,34 @@ def auth_client(svc):
     )
 
 
-@pytest.mark.parametrize("method,path,body", ALL_ROUTES)
-def test_api_requires_auth_cookie(auth_client, svc, method, path, body):
-    r = auth_client.request(method, path, json=body)
-    assert r.status_code == 401
-    assert r.json() == {"detail": "not_authenticated"}
+def _api_routes(app):
+    """(method, concrete path) for every /api route except /api/auth/*."""
+    def walk(routes, prefix=""):
+        for route in routes:
+            inner = getattr(route, "original_router", None)  # included routers are wrapped
+            if inner is not None:
+                yield from walk(inner.routes, prefix + route.include_context.prefix)
+            else:
+                yield prefix + getattr(route, "path", ""), route
+
+    found = []
+    for path, route in walk(app.routes):
+        if not path.startswith("/api") or path.startswith("/api/auth/"):
+            continue
+        concrete = re.sub(r"\{[^}]+\}", "x", path)
+        for method in sorted(getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}):
+            found.append((method, concrete))
+    return found
+
+
+def test_every_api_route_requires_auth_cookie(auth_client, svc):
+    routes = _api_routes(auth_client.app)
+    assert len(routes) >= 12  # guards against the enumeration silently finding nothing
+    assert ("DELETE", "/api/connect") in routes and ("GET", "/api/status") in routes
+    for method, path in routes:
+        r = auth_client.request(method, path, json={})
+        assert r.status_code == 401, (method, path, r.status_code)
+        assert r.json() == {"detail": "not_authenticated"}, (method, path)
     assert svc.calls == []
 
 

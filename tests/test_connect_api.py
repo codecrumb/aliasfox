@@ -305,25 +305,6 @@ def test_router_requires_store():
         create_app(Settings(secret_key=SECRET), service=FakeService(), store=None)
 
 
-@pytest.mark.parametrize(
-    "method,path,body",
-    [
-        ("post", "/api/connect/cookie", {"cookie": "x"}),
-        ("post", "/api/connect/login", LOGIN),
-        ("post", "/api/connect/verify", {"flow_id": "x", "code": CODE}),
-        ("delete", "/api/connect", None),
-    ],
-)
-def test_connect_routes_require_auth(method, path, body):
-    store, _ = new_store()
-    settings = Settings(secret_key=SECRET, auth_enabled=True, password_hash=hash_password("pw-pw-pw"))
-    c = TestClient(
-        create_app(settings, service=FakeService(), store=store), base_url="http://localhost"
-    )
-    r = c.request(method, path, json=body)
-    assert r.status_code == 401 and r.json() == {"detail": "not_authenticated"}
-
-
 def test_disconnect_cancels_pending_flows(env):
     fid = env.client.post("/api/connect/login", json=LOGIN).json()["flow_id"]
     d = env.api_cls.made[0].dir
