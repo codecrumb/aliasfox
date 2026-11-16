@@ -106,7 +106,9 @@ class AliasService:
     async def reserve(self, user_id: int, hme: str, label: str, note: str = "") -> Alias:
         return await self._mutate(user_id, lambda c: c.reserve(hme, label, note))
 
-    async def update(self, user_id: int, anonymous_id: str, label: str, note: str) -> None:
+    async def update(
+        self, user_id: int, anonymous_id: str, label: str, note: str | None
+    ) -> None:
         await self._mutate(user_id, lambda c: c.update_metadata(anonymous_id, label, note))
 
     async def set_active(self, user_id: int, anonymous_id: str, active: bool) -> None:
