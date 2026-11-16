@@ -29,6 +29,17 @@ _ORIGIN = "https://www.icloud.com"
 SEED_USER_ID = 1
 
 
+class AppleUnreachable(Exception):
+    """Apple could not be reached (network error, timeout, 5xx). Fixed message."""
+
+    def __init__(self) -> None:
+        super().__init__("could not reach Apple")
+
+
+# Worst case (connect + read + write + pool) stays within 30 s.
+VALIDATE_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+
+
 class InvalidCookie(Exception):
     """Cookie unusable. Messages never contain cookie values or response bodies."""
 
@@ -119,11 +130,15 @@ def _validate(
     }
     try:
         with httpx.Client(
-            transport=transport, timeout=30.0, trust_env=False, follow_redirects=False
+            transport=transport, timeout=VALIDATE_TIMEOUT, trust_env=False, follow_redirects=False
         ) as http:
             resp = http.post(VALIDATE_URL, headers=headers)
-    except (httpx.HTTPError, UnicodeError, ValueError) as exc:
+    except httpx.HTTPError:
+        raise AppleUnreachable() from None
+    except (UnicodeError, ValueError) as exc:  # unencodable cookie text
         raise InvalidCookie(f"validate request failed: {type(exc).__name__}") from None
+    if resp.status_code >= 500:
+        raise AppleUnreachable()
     if not resp.is_success:
         raise InvalidCookie(f"iCloud rejected the cookie (HTTP {resp.status_code})")
     apply_set_cookies(cookies, resp)

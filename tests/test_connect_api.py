@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 import aliasfox.api as api_mod
-from aliasfox.apple.connect import InvalidCookie
+from aliasfox.apple.connect import AppleUnreachable, InvalidCookie
 from aliasfox.apple.login import LoginFlow
 from aliasfox.config import Settings
 from aliasfox.crypto import hash_password
@@ -361,3 +361,19 @@ def test_422_never_echoes_input(env, path, body, secret):
     assert secret not in r.text
     for item in r.json()["detail"]:
         assert set(item) == {"loc", "msg", "type"}
+
+
+def test_cookie_network_error_is_502_apple_unreachable(env, monkeypatch):
+    def unreachable(text, **kw):
+        raise AppleUnreachable()
+
+    monkeypatch.setattr(api_mod, "connect_with_cookie", unreachable)
+    r = env.client.post("/api/connect/cookie", json={"cookie": "X-APPLE-WEBAUTH-USER=v"})
+    assert r.status_code == 502
+    assert r.json() == {"detail": "apple_unreachable"}
+    assert env.store.load(1) is None
+
+
+def test_cookie_actually_invalid_stays_400(env, monkeypatch):
+    monkeypatch.setattr(api_mod, "connect_with_cookie", fake_connect)
+    assert env.client.post("/api/connect/cookie", json={"cookie": "BAD-x"}).status_code == 400

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from aliasfox.apple.connect import InvalidCookie, connect_with_cookie
+from aliasfox.apple.connect import AppleUnreachable, InvalidCookie, connect_with_cookie
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.apple.login import (
     AppleLoginFailed,
@@ -228,6 +228,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(SessionUnreadable)
     async def session_unreadable(request: Request, exc: SessionUnreadable):
         return JSONResponse({"detail": "session_unreadable"}, status_code=409)
+
+    @app.exception_handler(AppleUnreachable)
+    async def apple_unreachable(request: Request, exc: AppleUnreachable):
+        return JSONResponse({"detail": "apple_unreachable"}, status_code=502)
 
     @app.exception_handler(NotConnected)
     async def not_connected(request: Request, exc: NotConnected):

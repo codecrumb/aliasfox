@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from aliasfox.apple.connect import (
+    AppleUnreachable,
     InvalidCookie,
     connect_with_cookie,
     is_session_valid,
@@ -97,11 +98,11 @@ def test_validate_failure_raises_invalid_cookie_without_echoing_cookie(resp):
     assert "SECRETVALUE" not in str(ei.value) and "SECRETVALUE" not in repr(ei.value)
 
 
-def test_network_error_raises_invalid_cookie_without_echo():
+def test_network_error_raises_apple_unreachable_without_echo():
     def handler(req):
         raise httpx.ConnectError("boom SECRETVALUE")
 
-    with pytest.raises(InvalidCookie) as ei:
+    with pytest.raises(AppleUnreachable) as ei:
         connect_with_cookie(COOKIE, transport=httpx.MockTransport(handler))
     assert "SECRETVALUE" not in str(ei.value)
 
@@ -216,3 +217,36 @@ def test_seed_overwrites_unreadable_stored_session(store):
     other.save(1, AppleSessionState(cookies={"X-APPLE-WEBAUTH-USER": "old"}, webservices_url=HME_URL))
     assert seed_from_env(make_settings(COOKIE), store, transport=httpx.MockTransport(validate_ok)) is True
     assert store.load(1).dsid == "777"
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
+def test_apple_5xx_is_unreachable_not_invalid_cookie(status):
+    with pytest.raises(AppleUnreachable):
+        connect_with_cookie(COOKIE, transport=httpx.MockTransport(lambda r: httpx.Response(status)))
+
+
+def test_timeout_error_is_unreachable():
+    def handler(req):
+        raise httpx.ReadTimeout("slow")
+
+    with pytest.raises(AppleUnreachable):
+        connect_with_cookie(COOKIE, transport=httpx.MockTransport(handler))
+
+
+def test_validate_client_has_explicit_bounded_timeout(monkeypatch):
+    import aliasfox.apple.connect as mod
+
+    seen = {}
+    real = httpx.Client
+
+    def spy(*a, **kw):
+        seen.update(kw)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(mod.httpx, "Client", spy)
+    connect_with_cookie(COOKIE, transport=httpx.MockTransport(validate_ok))
+    t = seen["timeout"]
+    assert isinstance(t, httpx.Timeout)
+    parts = [t.connect, t.read, t.write, t.pool]
+    assert all(p is not None for p in parts)
+    assert sum(parts) <= 30
