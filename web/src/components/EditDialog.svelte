@@ -67,12 +67,14 @@
   function onLabelKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault();
+      if (e.repeat) return; // a held Enter submits once
       void save();
     }
   }
   function onNoteKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      if (e.repeat) return; // a held Enter submits once
       void save();
     }
   }

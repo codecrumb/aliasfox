@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { describeError } from '../lib/errors';
+  import { CONFIRM_GUARD_MS } from '../lib/keys';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -34,6 +35,10 @@
   let confirmBtn: HTMLButtonElement | undefined = $state();
   let cancelBtn: HTMLButtonElement | undefined = $state();
 
+  // See CONFIRM_GUARD_MS: the key press that opened this dialog must not also confirm it.
+  const openedAt = performance.now();
+  const guarded = (): boolean => performance.now() - openedAt < CONFIRM_GUARD_MS;
+
   async function confirm(): Promise<void> {
     if (busy) return;
     error = '';
@@ -54,7 +59,15 @@
     const el = body;
     if (!el) return;
     const key = (e: KeyboardEvent): void => {
-      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+      const enter = e.key === 'Enter';
+      const space = e.key === ' ' || e.code === 'Space';
+      if ((!enter && !space) || e.isComposing) return;
+      if (e.repeat || guarded()) {
+        // Swallow held keys and the opening key press, including the native button activation.
+        e.preventDefault();
+        return;
+      }
+      if (!enter || e.shiftKey || e.altKey) return; // Space activates natively (click, detail 0)
       e.preventDefault();
       if (e.target === cancelBtn) onCancel();
       else void confirm();
@@ -79,7 +92,11 @@
         class={danger ? 'danger' : 'primary'}
         bind:this={confirmBtn}
         disabled={busy}
-        onclick={() => void confirm()}
+        onclick={(e) => {
+          // A keyboard-generated click (detail 0) inside the guard window is the opening key press.
+          if (e.detail === 0 && guarded()) return;
+          void confirm();
+        }}
       >
         {busy && busyLabel ? busyLabel : confirmLabel}
       </button>

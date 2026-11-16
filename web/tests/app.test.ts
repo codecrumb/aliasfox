@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import type { Writable } from 'svelte/store';
 
@@ -115,6 +115,29 @@ describe('App shell', () => {
     await s.markReady();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(screen.getByTestId('palette-root')).toBe(root);
+  });
+
+  it('ruling V: after the palette was shown, reconnect with an empty list keeps it mounted and dialog input survives', async () => {
+    aliases.generate.mockResolvedValue('fresh@icloud.com');
+    render(App);
+    setState('ready');
+    const search = await screen.findByRole('combobox', { name: 'Search aliases' });
+    const root = screen.getByTestId('palette-root');
+    await fireEvent.keyDown(search, { key: 'n', code: 'KeyN', altKey: true });
+    const dlg = await screen.findByRole('dialog', { name: 'New alias' });
+    const label = (await within(dlg).findByLabelText('Label')) as HTMLInputElement;
+    await fireEvent.input(label, { target: { value: 'Typed before expiry' } });
+    setState('reconnect', { reason: 'session_expired' });
+    await tick();
+    expect(screen.getByTestId('palette-root')).toBe(root);
+    expect(screen.queryByLabelText('Apple ID')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'New alias' })).toBe(dlg);
+    expect(label.value).toBe('Typed before expiry');
+    expect(screen.getByText('Your Apple session expired. Reconnect to keep editing.')).toBeInTheDocument();
+    setState('ready', { reason: null });
+    await tick();
+    expect(screen.getByTestId('palette-root')).toBe(root);
+    expect(label.value).toBe('Typed before expiry');
   });
 
   it('reconnect with an empty list shows the full-screen connect flow', async () => {

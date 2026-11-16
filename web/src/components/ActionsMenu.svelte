@@ -80,6 +80,7 @@
       move(-1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (e.repeat) return; // a held Enter must not run the next thing it lands on
       run(active);
     } else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyK') {
       // The shortcut that opened the menu closes it again.

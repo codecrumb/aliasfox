@@ -5,12 +5,12 @@
   import { aliasStore } from '../lib/aliases';
   import { copyText } from '../lib/clipboard';
   import { describeError } from '../lib/errors';
-  import { KEYMAP, handleKey, isMac, type KeyCtx, type KeyId } from '../lib/keys';
+  import { KEYMAP, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
   import { query } from '../lib/search';
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
-  import { ROW_HEIGHT, pageSize, scrollToShow, windowFor } from '../lib/virtual';
+  import { LIST_PADDING, ROW_HEIGHT, pageSize, scrollToShow, windowFor } from '../lib/virtual';
   import ActionsMenu, { type MenuAction } from './ActionsMenu.svelte';
   import AliasRow from './AliasRow.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -80,8 +80,9 @@
   );
 
   const loadingEmpty = $derived($aliasStore.loading && list.length === 0);
-  const errorEmpty = $derived(!loadingEmpty && list.length === 0 && $aliasStore.error !== null);
-  const empty = $derived(!loadingEmpty && list.length === 0 && $aliasStore.error === null);
+  // Only list-load failures show the error state; failed actions are reported where they happen.
+  const errorEmpty = $derived(!loadingEmpty && list.length === 0 && $aliasStore.loadError !== null);
+  const empty = $derived(!loadingEmpty && list.length === 0 && $aliasStore.loadError === null);
   const noResults = $derived(list.length > 0 && results.length === 0);
   const countText = $derived(
     loadingEmpty
@@ -91,8 +92,21 @@
         : `${results.length.toLocaleString()} ${results.length === 1 ? 'result' : 'results'}`
   );
   const errorText = $derived(
-    $aliasStore.error === null ? '' : describeError(new ApiError(0, $aliasStore.error), 'Something went wrong.')
+    $aliasStore.loadError === null ? '' : describeError(new ApiError(0, $aliasStore.loadError), 'Something went wrong.')
   );
+
+  // The live region trails the visible count by ANNOUNCE_MS so fast typing produces one
+  // announcement instead of one per keystroke.
+  const ANNOUNCE_MS = 300;
+  let announced = $state(untrack(() => countText));
+  let announceTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const t = countText;
+    if (announceTimer !== undefined) clearTimeout(announceTimer);
+    announceTimer = setTimeout(() => {
+      announced = t;
+    }, ANNOUNCE_MS);
+  });
 
   function optId(i: number): string {
     return `${uid}-opt-${i}`;
@@ -230,8 +244,14 @@
     );
   }
 
-  async function onCreated(a: Alias): Promise<void> {
+  async function onCreated(a: Alias | null): Promise<void> {
     closeDialog();
+    if (a === null) {
+      // Created, but without a usable result: show it by reloading the list.
+      toasts.push({ kind: 'ok', text: 'Created' });
+      await refresh();
+      return;
+    }
     if (!results.some((x) => x.anonymous_id === a.anonymous_id)) {
       q = '';
       filter = 'all';
@@ -258,7 +278,7 @@
 
   async function refresh(): Promise<void> {
     await aliasStore.refresh();
-    const err = get(aliasStore).error;
+    const err = get(aliasStore).loadError;
     if (err !== null) toasts.push({ kind: 'error', text: `Couldn't refresh. ${describeError(new ApiError(0, err))}` });
   }
 
@@ -318,9 +338,15 @@
     }
   }
 
+  function caretAtStart(): boolean {
+    const el = searchEl;
+    return !!el && el.selectionStart === 0 && el.selectionEnd === 0;
+  }
+
   function keyCtx(): KeyCtx {
     return {
       searchEmpty: q === '',
+      caretAtStart: caretAtStart(),
       blocked: anyOpen,
       mac,
       copy: () => void copyAlias(selected),
@@ -340,8 +366,32 @@
     };
   }
 
+  // macOS Option+letter is a dead key: even with preventDefault some engines start a composition
+  // and insert a stray accent. After a handled Alt+letter shortcut, any composition/input on the
+  // search field within DEAD_KEY_MS is undone by restoring the previous value.
+  const DEAD_KEY_MS = 600;
+  let deadGuard: { value: string; until: number } | null = null;
+
   function onSearchKey(e: KeyboardEvent): void {
-    handleKey(e, keyCtx());
+    const before = q;
+    const handled = handleKey(e, keyCtx());
+    if (handled && isAltLetter(e)) deadGuard = { value: before, until: performance.now() + DEAD_KEY_MS };
+    else if (e.key !== 'Dead' && e.key !== 'Process') deadGuard = null; // real typing ends the guard
+  }
+
+  function undoDeadKey(): void {
+    const g = deadGuard;
+    if (!g || performance.now() > g.until) {
+      deadGuard = null;
+      return;
+    }
+    if (q !== g.value) q = g.value;
+    if (searchEl && searchEl.value !== g.value) searchEl.value = g.value;
+  }
+
+  function onSearchCompositionEnd(): void {
+    undoDeadKey();
+    deadGuard = null;
   }
 
   // Keys pressed while nothing in particular has focus still drive the palette.
@@ -412,6 +462,7 @@
   });
 
   onDestroy(() => {
+    if (announceTimer !== undefined) clearTimeout(announceTimer);
     window.removeEventListener('resize', measure);
     resizeObs?.disconnect();
   });
@@ -427,6 +478,7 @@
   aria-label="Aliases"
   bind:this={rootEl}
   style:--row-h="{ROW_HEIGHT}px"
+  style:--list-pad="{LIST_PADDING}px"
 >
   <header class="top">
     <div class="brand"><span class="mark" aria-hidden="true"></span><span>AliasFox</span></div>
@@ -471,6 +523,8 @@
       spellcheck="false"
       enterkeyhint="go"
       onkeydown={onSearchKey}
+      oninput={undoDeadKey}
+      oncompositionend={onSearchCompositionEnd}
     />
     {#if q !== ''}<kbd class="esc" aria-hidden="true">Esc</kbd>{/if}
   </div>
@@ -486,7 +540,8 @@
         >
       {/each}
     </div>
-    <p class="count" data-testid="result-count" role="status" aria-live="polite">{countText}</p>
+    <p class="count" aria-hidden="true">{countText}</p>
+    <p class="visually-hidden" data-testid="result-count" role="status" aria-live="polite">{announced}</p>
   </div>
 
   <div class="body">
@@ -769,7 +824,7 @@
     background: var(--surface);
   }
   .seg button {
-    min-height: 36px;
+    min-height: 44px;
     padding: 0 var(--space-3);
     border: 0;
     border-radius: 8px;
@@ -807,7 +862,7 @@
     height: 100%;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: var(--space-1);
+    padding: var(--list-pad) var(--space-1);
     border: 1px solid var(--border);
     border-radius: 14px;
     background: color-mix(in srgb, var(--surface) 45%, var(--bg));

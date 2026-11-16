@@ -9,7 +9,8 @@
 
   interface Props {
     onClose: () => void;
-    onCreated: (a: Alias) => void;
+    /** null: Apple accepted it but returned no usable alias; the caller refreshes the list. */
+    onCreated: (a: Alias | null) => void;
     onReconnect: () => void;
   }
   let { onClose, onCreated, onReconnect }: Props = $props();
@@ -64,9 +65,13 @@
     error = '';
     sessionLost = false;
     busy = true;
-    let created: Alias;
+    let created: Alias | null;
     try {
-      created = await aliasStore.reserve({ hme, label: l, note });
+      const r: unknown = await aliasStore.reserve({ hme, label: l, note });
+      created =
+        r !== null && typeof r === 'object' && typeof (r as Alias).anonymous_id === 'string' && typeof (r as Alias).hme === 'string'
+          ? (r as Alias)
+          : null;
     } catch (e) {
       busy = false;
       if (!alive) return;
@@ -81,12 +86,14 @@
   function onLabelKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault();
+      if (e.repeat) return; // a held Enter submits once
       void create();
     }
   }
   function onNoteKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      if (e.repeat) return;
       void create();
     }
   }
@@ -96,7 +103,8 @@
   }
 </script>
 
-<Modal labelledby="{uid}-title" onClose={onClose} persistent>
+<!-- While the reserve is pending, Esc is disabled so its result is always reported. -->
+<Modal labelledby="{uid}-title" onClose={onClose} persistent escape={!busy}>
   <form class="dialog-form" onsubmit={onSubmit} novalidate>
     <h2 class="dialog-title" id="{uid}-title">New alias</h2>
 
@@ -141,7 +149,7 @@
     {/if}
 
     <div class="dialog-actions">
-      <button type="button" class="ghost" onclick={onClose}>Cancel</button>
+      <button type="button" class="ghost" disabled={busy} onclick={onClose}>Cancel</button>
       <button type="submit" class="primary" disabled={busy || hme === ''}>{busy ? 'Creating…' : 'Create'}</button>
     </div>
   </form>

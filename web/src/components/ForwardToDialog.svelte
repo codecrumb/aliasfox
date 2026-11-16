@@ -56,6 +56,7 @@
   function onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
+      if (e.repeat) return; // a held Enter submits once
       void save();
     }
   }

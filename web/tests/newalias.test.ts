@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { ApiError } from '../src/lib/api';
-import { many, type createAliasStore, type createSessionStore } from './fakes';
+import { alias, many, type createAliasStore, type createSessionStore } from './fakes';
 
 vi.mock('../src/lib/aliases', async () => ({ aliasStore: (await import('./fakes')).createAliasStore() }));
 vi.mock('../src/lib/session', async () => ({ sessionStore: (await import('./fakes')).createSessionStore() }));
@@ -82,7 +82,57 @@ describe('new alias flow', () => {
     await fireEvent.click(within(dlg).getByRole('button', { name: /Creat/ }));
     expect(store.reserve).toHaveBeenCalledTimes(1);
     expect(within(dlg).getByRole('button', { name: /Creating/ })).toBeDisabled();
-    done(undefined);
+    done(alias(777, { anonymous_id: 'made', hme: 'fresh@icloud.com', label: 'Shop' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('Esc while the reserve is pending does nothing, so the result is always reported', async () => {
+    let done: (v: unknown) => void = () => {};
+    store.reserve.mockImplementation(() => new Promise((r) => (done = r)) as never);
+    const { dlg, label } = await openReady();
+    await type(label, 'Shop');
+    await enter(label);
+    await fireEvent.keyDown(label, { key: 'Escape', code: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'New alias' })).toBe(dlg);
+    expect(within(dlg).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    done(alias(778, { anonymous_id: 'made2', hme: 'fresh@icloud.com', label: 'Shop' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created and copied' }));
+  });
+
+  it('a reserve that resolves undefined closes, refreshes the list and nothing throws', async () => {
+    const errors: unknown[] = [];
+    const onRej = (e: PromiseRejectionEvent | unknown) => errors.push(e);
+    process.on('unhandledRejection', onRej);
+    try {
+      store.reserve.mockResolvedValue(undefined as never);
+      store.refresh.mockClear();
+      const { label } = await openReady();
+      await type(label, 'Shop');
+      await enter(label);
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await waitFor(() => expect(store.refresh).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(errors).toEqual([]);
+      expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created' });
+    } finally {
+      process.off('unhandledRejection', onRej);
+    }
+  });
+
+  it('held Enter in the label sends one reserve', async () => {
+    store.reserve.mockRejectedValueOnce(new ApiError(502, 'apple_unreachable'));
+    const { dlg, label } = await openReady();
+    await type(label, 'Shop');
+    await enter(label);
+    await waitFor(() => expect(within(dlg).getByRole('alert')).toHaveTextContent("Can't reach Apple"));
+    for (let i = 0; i < 5; i++) await fireEvent.keyDown(label, { key: 'Enter', code: 'Enter', repeat: true });
+    await tick();
+    expect(store.reserve).toHaveBeenCalledTimes(1);
+    await enter(label); // a fresh press retries
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    for (let i = 0; i < 3; i++) await fireEvent.keyDown(search(), { key: 'Enter', code: 'Enter', repeat: true });
+    expect(store.reserve).toHaveBeenCalledTimes(2);
+    expect(copy).toHaveBeenCalledTimes(1); // the created address only; held Enter does not copy again
   });
 
   it('test_alt_n_escape_does_not_reserve', async () => {

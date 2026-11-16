@@ -23,7 +23,8 @@ import { sessionStore as realSession } from '../src/lib/session';
 import { copyText } from '../src/lib/clipboard';
 import { toasts } from '../src/lib/toasts';
 import { api } from '../src/lib/api';
-import { ROW_HEIGHT, MAX_ROWS } from '../src/lib/virtual';
+import { ROW_HEIGHT, MAX_ROWS, LIST_PADDING, FALLBACK_VIEWPORT } from '../src/lib/virtual';
+import { CONFIRM_GUARD_MS } from '../src/lib/keys';
 import Palette from '../src/components/Palette.svelte';
 
 const store = realAliasStore as unknown as ReturnType<typeof createAliasStore>;
@@ -38,9 +39,10 @@ const selected = () => options().find((o) => o.getAttribute('aria-selected') ===
 const key = (el: Element, init: KeyboardEventInit) => fireEvent.keyDown(el, init);
 const type = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => fireEvent.input(el, { target: { value } });
 const dialog = (name: string | RegExp) => screen.getByRole('dialog', { name });
+const pastGuard = () => new Promise((r) => setTimeout(r, CONFIRM_GUARD_MS + 20));
 
 function setList(list = many(5), extra = {}) {
-  store.__set(list, { loading: false, refreshing: false, error: null, fromCache: false, ...extra });
+  store.__set(list, { loading: false, refreshing: false, error: null, loadError: null, fromCache: false, ...extra });
 }
 
 const mocks = () =>
@@ -154,10 +156,10 @@ describe('palette list', () => {
     expect(live).toHaveAttribute('aria-live', 'polite');
     expect(live).toHaveTextContent('12 results');
     await type(search(), 'zzzzqqq');
-    expect(live).toHaveTextContent('No results');
+    await waitFor(() => expect(live).toHaveTextContent('No results'));
     expect(screen.getByText(/No aliases match/)).toBeInTheDocument();
     await type(search(), 'Label 11');
-    expect(live).toHaveTextContent(/^1 result$/);
+    await waitFor(() => expect(live).toHaveTextContent(/^1 result$/));
   });
 
   it('status filter: segmented control and actions menu', async () => {
@@ -269,6 +271,7 @@ describe('palette keyboard actions', () => {
     await waitFor(() => expect(search()).toHaveFocus());
     await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
     dlg = dialog('Delete this address?');
+    await pastGuard();
     await key(within(dlg).getByRole('button', { name: 'Delete' }), { key: 'Enter', code: 'Enter' });
     expect(store.remove).toHaveBeenCalledTimes(1);
     expect(store.remove).toHaveBeenCalledWith('id-2');
@@ -290,6 +293,7 @@ describe('palette keyboard actions', () => {
     render(Palette);
     await tick();
     await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
+    await pastGuard();
     await key(within(dialog('Delete this address?')).getByRole('button', { name: 'Delete' }), { key: 'Enter', code: 'Enter' });
     await tick();
     expect(options()).toHaveLength(2);
@@ -461,7 +465,7 @@ describe('palette states', () => {
     render(Palette);
     await tick();
     expect(screen.getByText('No aliases yet. Press Alt+N to create your first one.')).toBeInTheDocument();
-    store.__patch({ error: 'apple_unreachable' });
+    store.__patch({ error: 'apple_unreachable', loadError: 'apple_unreachable' });
     await tick();
     expect(screen.getByText(/Can't reach Apple right now/)).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -576,7 +580,7 @@ describe('actions menu and dialogs', () => {
     await fireEvent.click(within(dialog('Actions')).getByRole('option', { name: /Disconnect Apple account/ }));
     const dlg = await screen.findByRole('dialog', { name: 'Disconnect Apple account?' });
     expect(api.disconnect).not.toHaveBeenCalled();
-    await fireEvent.click(within(dlg).getByRole('button', { name: 'Disconnect' }));
+    await fireEvent.click(within(dlg).getByRole('button', { name: 'Disconnect' }), { detail: 1 });
     await waitFor(() => expect(order).toEqual(['disconnect', 'clear', 'boot']));
   });
 
@@ -707,5 +711,193 @@ describe('source hygiene and accessibility smoke', () => {
     await key(document.activeElement as Element, { key: 'Escape', code: 'Escape' });
     await key(search(), { key: 'e', code: 'KeyE', altKey: true });
     check();
+  });
+});
+
+describe('fix round 1', () => {
+  it('six Shift+Enter keydowns with auto-repeat toggle exactly once', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true });
+    for (let i = 0; i < 5; i++) await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true, repeat: true });
+    expect(store.setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it('held Enter after choosing Delete in the actions menu does not confirm; a fresh Enter after the guard does', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+    const filter = within(dialog('Actions')).getByRole('combobox', { name: 'Filter actions' });
+    await type(filter as HTMLInputElement, 'delete');
+    await key(filter, { key: 'Enter', code: 'Enter' });
+    const dlg = await screen.findByRole('dialog', { name: 'Delete this address?' });
+    const confirm = within(dlg).getByRole('button', { name: 'Delete' });
+    await waitFor(() => expect(confirm).toHaveFocus());
+    for (let i = 0; i < 4; i++) {
+      const notCancelled = await key(confirm, { key: 'Enter', code: 'Enter', repeat: true });
+      expect(notCancelled).toBe(false); // the native button activation is suppressed too
+    }
+    await key(confirm, { key: 'Enter', code: 'Enter' }); // fresh, but inside the guard window
+    await fireEvent.click(confirm); // keyboard-generated click (detail 0) inside the guard
+    expect(store.remove).not.toHaveBeenCalled();
+    await pastGuard();
+    await key(confirm, { key: 'Enter', code: 'Enter', repeat: true });
+    expect(store.remove).not.toHaveBeenCalled();
+    await key(confirm, { key: 'Enter', code: 'Enter' });
+    expect(store.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('held Alt+N opens one dialog', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'n', code: 'KeyN', altKey: true });
+    for (let i = 0; i < 4; i++) await key(search(), { key: 'n', code: 'KeyN', altKey: true, repeat: true });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(store.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('navigation keys still auto-repeat', async () => {
+    setList(many(20));
+    render(Palette);
+    await tick();
+    for (let i = 0; i < 3; i++) await key(search(), { key: 'ArrowDown', code: 'ArrowDown', repeat: true });
+    expect(selected()).toHaveAttribute('aria-posinset', '4');
+  });
+
+  it('Alt+Backspace in a non-empty search is left to the browser (delete word) and opens nothing', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await type(search(), 'Label 1');
+    search().setSelectionRange(7, 7);
+    const notCancelled = await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
+    expect(notCancelled).toBe(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // caret at the start with no selection: the shortcut applies
+    search().setSelectionRange(0, 0);
+    await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
+    expect(dialog('Delete this address?')).toBeInTheDocument();
+  });
+
+  it('Alt+Backspace with an empty search opens the delete confirmation; help describes it', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
+    const dlg = dialog('Delete this address?');
+    await key(dlg, { key: 'Escape', code: 'Escape' });
+    await key(search(), { key: '?', code: 'Slash', shiftKey: true });
+    expect(dialog('Keyboard shortcuts')).toHaveTextContent('Delete alias (when the search box is empty)');
+  });
+
+  it('macOS dead key: Option+N with keyCode 229 opens the dialog and leaves the search value alone', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await type(search(), 'ab');
+    const notCancelled = await key(search(), { key: 'Dead', code: 'KeyN', altKey: true, keyCode: 229 });
+    expect(notCancelled).toBe(false);
+    expect(dialog('New alias')).toBeInTheDocument();
+    // a composition that slipped through right after the combo is undone
+    await fireEvent.compositionStart(search());
+    await fireEvent.input(search(), { target: { value: 'ab˜' } });
+    await fireEvent.compositionEnd(search());
+    await tick();
+    expect(search().value).toBe('ab');
+  });
+
+  it('real IME composition still ignores shortcuts', async () => {
+    setList(many(3));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'n', code: 'KeyN', altKey: true, isComposing: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a failed mutation with an empty list does not show the load error state', async () => {
+    render(Palette);
+    await tick();
+    store.__patch({ error: 'rate_limited', loadError: null });
+    await tick();
+    expect(screen.queryByText("Couldn't load your aliases.")).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.getByText('No aliases yet. Press Alt+N to create your first one.')).toBeInTheDocument();
+  });
+
+  it('scrolling into view accounts for the list padding', async () => {
+    setList(many(200));
+    render(Palette);
+    await tick();
+    expect(screen.getByTestId('palette-root').style.getPropertyValue('--list-pad')).toBe(`${LIST_PADDING}px`);
+    await key(search(), { key: 'End', code: 'End' });
+    expect(listbox().scrollTop).toBe(200 * ROW_HEIGHT + 2 * LIST_PADDING - FALLBACK_VIEWPORT);
+    await key(search(), { key: 'Home', code: 'Home' });
+    expect(listbox().scrollTop).toBe(0);
+  });
+
+  it('status filter buttons are 44px touch targets', () => {
+    const src = readFileSync(resolve(import.meta.dirname, '../src/components/Palette.svelte'), 'utf8');
+    expect(src).toMatch(/\.seg button\s*\{[^}]*min-height:\s*44px/);
+  });
+
+  it('result-count announcement is debounced (~300 ms, trailing)', async () => {
+    vi.useFakeTimers();
+    try {
+      setList(many(12));
+      render(Palette);
+      await tick();
+      const live = screen.getByTestId('result-count');
+      expect(live).toHaveTextContent('12 results');
+      await type(search(), 'Label 1');
+      await vi.advanceTimersByTimeAsync(150);
+      await type(search(), 'Label 11');
+      await vi.advanceTimersByTimeAsync(299);
+      expect(live).toHaveTextContent('12 results');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(live).toHaveTextContent(/^1 result$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('edit and forward-to dialogs ignore auto-repeated Enter', async () => {
+    setList([alias(1, { label: 'Old' })]);
+    store.update.mockRejectedValueOnce(new ApiError(502, 'apple_unreachable'));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'e', code: 'KeyE', altKey: true });
+    const label = within(dialog('Edit alias')).getByLabelText('Label');
+    await key(label, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(within(dialog('Edit alias')).getByRole('alert')).toHaveTextContent("Can't reach Apple"));
+    for (let i = 0; i < 4; i++) await key(label, { key: 'Enter', code: 'Enter', repeat: true });
+    const note = within(dialog('Edit alias')).getByLabelText('Note');
+    await key(note, { key: 'Enter', code: 'Enter', metaKey: true, repeat: true });
+    expect(store.update).toHaveBeenCalledTimes(1);
+    await key(label, { key: 'Escape', code: 'Escape' });
+
+    store.setForwardTo.mockRejectedValueOnce(new ApiError(502, 'apple_unreachable'));
+    await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+    await fireEvent.click(within(dialog('Actions')).getByRole('option', { name: /Change forward-to/ }));
+    const fwd = within(await screen.findByRole('dialog', { name: 'Change forward-to address' })).getByLabelText('Forward to');
+    await key(fwd, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(store.setForwardTo).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Change forward-to address' })).toHaveTextContent("Can't reach Apple"));
+    for (let i = 0; i < 4; i++) await key(fwd, { key: 'Enter', code: 'Enter', repeat: true });
+    expect(store.setForwardTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('the actions menu ignores auto-repeated Enter', async () => {
+    setList(many(2));
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+    const filter = within(dialog('Actions')).getByRole('combobox', { name: 'Filter actions' });
+    await type(filter as HTMLInputElement, 'refr');
+    await key(filter, { key: 'Enter', code: 'Enter', repeat: true });
+    expect(store.refresh).not.toHaveBeenCalled();
+    expect(dialog('Actions')).toBeInTheDocument();
   });
 });
