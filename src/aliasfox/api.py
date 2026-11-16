@@ -115,7 +115,9 @@ def build_router(
     last_refresh: dict[int, float] = {}
 
     def key_of(request: Request) -> str:
-        return limiter_key(client_ip(request, trusted_proxy=settings.trusted_proxy))
+        return limiter_key(client_ip(
+                request, trusted_proxy=settings.trusted_proxy, hops=settings.trusted_proxy_hops
+            ))
 
     def _create_limited(user_id: int) -> JSONResponse | None:
         key = str(user_id)

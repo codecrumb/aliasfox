@@ -43,6 +43,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK"),
     )
     trusted_proxy: bool = Field(False, validation_alias=_env("TRUSTED_PROXY"))
+    trusted_proxy_hops: int = Field(1, ge=1, validation_alias=_env("TRUSTED_PROXY_HOPS"))
     host: str = Field("127.0.0.1", validation_alias=_env("HOST"))
     port: int = Field(8080, validation_alias=_env("PORT"))
 

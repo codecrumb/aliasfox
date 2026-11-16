@@ -31,19 +31,21 @@ class LoginBody(BaseModel):
     password: str = Field(max_length=1024)
 
 
-def client_ip(request: Request, *, trusted_proxy: bool) -> str:
+def client_ip(request: Request, *, trusted_proxy: bool, hops: int = 1) -> str:
     """Best-effort client address for throttling.
 
-    With a trusted proxy we use the RIGHTMOST X-Forwarded-For entry: a single
-    trusted proxy appends the real peer to the end, while earlier entries are
-    client-controlled and spoofable. Render's actual proxy behaviour is
-    unverified.
+    With trusted proxies we use the `hops`-th X-Forwarded-For entry from the
+    right: each trusted proxy appends the address it saw, while entries further
+    left are client-controlled and spoofable. `hops` must equal the number of
+    trusted proxies in front of us (Render's actual chain is unverified). If
+    the header has fewer entries than that, it was not built by our chain and
+    we fall back to the socket peer.
     """
     if trusted_proxy:
         parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",")]
         parts = [p for p in parts if p]
-        if parts:
-            return parts[-1]
+        if len(parts) >= hops:
+            return parts[-hops]
     return request.client.host if request.client else "unknown"
 
 
@@ -187,7 +189,9 @@ def install_auth(
 
     @app.post("/api/auth/login")
     def login(body: LoginBody, request: Request, response: Response):
-        ip = limiter_key(client_ip(request, trusted_proxy=settings.trusted_proxy))
+        ip = limiter_key(client_ip(
+                request, trusted_proxy=settings.trusted_proxy, hops=settings.trusted_proxy_hops
+            ))
         # Reserve a slot atomically BEFORE verifying; a success gives it back,
         # so only failures stay counted (and concurrent guesses cannot race past).
         if not limiter.hit(ip):

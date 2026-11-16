@@ -600,3 +600,38 @@ def test_create_app_wires_db_epochs_so_logout_survives_restart(tmp_path, pw_hash
     restarted = client(create_app(settings), base="http://localhost")
     restarted.cookies.set("aliasfox_session", stolen)
     assert restarted.get("/api/status").status_code == 401
+
+
+# --- B7: trusted_proxy_hops -------------------------------------------------------------
+
+
+def test_client_ip_nth_from_right():
+    r = Req({"x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3, 4.4.4.4"})
+    assert client_ip(r, trusted_proxy=True, hops=1) == "4.4.4.4"
+    assert client_ip(r, trusted_proxy=True, hops=2) == "3.3.3.3"
+    assert client_ip(r, trusted_proxy=True, hops=4) == "1.1.1.1"
+    assert client_ip(r, trusted_proxy=False, hops=2) == "10.0.0.1"
+
+
+def test_client_ip_fewer_entries_than_hops_falls_back_to_peer():
+    r = Req({"x-forwarded-for": "1.1.1.1, 2.2.2.2"})
+    assert client_ip(r, trusted_proxy=True, hops=3) == "10.0.0.1"
+
+
+def test_trusted_proxy_hops_setting_default_and_env(monkeypatch):
+    assert Settings().trusted_proxy_hops == 1
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "2")
+    assert Settings().trusted_proxy_hops == 2
+    with pytest.raises(ValueError):
+        Settings(trusted_proxy_hops=0)
+
+
+def test_login_throttle_uses_configured_hops(pw_hash):
+    c = client(build(pw_hash, trusted_proxy=True, trusted_proxy_hops=2))
+    for i in range(5):
+        # client-controlled left entry rotates; the 2nd-from-right (the real client) is constant
+        login(c, "bad", headers={"X-Forwarded-For": f"9.9.9.{i}, 7.7.7.7, 10.1.1.1"})
+    r = login(c, "bad", headers={"X-Forwarded-For": "1.1.1.1, 7.7.7.7, 10.1.1.1"})
+    assert r.status_code == 429
+    r = login(c, "bad", headers={"X-Forwarded-For": "1.1.1.1, 8.8.8.8, 10.1.1.1"})
+    assert r.status_code == 401
