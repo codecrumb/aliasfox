@@ -203,3 +203,12 @@ CSS and typography within "minimal, dark, fast", Docker base image and multi-sta
   - Multi-user (plan 3): the user id comes only from the signed login cookie, never from request input; tests prove user A cannot read or modify user B's session or aliases.
 - A general security audit by a Sonnet subagent (not Opus/Fable, owner's choice) after Task 10, covering the above.
 - Spike results (2026-11-16, see docs/spike-results.md): HME list returns all aliases in one response; dsid, clientBuildNumber and clientId are not required; Apple rotates cookies during a session; list latency 1.2-2.4 s for 411 aliases, so the UI always renders its cache first. Advanced Data Protection is off for the owner's account.
+
+### 10.1 Connect-to-Apple flow UX (owner's notes, for plan 2)
+
+- Steps: Apple ID (email) first, then password, then the 2FA code. Each step is its own screen, or the same screen with the next field appearing below; the designer's call is separate screens with a transition.
+- Transition: the incoming screen slides in from the right to the left. The elements do not move in lockstep: it is slightly diagonal, with the elements nearer the top starting and finishing a little before the ones nearer the bottom.
+- Code entry: six boxes, the way Apple's own devices show the passcode, visually grouped 3 + 3 with a small gap between the groups (display only; the code is still six digits).
+- Wrong code: the whole six-box group shakes briefly (like Telegram) and turns red, and stays red until the user starts typing again, after which it returns to the normal colour.
+- Accessibility (designer's addition): honour `prefers-reduced-motion` (no slide or shake; use a colour change only), keep focus on the active field, announce the error to screen readers, and make every step usable with the keyboard alone (Enter advances, Backspace in an empty box moves back).
+- Security note: the password field uses `autocomplete="current-password"`; the Apple password is sent once to `/api/connect/login` and never stored client-side.
