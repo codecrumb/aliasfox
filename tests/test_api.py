@@ -350,3 +350,63 @@ def test_status_reports_unreadable_not_500(client, svc):
 
 def test_status_has_no_reason_normally(client, svc):
     assert "reason" not in client.get("/api/status").json()
+
+
+# --- B6: per-user limits on Apple-hitting calls ---------------------------------------
+
+
+class Now:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def now(monkeypatch):
+    import aliasfox.api as api_mod
+
+    n = Now()
+    monkeypatch.setattr(api_mod, "_now", n)
+    return n
+
+
+def test_refresh_honours_five_second_minimum_interval(client, svc, now):
+    client.get("/api/aliases?refresh=true")
+    now.t += 4.9
+    r = client.get("/api/aliases?refresh=true")
+    assert r.status_code == 200  # served, from the cache path
+    now.t += 0.2
+    client.get("/api/aliases?refresh=true")
+    assert [c[2]["refresh"] for c in svc.calls] == [True, False, True]
+
+
+def test_early_refresh_does_not_extend_the_window(client, svc, now):
+    client.get("/api/aliases?refresh=true")
+    for _ in range(3):
+        now.t += 1.9
+        client.get("/api/aliases?refresh=true")
+    assert [c[2]["refresh"] for c in svc.calls][-1] is True  # 5.7 s since the last real refresh
+
+
+def test_generate_and_reserve_share_ten_per_minute(client, svc, now):
+    for i in range(5):
+        assert client.post("/api/aliases/generate").status_code == 200
+    for i in range(5):
+        assert client.post("/api/aliases", json={"hme": "a@icloud.com", "label": "L"}).status_code == 200
+    n_calls = len(svc.calls)
+    r = client.post("/api/aliases/generate")
+    assert r.status_code == 429
+    assert r.json() == {"detail": "rate_limited"}
+    assert int(r.headers["retry-after"]) >= 1
+    assert client.post("/api/aliases", json={"hme": "a@icloud.com", "label": "L"}).status_code == 429
+    assert len(svc.calls) == n_calls  # no Apple call made
+    now.t += 61
+    assert client.post("/api/aliases/generate").status_code == 200
+
+
+def test_other_mutations_and_plain_list_not_limited(client, svc, now):
+    for _ in range(15):
+        assert client.get("/api/aliases").status_code == 200
+        assert client.delete("/api/aliases/id1").status_code == 200

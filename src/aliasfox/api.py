@@ -1,6 +1,7 @@
 """JSON API for Hide My Email aliases. Every route requires `current_user`; the
 user id handed to the service comes only from there, never from request input."""
 
+import time
 from typing import Annotated
 
 from fastapi.exceptions import RequestValidationError
@@ -28,6 +29,12 @@ LOGIN_PER_IP = 5
 LOGIN_GLOBAL = 15
 VERIFY_PER_IP = 10
 HME_MESSAGE_MAX = 200
+REFRESH_MIN_INTERVAL = 5.0
+CREATE_PER_MINUTE = 10
+
+
+def _now() -> float:
+    return time.monotonic()
 
 AliasId = Annotated[str, Path(min_length=1, max_length=128)]
 
@@ -104,23 +111,42 @@ def build_router(
     verify_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     cookie_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     global_key = "global"
+    create_limit = RateLimiter(CREATE_PER_MINUTE, 60, clock=lambda: _now())
+    last_refresh: dict[int, float] = {}
 
     def key_of(request: Request) -> str:
         return limiter_key(client_ip(request, trusted_proxy=settings.trusted_proxy))
+
+    def _create_limited(user_id: int) -> JSONResponse | None:
+        key = str(user_id)
+        if not create_limit.hit(key):
+            return _rate_limited(create_limit.retry_after(key))
+        return None
 
     router = APIRouter(prefix="/api")
     User = Annotated[int, Depends(current_user)]
 
     @router.get("/aliases")
     async def list_aliases(user_id: User, refresh: bool = False):
+        if refresh:
+            now = _now()
+            last = last_refresh.get(user_id)
+            if last is not None and now - last < REFRESH_MIN_INTERVAL:
+                refresh = False  # too soon: serve the cache
+            else:
+                last_refresh[user_id] = now
         return [alias_json(a) for a in await service.list_aliases(user_id, refresh=refresh)]
 
     @router.post("/aliases/generate")
     async def generate(user_id: User):
+        if (limited := _create_limited(user_id)) is not None:
+            return limited
         return {"hme": await service.generate(user_id)}
 
     @router.post("/aliases")
     async def reserve(body: ReserveBody, user_id: User):
+        if (limited := _create_limited(user_id)) is not None:
+            return limited
         return alias_json(await service.reserve(user_id, body.hme, body.label, body.note))
 
     @router.patch("/aliases/{alias_id}")
