@@ -20,6 +20,7 @@ from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
 )
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
+from aliasfox.web import install_web
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ def create_app(
 
     app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
+    install_web(app)  # after the API router: its catch-all must not shadow /api
     # add_middleware: last added is outermost.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(BodyLimitMiddleware)
