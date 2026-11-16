@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Engine, LargeBinary, create_engine
+from sqlalchemy import DateTime, Engine, LargeBinary, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from aliasfox.config import Settings
@@ -22,6 +22,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Bumped on logout; signed into the session cookie so logout revokes every
+    # outstanding cookie ("log out everywhere").
+    session_epoch: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class AppleSessionRow(Base):
@@ -53,6 +56,12 @@ def make_engine(settings: Settings) -> Engine:
 
 def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
+    # Minimal dev-DB upgrade until plan 3 introduces Alembic migrations.
+    if "session_epoch" not in {c["name"] for c in inspect(engine).get_columns("users")}:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0")
+            )
     with Session(engine) as s, s.begin():
         if s.get(User, DEFAULT_USER_ID) is None:
             s.add(User(id=DEFAULT_USER_ID))

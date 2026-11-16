@@ -13,7 +13,7 @@ from aliasfox.config import ConfigError, Settings
 from aliasfox.crypto import derive_key, hash_password
 
 PASSWORD = "correct horse battery staple"
-SECRET = "unit-test-secret-key"
+SECRET = "unit-test-secret-key-0123456789abcdef"
 
 
 @pytest.fixture(scope="module")
@@ -219,13 +219,13 @@ def test_cookie_signed_with_other_key_rejected(pw_hash):
 
 def test_wrong_payload_rejected(pw_hash):
     c = client(build(pw_hash))
-    c.cookies.set("aliasfox_session", serializer().dumps({"u": 2}))
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 2, "e": 0}))
     assert c.get("/api/protected").status_code == 401
 
 
 def test_expired_cookie_rejected(pw_hash, monkeypatch):
     c = client(build(pw_hash))
-    c.cookies.set("aliasfox_session", serializer().dumps({"u": 1}))
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 1, "e": 0}))
     assert c.get("/api/protected").status_code == 200
     real = time.time
     monkeypatch.setattr(time, "time", lambda: real() + 7 * 86400 + 60)
@@ -491,3 +491,112 @@ def test_limiter_key_maps_ipv4_mapped_ipv6_to_ipv4():
     assert limiter_key("::ffff:203.0.113.8") != limiter_key("::ffff:203.0.113.7")
     assert limiter_key("203.0.113.7") == "203.0.113.7"
     assert limiter_key("2001:db8::1") == limiter_key("2001:db8::2")  # /64 still collapses
+
+
+# --- A4: revocable sessions (session epoch) ---------------------------------------
+
+
+def test_cookie_payload_carries_epoch(pw_hash):
+    app = build(pw_hash)
+    c = client(app)
+    login(c)
+    assert serializer().loads(c.cookies["aliasfox_session"]) == {"u": 1, "e": 0}
+    app.state.epochs.bump(1)
+    c2 = client(app)
+    login(c2)
+    assert serializer().loads(c2.cookies["aliasfox_session"]) == {"u": 1, "e": 1}
+
+
+def test_replayed_cookie_after_logout_is_401(pw_hash):
+    c = client(build(pw_hash))
+    login(c)
+    stolen = c.cookies["aliasfox_session"]
+    assert c.get("/api/protected").status_code == 200
+    assert c.post("/api/auth/logout").status_code == 200
+    replay = client(c.app)
+    replay.cookies.set("aliasfox_session", stolen)
+    assert replay.get("/api/protected").status_code == 401
+
+
+def test_logout_revokes_every_outstanding_cookie(pw_hash):
+    app = build(pw_hash)
+    laptop, phone = client(app), client(app)
+    login(laptop)
+    login(phone)
+    assert phone.get("/api/protected").status_code == 200
+    laptop.post("/api/auth/logout")
+    assert phone.get("/api/protected").status_code == 401
+    # a fresh login works again and carries the new epoch
+    assert login(laptop).status_code == 200
+    assert laptop.get("/api/protected").status_code == 200
+
+
+def test_epoch_mismatch_is_401(pw_hash):
+    app = build(pw_hash)
+    c = client(app)
+    for bad in (1, -1, 7, "0", None, True):
+        c.cookies.set("aliasfox_session", serializer().dumps({"u": 1, "e": bad}))
+        assert c.get("/api/protected").status_code == 401, bad
+
+
+def test_cookie_without_epoch_rejected(pw_hash):
+    c = client(build(pw_hash))
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 1}))
+    assert c.get("/api/protected").status_code == 401
+
+
+def test_unauthenticated_or_stale_logout_does_not_bump_epoch(pw_hash):
+    app = build(pw_hash)
+    anon = client(app)
+    assert anon.post("/api/auth/logout").status_code == 200
+    assert app.state.epochs.get(1) == 0
+    stale = client(app)
+    stale.cookies.set("aliasfox_session", serializer().dumps({"u": 1, "e": 3}))
+    stale.post("/api/auth/logout")
+    assert app.state.epochs.get(1) == 0
+
+
+def test_db_epoch_store_and_current_user(tmp_path):
+    from aliasfox.auth import DbEpochs
+    from aliasfox.db import init_db, make_engine
+
+    engine = make_engine(Settings(secret_key=SECRET, data_dir=tmp_path))
+    init_db(engine)
+    epochs = DbEpochs(engine)
+    assert epochs.get(1) == 0
+    assert epochs.bump(1) == 1
+    assert epochs.get(1) == 1
+    assert epochs.get(999) is None
+
+
+def test_init_db_adds_missing_epoch_column_to_old_dev_db(tmp_path):
+    import sqlite3
+
+    from aliasfox.db import init_db, make_engine
+
+    path = tmp_path / "aliasfox.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR, created_at DATETIME)")
+    con.execute("INSERT INTO users (id) VALUES (1)")
+    con.commit()
+    con.close()
+    engine = make_engine(Settings(secret_key=SECRET, data_dir=tmp_path))
+    init_db(engine)
+    from aliasfox.auth import DbEpochs
+
+    assert DbEpochs(engine).get(1) == 0
+
+
+def test_create_app_wires_db_epochs_so_logout_survives_restart(tmp_path, pw_hash):
+    from aliasfox.main import create_app
+
+    settings = Settings(
+        secret_key=SECRET, data_dir=tmp_path, auth_enabled=True, password_hash=pw_hash
+    )
+    c = client(create_app(settings), base="http://localhost")
+    login(c)
+    stolen = c.cookies["aliasfox_session"]
+    c.post("/api/auth/logout")
+    restarted = client(create_app(settings), base="http://localhost")
+    restarted.cookies.set("aliasfox_session", stolen)
+    assert restarted.get("/api/status").status_code == 401

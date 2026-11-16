@@ -6,8 +6,11 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
+from sqlalchemy import Engine, update
+from sqlalchemy.orm import Session
 
 from aliasfox.config import ConfigError, Settings
+from aliasfox.db import User
 from aliasfox.crypto import derive_key, verify_password
 from aliasfox.middleware import scope_is_https
 from aliasfox.ratelimit import RateLimiter
@@ -57,6 +60,60 @@ def limiter_key(ip: str) -> str:
     return str(addr)
 
 
+class MemoryEpochs:
+    """Process-local epochs for apps without a database (unit tests)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._epochs = {USER_ID: 0}
+
+    def get(self, user_id: int) -> int | None:
+        return self._epochs.get(user_id)
+
+    def bump(self, user_id: int) -> int:
+        with self._lock:
+            self._epochs[user_id] = self._epochs.get(user_id, 0) + 1
+            return self._epochs[user_id]
+
+
+class DbEpochs:
+    """`users.session_epoch`, read on every authenticated request."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def get(self, user_id: int) -> int | None:
+        with Session(self._engine) as s:
+            return s.query(User.session_epoch).filter(User.id == user_id).scalar()
+
+    def bump(self, user_id: int) -> int:
+        with Session(self._engine) as s, s.begin():
+            s.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(session_epoch=User.session_epoch + 1)
+            )
+            return s.query(User.session_epoch).filter(User.id == user_id).scalar()
+
+
+def _valid_epoch(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _cookie_is_valid(request: Request, settings: Settings) -> bool:
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return False
+    try:
+        data = _serializer(settings).loads(token, max_age=COOKIE_MAX_AGE)
+    except BadSignature:  # includes SignatureExpired
+        return False
+    if not isinstance(data, dict) or data.get("u") != USER_ID or not _valid_epoch(data.get("e")):
+        return False
+    current = request.app.state.epochs.get(USER_ID)
+    return current is not None and data["e"] == current
+
+
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     if not settings.secret_key:
         raise ConfigError("ALIASFOX_SECRET_KEY is required for auth")
@@ -96,20 +153,17 @@ def current_user(request: Request) -> int:
     settings: Settings = request.app.state.settings
     if not settings.auth_enabled:
         return USER_ID
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        try:
-            data = _serializer(settings).loads(token, max_age=COOKIE_MAX_AGE)
-        except BadSignature:  # includes SignatureExpired
-            data = None
-        if isinstance(data, dict) and data.get("u") == USER_ID:
-            return USER_ID
+    if _cookie_is_valid(request, settings):
+        return USER_ID
     raise HTTPException(status_code=401, detail="not_authenticated")
 
 
-def install_auth(app: FastAPI, settings: Settings) -> None:
+def install_auth(
+    app: FastAPI, settings: Settings, epochs: MemoryEpochs | DbEpochs | None = None
+) -> None:
     _serializer(settings)  # fail fast: no fallback signing key
     app.state.settings = settings
+    app.state.epochs = epochs or MemoryEpochs()
     app.state.login_limiter = limiter = RateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
     # Process-wide bound on concurrent password verifications. There is
     # deliberately NO global failure lockout: a few attacker IPs could keep the
@@ -153,9 +207,12 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
         if not ok:
             return JSONResponse({"detail": "invalid_credentials"}, status_code=401)
         limiter.release(ip)
+        epoch = request.app.state.epochs.get(USER_ID)
+        if epoch is None:
+            return JSONResponse({"detail": "invalid_credentials"}, status_code=401)
         response.set_cookie(
             COOKIE_NAME,
-            _serializer(settings).dumps({"u": USER_ID}),
+            _serializer(settings).dumps({"u": USER_ID, "e": epoch}),
             max_age=COOKIE_MAX_AGE,
             httponly=True,
             samesite="strict",
@@ -166,6 +223,11 @@ def install_auth(app: FastAPI, settings: Settings) -> None:
 
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response):
+        # "Logout = log out everywhere": bumping the epoch invalidates every
+        # outstanding cookie. Only a valid cookie may bump it, so an anonymous
+        # caller cannot kick the owner out.
+        if _cookie_is_valid(request, settings):
+            request.app.state.epochs.bump(USER_ID)
         response.delete_cookie(
             COOKIE_NAME,
             httponly=True,

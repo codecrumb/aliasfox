@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from aliasfox.api import build_router, install_error_handlers
 from aliasfox.apple.connect import seed_from_env
 from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
-from aliasfox.auth import install_auth
+from aliasfox.auth import DbEpochs, install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.crypto import derive_key
 from aliasfox.db import init_db, make_engine
@@ -66,9 +66,11 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     validate_startup(settings)
+    epochs = None
     if service is None:
         engine = make_engine(settings)
         init_db(engine)
+        epochs = DbEpochs(engine)
         store = SessionStore(engine, derive_key(settings.secret_key))
         service = AliasService(store)
     flow = login_flow or LoginFlow()
@@ -80,7 +82,7 @@ def create_app(
         openapi_url=None,
         redirect_slashes=False,  # no scheme-downgrading redirects
     )
-    install_auth(app, settings)
+    install_auth(app, settings, epochs)
 
     @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz() -> dict[str, str]:
