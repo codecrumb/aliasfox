@@ -12,6 +12,7 @@ Security notes:
 """
 
 import logging
+import os
 import secrets
 import shutil
 import tempfile
@@ -80,6 +81,34 @@ def _rmdir(path: str) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+LOGIN_DIR_PREFIX = "aliasfox-login-"
+
+
+def cleanup_stale_login_dirs(max_age_seconds: float) -> int:
+    """Remove leftover `aliasfox-login-*` dirs in the temp dir older than the
+    given age (e.g. from a crash). Touches nothing else. Returns the count."""
+    root = tempfile.gettempdir()
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith(LOGIN_DIR_PREFIX):
+            continue
+        path = os.path.join(root, name)
+        try:
+            if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            if os.stat(path).st_mtime < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def _build_state(api) -> AppleSessionState:
     cookies = {str(c.name): str(c.value) for c in api.session.cookies}
     ws = api.webservices
@@ -121,6 +150,21 @@ class LoginFlow:
         self._flows: dict[str, _Flow] = {}
         self._starting = 0  # slots reserved by in-progress start() calls
 
+    @property
+    def ttl_seconds(self) -> float:
+        return self._ttl
+
+    def sweep(self) -> None:
+        self._sweep()
+
+    def shutdown(self) -> None:
+        """Destroy every pending flow (app shutdown), removing all temp dirs."""
+        with self._lock:
+            flows = list(self._flows.values())
+            self._flows.clear()
+        for flow in flows:
+            self._destroy(flow)
+
     def _sweep(self) -> None:
         """Remove expired flows. A flow whose lock is held is mid-verify: leave
         it (verify removes its own directory) so pyicloud never writes tokens
@@ -161,7 +205,7 @@ class LoginFlow:
         directory: str | None = None
         keep = False
         try:
-            directory = tempfile.mkdtemp(prefix="aliasfox-login-")  # mode 0700
+            directory = tempfile.mkdtemp(prefix=LOGIN_DIR_PREFIX)  # mode 0700
             try:
                 api = self._factory(
                     apple_id, password, cookie_directory=directory, china_mainland=china

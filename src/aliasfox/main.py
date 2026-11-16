@@ -1,7 +1,13 @@
+import asyncio
+import contextlib
+import logging
+
 from fastapi import FastAPI, Request
+from starlette.concurrency import run_in_threadpool
 
 from aliasfox.api import build_router, install_error_handlers
-from aliasfox.apple.login import LoginFlow
+from aliasfox.apple.connect import seed_from_env
+from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
 from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.crypto import derive_key
@@ -9,6 +15,9 @@ from aliasfox.db import init_db, make_engine
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
 
+log = logging.getLogger(__name__)
+
+SWEEP_INTERVAL_SECONDS = 60
 
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -35,6 +44,37 @@ def install_security_headers(app: FastAPI) -> None:
         return response
 
 
+def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlow):
+    async def sweep_loop() -> None:
+        while True:
+            await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+            try:
+                await run_in_threadpool(flow.sweep)
+            except Exception as exc:
+                log.warning("login flow sweep failed: %s", type(exc).__name__)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI):
+        cleanup_stale_login_dirs(flow.ttl_seconds)
+        # pyicloud logs the Apple ID at DEBUG.
+        logging.getLogger("pyicloud").setLevel(logging.WARNING)
+        if settings.icloud_cookie and store is not None:
+            try:
+                await run_in_threadpool(seed_from_env, settings, store)
+            except Exception as exc:  # never crash startup; never log cookie text
+                log.warning("ICLOUD_COOKIE seed failed: %s", type(exc).__name__)
+        task = asyncio.create_task(sweep_loop())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            await run_in_threadpool(flow.shutdown)
+
+    return lifespan
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -49,14 +89,15 @@ def create_app(
         init_db(engine)
         store = SessionStore(engine, derive_key(settings.secret_key))
         service = AliasService(store)
-    app = FastAPI(title="AliasFox")
+    flow = login_flow or LoginFlow()
+    app = FastAPI(title="AliasFox", lifespan=make_lifespan(settings, store, flow))
     install_auth(app, settings)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(build_router(service, store, settings, login_flow or LoginFlow()))
+    app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
     install_security_headers(app)
     return app
