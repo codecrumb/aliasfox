@@ -20,12 +20,12 @@ Record names, counts, booleans and timings only. No addresses, labels, notes, co
 
 Note: if the script is killed (terminal closed / SIGKILL), delete any leftover `$TMPDIR/aliasfox-spike-*` directories because they may contain session tokens.
 
-- [ ] Login works: 
-- [ ] 2FA required, and kind (trusted device / SMS / security key): 
-- [ ] Cookie names pyicloud exposes (names only): 
-- [ ] `premiummailsettings` web-service URL available (host name only): 
-- [ ] `api.hidemyemail` lists (count only): 
-- [ ] What `login.py` can extract from the session for cookies and webservices URL: 
+- [x] Login works: yes (2026-11-16)
+- [x] 2FA required, and kind (trusted device / SMS / security key): yes, trusted_device; `request_2fa_code()` raised PyiCloudAPIResponseException but Apple had already pushed the code to the device, so login.py must treat that failure as non-fatal
+- [x] Cookie names pyicloud exposes (names only): DES<hash>, X-APPLE-DS-WEB-SESSION-TOKEN, X-APPLE-UNIQUE-CLIENT-ID, X-APPLE-WEBAUTH-HSA-TRUST, -LOGIN, -PCS-* (Cloudkit, Documents, Events, Mail, News, Notes, Photos, Safari, Sharing), -TOKEN, -USER, -VALIDATE, X_APPLE_WEB_KB-*, aasp, acn01, dslang, site
+- [x] `premiummailsettings` web-service URL available (host name only): yes, p185-maildomainws.icloud.com
+- [x] `api.hidemyemail` lists (count only): 411 (matches the cookie spike)
+- [x] What `login.py` can extract from the session for cookies and webservices URL: cookies from the session cookie jar; session data keys account_country, apple_ercd, auth_attributes, client_id, grant_code, scnt, session_id, session_token, trust_eligible, trust_token; premiummailsettings URL and dsid from the accountLogin data (the spike script shows the accessors)
 - [ ] Apple challenges datacenter IPs (deferred to the Render deploy): 
 
 ## Requires a write test — needs explicit owner consent — not part of this spike
@@ -35,7 +35,7 @@ Note: if the script is killed (terminal closed / SIGKILL), delete any leftover `
 
 ## Decision
 
-- [ ] Both paths work, proceed to Task 9
+- [x] Both paths work, proceed to Task 9
 - [ ] A path failed, revisit design (fallback: SRP flow from icloud-prime)
 
 Notes: 
