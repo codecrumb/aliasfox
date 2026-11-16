@@ -7,6 +7,7 @@ below so a live spike can adjust them in one place.
 
 import json
 import time
+from urllib.parse import urlsplit
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
@@ -104,6 +105,45 @@ class SessionExpired(HmeError):
     pass
 
 
+class UntrustedAppleUrl(HmeError):
+    """A webservices URL outside the iCloud allow-list. Never echoes the URL."""
+
+    def __init__(self) -> None:
+        super().__init__("untrusted_url", "service url is not an iCloud host")
+
+
+_ALLOWED_SUFFIXES = (".icloud.com", ".icloud.com.cn")
+
+
+def check_webservices_url(url: object) -> str:
+    """https only, no userinfo, default port, host ends in `.icloud.com[.cn]`.
+
+    Guards the cookie-bearing requests against a poisoned validate response or
+    tampered stored state (SSRF / cookie exfiltration)."""
+    if not isinstance(url, str) or not url:
+        raise UntrustedAppleUrl()
+    if any(ch in url for ch in "\\ \t\r\n") or not url.isascii():
+        raise UntrustedAppleUrl()
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+        parsed = httpx.URL(url)
+    except (ValueError, httpx.InvalidURL):
+        raise UntrustedAppleUrl() from None
+    if (
+        parts.scheme != "https"
+        or parts.username is not None
+        or parts.password is not None
+        or not host
+        or port not in (None, 443)
+        or not host.endswith(_ALLOWED_SUFFIXES)
+        or parsed.host.lower() != host.lower()  # parsers must agree on the host
+    ):
+        raise UntrustedAppleUrl()
+    return url
+
+
 @dataclass
 class Alias:
     anonymous_id: str
@@ -145,7 +185,11 @@ class HmeClient:
         self._state = state
         self._on_state_change = on_state_change
         self._http = httpx.Client(
-            base_url=state.webservices_url, transport=transport, timeout=30.0
+            base_url=check_webservices_url(state.webservices_url),
+            transport=transport,
+            timeout=30.0,
+            trust_env=False,
+            follow_redirects=False,
         )
 
     def close(self) -> None:

@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from aliasfox.apple.hme import UntrustedAppleUrl, check_webservices_url
 from aliasfox.sessions import AppleSessionState
 
 log = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ def _build_state(api) -> AppleSessionState:
     url = entry.get("url") if isinstance(entry, dict) else None
     if not isinstance(url, str) or not url:
         raise AppleLoginFailed()
+    check_webservices_url(url)
     data = getattr(api, "data", None)
     ds = data.get("dsInfo") if isinstance(data, dict) else None
     dsid = ds.get("dsid") if isinstance(ds, dict) else None
@@ -235,7 +237,7 @@ class LoginFlow:
                     self._flows[flow_id] = flow
                 keep = True
                 return LoginResult("needs_2fa", flow_id, None)
-            except AppleLoginFailed:
+            except (AppleLoginFailed, UntrustedAppleUrl):
                 raise
             except Exception as exc:
                 log.warning("apple login failed: %s", type(exc).__name__)
@@ -272,7 +274,7 @@ class LoginFlow:
                 raise InvalidCode()
             try:
                 state = _build_state(flow.service)
-            except AppleLoginFailed:
+            except (AppleLoginFailed, UntrustedAppleUrl):
                 raise
             except Exception as exc:
                 log.warning("apple login failed: %s", type(exc).__name__)

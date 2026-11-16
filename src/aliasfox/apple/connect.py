@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from aliasfox.apple.hme import apply_set_cookies
+from aliasfox.apple.hme import apply_set_cookies, check_webservices_url
 from aliasfox.sessions import AppleSessionState, SessionStore
 
 # --- Unverified Apple details -------------------------------------------------
@@ -118,7 +118,9 @@ def _validate(
         "Cookie": "; ".join(f"{k}={v}" for k, v in list(cookies.items())),
     }
     try:
-        with httpx.Client(transport=transport, timeout=30.0) as http:
+        with httpx.Client(
+            transport=transport, timeout=30.0, trust_env=False, follow_redirects=False
+        ) as http:
             resp = http.post(VALIDATE_URL, headers=headers)
     except (httpx.HTTPError, UnicodeError, ValueError) as exc:
         raise InvalidCookie(f"validate request failed: {type(exc).__name__}") from None
@@ -149,6 +151,7 @@ def connect_with_cookie(
             f"or {WEBAUTH_EXACT}"
         )
     url, dsid = _validate(cookies, transport)
+    check_webservices_url(url)
     return AppleSessionState(cookies=cookies, webservices_url=url, dsid=dsid)
 
 
