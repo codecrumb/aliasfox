@@ -526,8 +526,8 @@ describe('review fixes', () => {
     d2.resolve(mk(2, { hme: 'two@icloud.com' }));
     d1.resolve(mk(1, { hme: 'one@icloud.com' }));
     const [r1, r2] = await Promise.all([a1, a2]);
-    expect(r1.anonymous_id).toBe('id1');
-    expect(r2.anonymous_id).toBe('id2');
+    expect(r1?.anonymous_id).toBe('id1');
+    expect(r2?.anonymous_id).toBe('id2');
     expect(ids().sort()).toEqual(['id1', 'id2']);
   });
 
@@ -552,5 +552,33 @@ describe('review fixes', () => {
     expect(h.api.generate).toHaveBeenCalledTimes(1);
     h.api.generate.mockResolvedValue({ hme: 'h@icloud.com' });
     expect(await m.aliasStore.generate()).toBe('h@icloud.com');
+  });
+
+  it('loadError is set only by list fetch failures, never by mutation failures', async () => {
+    await loaded([mk(1)]);
+    expect(get(m.aliasStore).loadError).toBeNull();
+    h.api.generate.mockRejectedValueOnce(new m.ApiError(429, 'rate_limited'));
+    await expect(m.aliasStore.generate()).rejects.toBeTruthy();
+    h.api.setActive.mockRejectedValueOnce(new m.ApiError(502, 'apple_error'));
+    await expect(m.aliasStore.setActive('id1', false)).rejects.toBeTruthy();
+    expect(get(m.aliasStore).error).toBe('apple_error'); // backward compatible: last error of any kind
+    expect(get(m.aliasStore).loadError).toBeNull();
+    h.api.listAliases.mockRejectedValueOnce(new m.ApiError(502, 'apple_unreachable'));
+    await m.aliasStore.refresh();
+    expect(get(m.aliasStore).loadError).toBe('apple_unreachable');
+    h.api.listAliases.mockResolvedValueOnce([mk(1)]);
+    await m.aliasStore.refresh();
+    expect(get(m.aliasStore).loadError).toBeNull();
+  });
+
+  it('a reserve that settles after clear() resolves null instead of an unvalidated value', async () => {
+    await loaded([mk(1)]);
+    const d = deferred<unknown>();
+    h.api.reserve.mockReturnValueOnce(d.promise);
+    const p = m.aliasStore.reserve({ hme: 'g@icloud.com', label: 'a', note: '' });
+    await m.aliasStore.clear();
+    d.resolve(undefined);
+    await expect(p).resolves.toBeNull();
+    expect(get(m.aliasStore).list).toEqual([]);
   });
 });

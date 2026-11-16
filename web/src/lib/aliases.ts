@@ -10,7 +10,11 @@ export interface AliasState {
   list: Alias[];
   loading: boolean;
   refreshing: boolean;
+  /** Last error of any kind (kept for compatibility). */
   error: string | null;
+  /** Only list-load failures: drives the palette's "Couldn't load" state. Mutation failures are
+   * reported by the caller (toast or dialog) and never set this. */
+  loadError: string | null;
   fromCache: boolean;
   index: Index;
 }
@@ -21,6 +25,7 @@ function initialState(): AliasState {
     loading: false,
     refreshing: false,
     error: null,
+    loadError: null,
     fromCache: false,
     index: buildIndex([])
   };
@@ -36,7 +41,7 @@ let gen = 0;
 let mutSeq = 0;
 let initPromise: Promise<void> | null = null;
 let refreshPromise: Promise<void> | null = null;
-const reserves = new Map<string, Promise<Alias>>();
+const reserves = new Map<string, Promise<Alias | null>>();
 let generatePromise: Promise<string> | null = null;
 // Mutations currently awaiting their API call, plus waiters released when none are pending.
 let pendingMutations = 0;
@@ -87,8 +92,9 @@ function detailOf(e: unknown): string {
   return e instanceof ApiError ? e.detail : 'network_error';
 }
 
-function fail(e: unknown): void {
-  patchState({ error: detailOf(e) });
+function fail(e: unknown, load = false): void {
+  const d = detailOf(e);
+  patchState(load ? { error: d, loadError: d } : { error: d });
   if (e instanceof ApiError) sessionStore.onApiError(e);
 }
 
@@ -110,10 +116,10 @@ async function attempt(g: number, refresh: boolean): Promise<FetchOutcome> {
   if (g !== gen) return 'gone';
   if (pendingMutations > 0 || seq !== mutSeq) return 'stale';
   if (!validList(res)) {
-    patchState({ error: UNEXPECTED });
+    patchState({ error: UNEXPECTED, loadError: UNEXPECTED });
     return 'applied';
   }
-  setList(res, { fromCache: false, error: null });
+  setList(res, { fromCache: false, error: null, loadError: null });
   await persist(g);
   return 'applied';
 }
@@ -146,7 +152,7 @@ async function fetchAndApply(g: number, refresh: boolean): Promise<void> {
     for (let n = 0; out === 'stale' && n < MAX_REFETCHES; n++) out = await refetch(g);
   } catch (e) {
     if (g !== gen) return;
-    fail(e);
+    fail(e, true);
   } finally {
     if (g === gen) patchState({ refreshing: false, loading: false });
   }
@@ -154,7 +160,7 @@ async function fetchAndApply(g: number, refresh: boolean): Promise<void> {
 
 async function runInit(g: number): Promise<void> {
   const hadList = listNow().length > 0;
-  patchState({ loading: !hadList, error: null });
+  patchState({ loading: !hadList, error: null, loadError: null });
   const ck = get(sessionStore).cacheKey;
   cryptoKey = null;
   if (ck !== null) {
@@ -220,12 +226,18 @@ function generate(): Promise<string> {
   return p;
 }
 
-async function runReserve(g: number, b: { hme: string; label: string; note: string }): Promise<Alias> {
+function validAlias(v: unknown): v is Alias {
+  return v !== null && typeof v === 'object' && typeof (v as Alias).anonymous_id === 'string' && typeof (v as Alias).hme === 'string';
+}
+
+// Resolves the created alias, or null when the store was cleared (logout/disconnect) while the
+// request was in flight: the result belongs to a session that no longer exists.
+async function runReserve(g: number, b: { hme: string; label: string; note: string }): Promise<Alias | null> {
   mutationStart();
   try {
-    const created = await api.reserve(b);
-    if (g !== gen) return created;
-    if (created === null || typeof created !== 'object' || typeof created.anonymous_id !== 'string') {
+    const created: unknown = await api.reserve(b);
+    if (g !== gen) return null;
+    if (!validAlias(created)) {
       throw new ApiError(0, UNEXPECTED);
     }
     setList([created, ...listNow()], { error: null });
@@ -241,10 +253,10 @@ async function runReserve(g: number, b: { hme: string; label: string; note: stri
 
 // Guarded per hme: a double trigger for the same address shares one request, while a different
 // address runs its own.
-function reserve(b: { hme: string; label: string; note: string }): Promise<Alias> {
+function reserve(b: { hme: string; label: string; note: string }): Promise<Alias | null> {
   const existing = reserves.get(b.hme);
   if (existing !== undefined) return existing;
-  const p: Promise<Alias> = runReserve(gen, b).finally(() => {
+  const p: Promise<Alias | null> = runReserve(gen, b).finally(() => {
     if (reserves.get(b.hme) === p) reserves.delete(b.hme);
   });
   reserves.set(b.hme, p);

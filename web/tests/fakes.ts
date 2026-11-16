@@ -30,6 +30,7 @@ export interface FakeAliasState {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
+  loadError: string | null;
   fromCache: boolean;
   index: Index;
 }
@@ -40,6 +41,7 @@ export function createAliasStore() {
     loading: false,
     refreshing: false,
     error: null,
+    loadError: null,
     fromCache: false,
     index: buildIndex([])
   });
@@ -55,7 +57,7 @@ export function createAliasStore() {
     init: vi.fn(async () => {}),
     refresh: vi.fn(async () => {}),
     generate: vi.fn(async () => 'fresh@icloud.com'),
-    reserve: vi.fn(async (b: { hme: string; label: string; note: string }) => {
+    reserve: vi.fn(async (b: { hme: string; label: string; note: string }): Promise<Alias | null> => {
       const created = alias(99999, {
         anonymous_id: 'new-id',
         hme: b.hme,
