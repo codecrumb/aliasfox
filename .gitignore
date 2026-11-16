@@ -11,3 +11,4 @@ node_modules/
 .neon
 .DS_Store
 .superpowers/
+*.egg-info/
