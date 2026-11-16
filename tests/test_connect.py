@@ -173,3 +173,39 @@ def test_non_ascii_cookie_raises_invalid_cookie_without_value():
     with pytest.raises(InvalidCookie) as ei:
         connect_with_cookie(secret, transport=httpx.MockTransport(validate_ok))
     assert "SECRET" not in str(ei.value)
+
+
+TRUNC_MSG = "cookie looks truncated or corrupted - copy it again from the browser"
+
+
+def test_parse_rejects_non_ascii_value_without_echo():
+    with pytest.raises(InvalidCookie) as e:
+        parse_cookie_header("X-APPLE-WEBAUTH-USER=abc…def; other=v")
+    assert str(e.value) == TRUNC_MSG
+    assert "abc" not in str(e.value)
+
+
+@pytest.mark.parametrize("bad", ["na(me", "na@me", "na/me", "naéme", "na[me]", "na{me}"])
+def test_parse_rejects_bad_cookie_names(bad):
+    with pytest.raises(InvalidCookie) as e:
+        parse_cookie_header(f"{bad}=value; X-APPLE-WEBAUTH-USER=v")
+    assert str(e.value) == TRUNC_MSG
+
+
+def test_parse_json_export_rejects_non_ascii_value():
+    text = json.dumps([{"name": "a", "value": "b…"}])
+    with pytest.raises(InvalidCookie) as e:
+        parse_cookie_header(text)
+    assert str(e.value) == TRUNC_MSG
+
+
+def test_connect_with_ellipsis_never_reports_unicode_error():
+    def boom(req):
+        raise AssertionError("must not reach the network")
+
+    with pytest.raises(InvalidCookie) as e:
+        connect_with_cookie(
+            "X-APPLE-WEBAUTH-USER=abc…", transport=httpx.MockTransport(boom)
+        )
+    assert "Unicode" not in str(e.value)
+    assert str(e.value) == TRUNC_MSG

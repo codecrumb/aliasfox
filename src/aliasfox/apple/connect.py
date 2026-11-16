@@ -40,14 +40,27 @@ def _strip_quotes(text: str) -> str:
     return text
 
 
+_TOKEN_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_CORRUPT = "cookie looks truncated or corrupted - copy it again from the browser"
+
+
+def _checked(cookies: dict[str, str]) -> dict[str, str]:
+    """Reject names that are not RFC 6265 tokens and non-ASCII values (e.g. the
+    ellipsis DevTools inserts into truncated values). Never echoes cookie text."""
+    for name, value in cookies.items():
+        if not _TOKEN_RE.fullmatch(name) or not value.isascii():
+            raise InvalidCookie(_CORRUPT)
+    return cookies
+
+
 def _parse_pairs(text: str) -> dict[str, str]:
     cookies: dict[str, str] = {}
     for part in text.split(";"):
         name, sep, value = part.partition("=")
         name = name.strip()
-        if sep and name and re.fullmatch(r"[^\s=;,\"']+", name):
+        if sep and name:
             cookies[name] = value.strip()
-    return cookies
+    return _checked(cookies)
 
 
 _CURL_RE = re.compile(
@@ -75,7 +88,7 @@ def parse_cookie_header(text: str) -> dict[str, str]:
                 if isinstance(c, dict) and c.get("name") and isinstance(c.get("value"), str)
             }
             if cookies:
-                return cookies
+                return _checked(cookies)
         raise InvalidCookie("cookie JSON has no name/value entries")
     m = _CURL_RE.search(raw)
     if m:
