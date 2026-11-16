@@ -54,13 +54,22 @@ class AliasService:
 
         return persist
 
+    def _fresh(self, user_id: int) -> list[Alias] | None:
+        hit = self._cache.get(user_id)
+        if hit and self._clock() - hit[0] < self._ttl:
+            return list(hit[1])
+        return None
+
+    async def is_connected(self, user_id: int) -> bool:
+        return await run_in_threadpool(self._store.load, user_id) is not None
+
     async def _run(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
         """Run `call(client)` under the user's lock; caller holds no lock."""
         async with self._lock(user_id):
             return await self._run_locked(user_id, call)
 
     async def _run_locked(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
-        state = self._store.load(user_id)
+        state = await run_in_threadpool(self._store.load, user_id)
         if state is None:
             raise NotConnected(user_id)
         client = self._factory(state, on_state_change=self._persist(user_id))
@@ -69,7 +78,10 @@ class AliasService:
             try:
                 return call(client)
             finally:
-                client.close()
+                try:
+                    client.close()
+                except Exception as exc:  # never mask the Apple result/error
+                    log.warning("failed to close client: %s", type(exc).__name__)
 
         return await run_in_threadpool(work)
 
@@ -79,10 +91,11 @@ class AliasService:
         return result
 
     async def list_aliases(self, user_id: int, *, refresh: bool = False) -> list[Alias]:
+        if not refresh and (cached := self._fresh(user_id)) is not None:
+            return cached  # fast path: no lock, so a slow call cannot stall reads
         async with self._lock(user_id):
-            hit = self._cache.get(user_id)
-            if not refresh and hit and self._clock() - hit[0] < self._ttl:
-                return list(hit[1])
+            if not refresh and (cached := self._fresh(user_id)) is not None:
+                return cached
             aliases = await self._run_locked(user_id, lambda c: c.list())
             self._cache[user_id] = (self._clock(), list(aliases))
             return list(aliases)

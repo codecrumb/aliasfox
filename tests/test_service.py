@@ -248,3 +248,68 @@ async def test_not_connected_raises(svc, tracker):
     with pytest.raises(NotConnected):
         await svc.generate(99)
     assert tracker.calls == []
+
+
+async def test_cached_list_does_not_wait_for_user_lock(svc, tracker):
+    await svc.list_aliases(1)  # warm the cache
+    tracker.sleep = 0.4
+    slow = asyncio.create_task(svc.generate(1))
+    await asyncio.sleep(0.05)  # generate now holds the lock
+    start = time.monotonic()
+    aliases = await svc.list_aliases(1)
+    elapsed = time.monotonic() - start
+    assert len(aliases) == 1
+    assert elapsed < 0.2
+    assert not slow.done()
+    await slow
+
+
+async def test_stale_cache_rechecked_inside_lock(svc, tracker):
+    tracker.sleep = 0.1
+    await asyncio.gather(svc.list_aliases(1), svc.list_aliases(1))
+    assert tracker.list_count == 1
+
+
+async def test_session_load_runs_off_the_event_loop(store, tracker):
+    threads = []
+
+    class SpyStore:
+        def load(self, user_id):
+            threads.append(threading.current_thread())
+            return store.load(user_id)
+
+        def save(self, user_id, state):
+            store.save(user_id, state)
+
+    cls = type("F", (FakeClient,), {"tracker": tracker})
+    s = AliasService(SpyStore(), client_factory=cls)
+    await s.generate(1)
+    assert threads and threads[0] is not threading.main_thread()
+
+
+async def test_close_failure_does_not_mask_apple_error(store, tracker, caplog):
+    class BadClose(FakeClient):
+        def close(self):
+            raise RuntimeError("close boom: super-secret-cookie")
+
+    tracker.fail = SessionExpired(401, "session expired")
+    s = AliasService(store, client_factory=type("F", (BadClose,), {"tracker": tracker}))
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(SessionExpired):
+            await s.generate(1)
+    assert "RuntimeError" in caplog.text
+    assert "super-secret-cookie" not in caplog.text
+
+
+async def test_close_failure_does_not_break_success(store, tracker):
+    class BadClose(FakeClient):
+        def close(self):
+            raise RuntimeError("boom")
+
+    s = AliasService(store, client_factory=type("F", (BadClose,), {"tracker": tracker}))
+    assert await s.generate(1) == "x@icloud.com"
+
+
+async def test_is_connected(svc):
+    assert await svc.is_connected(1) is True
+    assert await svc.is_connected(99) is False
