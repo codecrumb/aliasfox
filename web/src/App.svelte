@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import ConnectApple from './components/ConnectApple.svelte';
   import Login from './components/Login.svelte';
+  import Palette from './components/Palette.svelte';
   import StepTransition from './components/StepTransition.svelte';
   import Toasts from './components/Toasts.svelte';
+  import { aliasStore } from './lib/aliases';
   import { sessionStore } from './lib/session';
 
   const STEPS: Record<string, number> = {
@@ -23,7 +25,20 @@
     error: 'Something went wrong'
   };
 
-  const screen = $derived($sessionStore.state);
+  const sessionState = $derived($sessionStore.state);
+
+  // Once the palette has been shown, an Apple session expiry keeps it mounted (stale data,
+  // read-only, with a reconnect banner) so open dialogs keep what was typed. A cold start into
+  // reconnect with nothing to show gets the full-screen connect flow.
+  let paletteSeen = $state(false);
+  $effect.pre(() => {
+    if (sessionState === 'ready') paletteSeen = true;
+    else if (sessionState !== 'reconnect') paletteSeen = false;
+  });
+  const showPalette = $derived(
+    sessionState === 'ready' || (sessionState === 'reconnect' && (paletteSeen || $aliasStore.list.length > 0))
+  );
+  const screen = $derived(showPalette ? 'ready' : sessionState);
   const step = $derived(STEPS[screen] ?? 0);
   const title = $derived(TITLES[screen] ?? 'AliasFox');
 
@@ -69,10 +84,7 @@
     {:else if screen === 'connect' || screen === 'reconnect'}
       <ConnectApple />
     {:else if screen === 'ready'}
-      <section class="screen" data-screen="ready" tabindex="-1" aria-label="Palette">
-        <p>Palette — coming soon</p>
-        <button type="button" onclick={() => void sessionStore.logout()}>Log out</button>
-      </section>
+      <Palette />
     {:else}
       <section class="screen" data-screen="error" tabindex="-1" aria-label="Error">
         <p>Something went wrong.</p>

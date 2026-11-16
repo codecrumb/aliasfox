@@ -19,13 +19,27 @@ vi.mock('../src/lib/session', async () => {
       subscribe: store.subscribe,
       boot: vi.fn(async () => {}),
       login: vi.fn(),
-      logout: vi.fn(async () => {})
+      logout: vi.fn(async () => {}),
+      onApiError: vi.fn(),
+      markReady: vi.fn(async () => {
+        store.update((v) => ({ ...v, state: 'ready', reason: null }));
+      })
     }
   };
 });
+vi.mock('../src/lib/aliases', async () => ({ aliasStore: (await import('./fakes')).createAliasStore() }));
+vi.mock('../src/lib/clipboard', () => ({ copyText: vi.fn(async () => 'copied') }));
+vi.mock('../src/lib/api', async (orig) => {
+  const real = await orig<typeof import('../src/lib/api')>();
+  return { ...real, api: { disconnect: vi.fn(), connectLogin: vi.fn(), connectVerify: vi.fn(), connectCookie: vi.fn() } };
+});
 
 import * as sessionMod from '../src/lib/session';
+import { aliasStore } from '../src/lib/aliases';
 import App from '../src/App.svelte';
+import { many, type createAliasStore } from './fakes';
+
+const aliases = aliasStore as unknown as ReturnType<typeof createAliasStore>;
 
 const store = (sessionMod as unknown as { __store: Writable<Record<string, unknown>> }).__store;
 const s = sessionMod.sessionStore;
@@ -38,6 +52,8 @@ beforeEach(() => {
   vi.mocked(s.boot).mockClear();
   vi.mocked(s.logout).mockClear();
   setState('loading', { errorText: null });
+  aliases.__set([]);
+  aliases.init.mockClear();
 });
 afterEach(() => cleanup());
 
@@ -72,12 +88,40 @@ describe('App shell', () => {
     setState('connect', { reason: null });
   });
 
-  it('ready shows the palette placeholder with Log out', async () => {
+  it('ready shows the palette and initialises the alias store', async () => {
     render(App);
     setState('ready');
-    expect(await screen.findByText('Palette — coming soon')).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
-    expect(s.logout).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('combobox', { name: 'Search aliases' })).toBeInTheDocument();
+    expect(screen.queryByText(/coming soon/)).toBeNull();
+    expect(aliases.init).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconnect with aliases keeps the same palette mounted, shows the banner, and does not steal focus', async () => {
+    aliases.__set(many(3));
+    render(App);
+    setState('ready');
+    const search = await screen.findByRole('combobox', { name: 'Search aliases' });
+    const root = screen.getByTestId('palette-root');
+    await waitFor(() => expect(search).toHaveFocus());
+    setState('reconnect', { reason: 'session_expired' });
+    await tick();
+    expect(screen.getByTestId('palette-root')).toBe(root);
+    expect(screen.getByText('Your Apple session expired. Reconnect to keep editing.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Apple ID')).toBeNull();
+    expect(search).toHaveFocus();
+    await fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    const overlay = await screen.findByRole('dialog', { name: 'Reconnect your Apple account' });
+    expect(overlay).toContainElement(screen.getByLabelText('Apple ID'));
+    await s.markReady();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByTestId('palette-root')).toBe(root);
+  });
+
+  it('reconnect with an empty list shows the full-screen connect flow', async () => {
+    render(App);
+    setState('reconnect', { reason: 'session_expired' });
+    expect(await screen.findByLabelText('Apple ID')).toBeInTheDocument();
+    expect(screen.queryByTestId('palette-root')).toBeNull();
   });
 
   it('error shows errorText as text and Retry calls boot', async () => {
@@ -99,11 +143,11 @@ describe('App shell', () => {
     setState('login');
     const pw = await screen.findByLabelText('Password');
     expect(pw).toHaveFocus(); // Login focuses its own input: already inside the screen
-    setState('ready');
-    await screen.findByText('Palette — coming soon');
+    setState('error', { errorText: 'x' });
+    await screen.findByRole('button', { name: 'Retry' });
     await waitFor(() => {
       const el = document.activeElement as HTMLElement;
-      expect(el.getAttribute('data-screen')).toBe('ready');
+      expect(el.getAttribute('data-screen')).toBe('error');
     });
   });
 
@@ -133,8 +177,8 @@ describe('App shell', () => {
     dlg.appendChild(btn);
     document.body.appendChild(dlg);
     btn.focus();
-    setState('ready');
-    await screen.findByText('Palette — coming soon');
+    setState('error', { errorText: 'x' });
+    await screen.findByRole('button', { name: 'Retry' });
     await tick();
     expect(btn).toHaveFocus();
     dlg.remove();
