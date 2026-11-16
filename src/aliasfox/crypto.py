@@ -44,3 +44,11 @@ def verify_password(hash: str, pw: str) -> bool:
         return _hasher.verify(hash, pw)
     except (VerificationError, InvalidHashError):
         return False
+
+
+def derive_cache_key(secret_key: str, user_id: int, epoch: int) -> bytes:
+    """Browser-cache key: domain-separated from the session-encryption and
+    cookie-signing keys, and rotated by the session epoch (so logout changes it)."""
+    return derive_key(
+        secret_key, info=b"aliasfox-cache-v1|" + str(user_id).encode() + b"|" + str(epoch).encode()
+    )
