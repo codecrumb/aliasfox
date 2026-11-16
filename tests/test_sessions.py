@@ -75,3 +75,8 @@ def test_delete(store):
 def test_bad_key_length_rejected(engine):
     with pytest.raises(ValueError):
         SessionStore(engine, b"short")
+
+
+def test_repr_does_not_contain_cookie_values():
+    state = AppleSessionState(cookies={"c": "SECRETVALUE"}, webservices_url="https://x")
+    assert "SECRETVALUE" not in repr(state)

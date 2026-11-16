@@ -268,3 +268,51 @@ def test_errors_do_not_contain_cookie_values():
         raise httpx.ConnectError("cannot connect", request=req)
 
     run(boom, lambda c: c.list())
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    ["Max-Age=0", "Max-Age=-5", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"],
+)
+def test_expiring_set_cookie_deletes_cookie_and_signals_change(attrs):
+    calls = []
+
+    def handler(req):
+        return httpx.Response(
+            200,
+            json={"success": True, "result": {"hmeEmails": []}},
+            headers=[("set-cookie", f"other=gone; Path=/; {attrs}")],
+        )
+
+    c, state = client_for(handler, on_state_change=lambda s: calls.append(dict(s.cookies)))
+    c.list()
+    assert "other" not in state.cookies
+    assert len(calls) == 1 and "other" not in calls[0]
+
+
+def test_empty_set_cookie_value_deletes_cookie():
+    def handler(req):
+        return httpx.Response(
+            200,
+            json={"success": True, "result": {"hmeEmails": []}},
+            headers=[("set-cookie", "other=; Path=/")],
+        )
+
+    c, state = client_for(handler)
+    c.list()
+    assert "other" not in state.cookies
+
+
+def test_deleting_absent_cookie_is_not_a_change():
+    calls = []
+
+    def handler(req):
+        return httpx.Response(
+            200,
+            json={"success": True, "result": {"hmeEmails": []}},
+            headers=[("set-cookie", "nothere=; Max-Age=0")],
+        )
+
+    c, _ = client_for(handler, on_state_change=calls.append)
+    c.list()
+    assert calls == []

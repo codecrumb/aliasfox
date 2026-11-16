@@ -6,8 +6,10 @@ below so a live spike can adjust them in one place.
 """
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -41,6 +43,47 @@ F_CREATED = "createTimestamp"
 _ORIGIN = "https://www.icloud.com"
 _EXPIRED_STATUSES = (401, 421)
 _MAX_MESSAGE = 200
+
+
+def _cookie_expired(attrs: list[str]) -> bool:
+    for attr in attrs:
+        key, _, val = attr.partition("=")
+        key, val = key.strip().lower(), val.strip()
+        if key == "max-age":
+            try:
+                if int(val) <= 0:
+                    return True
+            except ValueError:
+                pass
+        elif key == "expires":
+            try:
+                if parsedate_to_datetime(val).timestamp() <= time.time():
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def apply_set_cookies(cookies: dict[str, str], resp: httpx.Response) -> bool:
+    """Apply Set-Cookie headers to `cookies` in place; return True if changed.
+
+    Expired (Max-Age<=0, past Expires) or empty-valued cookies are deleted.
+    """
+    changed = False
+    for raw in resp.headers.get_list("set-cookie"):
+        pair, *attrs = raw.split(";")
+        name, sep, value = pair.partition("=")
+        name, value = name.strip(), value.strip()
+        if not sep or not name:
+            continue
+        if not value or _cookie_expired(attrs):
+            if name in cookies:
+                del cookies[name]
+                changed = True
+        elif cookies.get(name) != value:
+            cookies[name] = value
+            changed = True
+    return changed
 
 
 class HmeError(Exception):
@@ -113,7 +156,7 @@ class HmeClient:
 
     # -- transport -----------------------------------------------------------
     def _headers(self) -> dict[str, str]:
-        cookie = "; ".join(f"{k}={v}" for k, v in self._state.cookies.items())
+        cookie = "; ".join(f"{k}={v}" for k, v in list(self._state.cookies.items()))
         return {
             "Origin": _ORIGIN,
             "Referer": _ORIGIN + "/",
@@ -122,16 +165,7 @@ class HmeClient:
         }
 
     def _merge_cookies(self, resp: httpx.Response) -> None:
-        changed = False
-        for raw in resp.headers.get_list("set-cookie"):
-            pair = raw.split(";", 1)[0]
-            name, sep, value = pair.partition("=")
-            name, value = name.strip(), value.strip()
-            if not sep or not name:
-                continue
-            if self._state.cookies.get(name) != value:
-                self._state.cookies[name] = value
-                changed = True
+        changed = apply_set_cookies(self._state.cookies, resp)
         if changed and self._on_state_change:
             self._on_state_change(self._state)
 

@@ -10,7 +10,7 @@ from aliasfox.db import AppleSessionRow
 
 @dataclass
 class AppleSessionState:
-    cookies: dict[str, str]
+    cookies: dict[str, str] = field(repr=False)
     webservices_url: str
     dsid: str | None = None
     extra: dict = field(default_factory=dict)
