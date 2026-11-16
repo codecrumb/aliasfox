@@ -91,10 +91,11 @@ def test_stale_login_dirs_removed_only_old_prefixed(monkeypatch, tmp_tempdir):
         assert other.exists()
 
 
-def test_pyicloud_logger_warning(tmp_tempdir):
-    logging.getLogger("pyicloud").setLevel(logging.DEBUG)
+@pytest.mark.parametrize("name", ["pyicloud", "httpx"])
+def test_noisy_loggers_warning(tmp_tempdir, name):
+    logging.getLogger(name).setLevel(logging.DEBUG)
     with TestClient(make_app()):
-        assert logging.getLogger("pyicloud").level == logging.WARNING
+        assert logging.getLogger(name).level == logging.WARNING
 
 
 def test_shutdown_removes_pending_flow_dirs(tmp_tempdir):

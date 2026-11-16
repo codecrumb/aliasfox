@@ -3,6 +3,7 @@ import contextlib
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 
 from aliasfox.api import build_router, install_error_handlers
@@ -36,8 +37,9 @@ def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlo
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
         cleanup_stale_login_dirs(flow.ttl_seconds)
-        # pyicloud logs the Apple ID at DEBUG.
-        logging.getLogger("pyicloud").setLevel(logging.WARNING)
+        # pyicloud logs the Apple ID at DEBUG; httpx logs full request URLs.
+        for noisy in ("pyicloud", "httpx"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
         if settings.icloud_cookie and store is not None:
             try:
                 await run_in_threadpool(seed_from_env, settings, store)
@@ -70,16 +72,24 @@ def create_app(
         store = SessionStore(engine, derive_key(settings.secret_key))
         service = AliasService(store)
     flow = login_flow or LoginFlow()
-    app = FastAPI(title="AliasFox", lifespan=make_lifespan(settings, store, flow))
+    app = FastAPI(
+        title="AliasFox",
+        lifespan=make_lifespan(settings, store, flow),
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        redirect_slashes=False,  # no scheme-downgrading redirects
+    )
     install_auth(app, settings)
 
-    @app.get("/healthz")
+    @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
     # add_middleware: last added is outermost.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware, trusted_proxy=settings.trusted_proxy)
     return app
