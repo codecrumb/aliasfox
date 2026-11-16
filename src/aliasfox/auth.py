@@ -42,12 +42,14 @@ def client_ip(request: Request, *, trusted_proxy: bool) -> str:
 
 
 def limiter_key(ip: str) -> str:
-    """IPv4 stays the full address; IPv6 collapses to its /64 prefix."""
+    """IPv4 (incl. IPv4-mapped IPv6) stays the full address; IPv6 collapses to its /64."""
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return ip
     if addr.version == 6:
+        if addr.ipv4_mapped is not None:
+            return str(addr.ipv4_mapped)
         return str(ipaddress.ip_network(f"{addr}/64", strict=False))
     return str(addr)
 

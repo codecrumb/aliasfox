@@ -386,3 +386,12 @@ def test_password_max_length(pw_hash):
     c = client(build(pw_hash))
     assert login(c, "x" * 1025).status_code == 422
     assert login(c, "x" * 1024).status_code == 401
+
+
+def test_limiter_key_maps_ipv4_mapped_ipv6_to_ipv4():
+    from aliasfox.auth import limiter_key
+
+    assert limiter_key("::ffff:203.0.113.7") == "203.0.113.7"
+    assert limiter_key("::ffff:203.0.113.8") != limiter_key("::ffff:203.0.113.7")
+    assert limiter_key("203.0.113.7") == "203.0.113.7"
+    assert limiter_key("2001:db8::1") == limiter_key("2001:db8::2")  # /64 still collapses
