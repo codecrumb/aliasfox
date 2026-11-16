@@ -61,7 +61,7 @@ def test_no_inline_script(parsed):
         assert s.get("type") == "module"
 
 
-def test_no_inline_style_or_event_handlers(parsed):
+def test_no_style_tag_style_attribute_or_event_handlers(parsed):
     _, c = parsed
     assert c.styles == 0
     names = [n.lower() for n, _ in c.attrs]
@@ -71,7 +71,8 @@ def test_no_inline_style_or_event_handlers(parsed):
 
 def test_only_same_origin_urls(parsed):
     text, c = parsed
-    assert not re.search(r"https?://|//[a-z0-9.-]+\.[a-z]", text, re.I)
+    assert not re.search(r"https?:", text, re.I)
+    assert not re.search(r"(?<!:)//", text), "protocol-relative URL"
     for a in c.scripts + c.links:
         ref = a.get("src") or a.get("href")
         assert ref is None or ref.startswith("/assets/") or ref.startswith("/")
@@ -90,3 +91,31 @@ def test_referenced_assets_exist_and_css_is_a_file(parsed):
         if a.get("rel") == "stylesheet" and a.get("href")
     ]
     assert css and all(h.endswith(".css") for h in css)
+
+
+def _built(ext: str) -> list[Path]:
+    return sorted((DIST / "assets").glob(f"*.{ext}"))
+
+
+def test_css_has_no_remote_urls_or_imports():
+    files = _built("css")
+    assert files
+    for f in files:
+        css = f.read_text(encoding="utf-8")
+        assert "@import" not in css, f.name
+        for m in re.finditer(r"url\(\s*['\"]?\s*([^'\")\s]+)", css, re.I):
+            assert not re.match(r"(https?:)?//", m.group(1), re.I), (f.name, m.group(1))
+
+
+def test_js_bundle_has_no_javascript_urls_or_runtime_style_injection():
+    # Checked against the current Svelte build (css: 'external'): none of these appear, so
+    # they are asserted absent. (Remote URLs are NOT scanned in JS: the Svelte runtime
+    # legitimately contains https://svelte.dev/e/... error links and xmlns namespace URIs.)
+    files = _built("js")
+    assert files
+    for f in files:
+        js = f.read_text(encoding="utf-8")
+        assert "javascript:" not in js.lower(), f.name
+        assert not re.search(r"createElement\(\s*[\"'`]style[\"'`]", js), f.name
+        assert "insertRule" not in js, f.name
+        assert "<style" not in js, f.name
