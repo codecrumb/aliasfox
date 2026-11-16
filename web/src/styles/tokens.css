@@ -1,0 +1,44 @@
+/* Design tokens. Dark only. */
+:root {
+  color-scheme: dark;
+
+  --bg: #0b0c0f;
+  --surface: #14161b;
+  --elevated: #1b1e25;
+  --border: #262a33;
+  --text: #e8e9ec;
+  --muted: #8d93a0;
+  --field-border: #666d7b; /* 3.2:1 on surface, WCAG 1.4.11 */
+  --accent: #ff8a3d;
+  --accent-contrast: #1a0e05;
+  --danger: #ff6b6b;
+  --ok: #5ad69a;
+
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --gutter: 16px;
+
+  --radius: 10px;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px var(--border);
+
+  --z-toast: 100;
+
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slide: 320ms;
+  --stagger: 40ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  --focus-ring: 2px solid var(--accent);
+  --focus-offset: 2px;
+}

@@ -1,0 +1,92 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import type { Writable } from 'svelte/store';
+
+vi.mock('../src/lib/session', async () => {
+  const { writable } = await import('svelte/store');
+  const store = writable({
+    state: 'loading',
+    authEnabled: true,
+    mode: null,
+    cacheKey: null,
+    reason: null,
+    errorText: null
+  });
+  return {
+    __store: store,
+    sessionStore: {
+      subscribe: store.subscribe,
+      boot: vi.fn(async () => {}),
+      login: vi.fn(),
+      logout: vi.fn(async () => {})
+    }
+  };
+});
+
+import * as sessionMod from '../src/lib/session';
+import App from '../src/App.svelte';
+
+const store = (sessionMod as unknown as { __store: Writable<Record<string, unknown>> }).__store;
+const s = sessionMod.sessionStore;
+
+function setState(state: string, extra: Record<string, unknown> = {}) {
+  store.update((v) => ({ ...v, state, ...extra }));
+}
+
+beforeEach(() => {
+  vi.mocked(s.boot).mockClear();
+  vi.mocked(s.logout).mockClear();
+  setState('loading', { errorText: null });
+});
+afterEach(() => cleanup());
+
+describe('App shell', () => {
+  it('calls boot once on mount', () => {
+    render(App);
+    expect(s.boot).toHaveBeenCalledTimes(1);
+  });
+
+  it('loading shows the splash', () => {
+    render(App);
+    expect(screen.getByText('AliasFox')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/loading/i);
+  });
+
+  it('login shows the Login screen', async () => {
+    render(App);
+    setState('login');
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+  });
+
+  it.each(['connect', 'reconnect'])('%s shows the connect placeholder with Log out', async (st) => {
+    render(App);
+    setState(st);
+    expect(
+      await screen.findByText('Connect your Apple account — coming in the next task')
+    ).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    expect(s.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('ready shows the palette placeholder with Log out', async () => {
+    render(App);
+    setState('ready');
+    expect(await screen.findByText('Palette — coming soon')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    expect(s.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('error shows errorText as text and Retry calls boot', async () => {
+    render(App);
+    setState('error', { errorText: '<i>internal_error</i>' });
+    expect(await screen.findByText('<i>internal_error</i>')).toBeInTheDocument();
+    expect(document.querySelector('i')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(s.boot).toHaveBeenCalledTimes(2);
+  });
+
+  it('always mounts the toast live region', () => {
+    const { container } = render(App);
+    expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
+  });
+});
