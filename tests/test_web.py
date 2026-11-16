@@ -159,7 +159,7 @@ def test_wrong_methods_keep_native_404_405(tmp_path, dist):
     c = make_client(tmp_path, dist)
     assert c.post("/healthz").status_code == 405
     assert c.get("/api/auth/login").status_code == 405
-    assert c.head("/api/aliases").status_code == 409
+    assert c.head("/api/aliases").status_code == 405
     r = c.post("/api/nope")
     assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
     r = c.post("/")
