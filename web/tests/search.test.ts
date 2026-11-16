@@ -153,4 +153,27 @@ describe('search', () => {
     expect(query(idx, 'netflx').length).toBeGreaterThan(0);
     if (process.env.SEARCH_PERF) process.stdout.write(`PERF build=${build.toFixed(1)}ms maxQuery=${max.toFixed(1)}ms\n`);
   });
+
+  it('long needles use the literal scan and stay fast on pathological data', () => {
+    const list = Array.from({ length: 200 }, (_, i) => mk(i, { label: 'ab'.repeat(2500), note: `n${i}` }));
+    const idx = buildIndex(list);
+    const needle = 'ab'.repeat(40); // 80 chars
+    const s = performance.now();
+    const r = query(idx, needle);
+    expect(performance.now() - s).toBeLessThan(50);
+    expect(r).toHaveLength(200);
+    const s2 = performance.now();
+    expect(query(idx, 'x' + 'ab'.repeat(40))).toEqual([]);
+    expect(performance.now() - s2).toBeLessThan(50);
+  });
+
+  it('control characters in the query cannot match across fields or every alias', () => {
+    const idx = buildIndex([mk(1, { label: 'qrs', note: 'tuv' }), mk(2, { label: 'zzz' })]);
+    expect(query(idx, '\u0001')).toEqual([]);
+    expect(query(idx, '\u0001\u0002')).toEqual([]);
+    expect(query(idx, 'qrs\u0001tuv')).toEqual([]);
+    expect(ids(query(idx, 'q\u0000rs'))).toEqual(['id1']);
+    expect(ids(query(idx, 'qrs\ttuv'))).toEqual(['id1']);
+    expect(query(idx, '  ')).toHaveLength(2);
+  });
 });

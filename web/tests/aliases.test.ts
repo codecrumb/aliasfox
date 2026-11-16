@@ -14,8 +14,22 @@ const h = vi.hoisted(() => ({
   },
   onApiError: vi.fn(),
   onLogout: vi.fn(),
-  logoutCbs: [] as Array<() => void>
+  logoutCbs: [] as Array<() => void>,
+  encryptGate: null as Promise<void> | null
 }));
+
+vi.mock('../src/lib/crypto', async () => {
+  const actual = await vi.importActual<typeof import('../src/lib/crypto')>('../src/lib/crypto');
+  return {
+    ...actual,
+    encryptJson: async (k: CryptoKey, v: unknown) => {
+      const gate = h.encryptGate;
+      const r = await actual.encryptJson(k, v);
+      if (gate) await gate;
+      return r;
+    }
+  };
+});
 
 vi.mock('../src/lib/api', async () => {
   const actual = await vi.importActual<typeof import('../src/lib/api')>('../src/lib/api');
@@ -99,6 +113,7 @@ beforeEach(async () => {
   h.onApiError.mockReset();
   h.onLogout.mockReset();
   h.logoutCbs.length = 0;
+  h.encryptGate = null;
   sessionState.set({ cacheKey: KEY });
   consoleSpies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((x) =>
     vi.spyOn(console, x).mockImplementation(() => {})
@@ -391,5 +406,151 @@ describe('logout wipe', () => {
     vi.resetModules();
     await import('../src/lib/aliases');
     expect(h.onLogout).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('review fixes', () => {
+  const ids = () => get(m.aliasStore).list.map((a) => a.anonymous_id);
+
+  it('logout while a mutation persist is in flight leaves no cache', async () => {
+    await loaded([mk(1), mk(2)]);
+    h.api.setActive.mockResolvedValue({ ok: true });
+    let release!: () => void;
+    h.encryptGate = new Promise<void>((r) => (release = r));
+    const p = m.aliasStore.setActive('id1', false);
+    await tick();
+    await tick();
+    h.logoutCbs[0]?.();
+    h.encryptGate = null;
+    release();
+    await p;
+    for (let i = 0; i < 6; i++) await tick();
+    expect((await indexedDB.databases()).some((d) => d.name === 'aliasfox-cache')).toBe(false);
+    const key = await m.crypto.importCacheKey(KEY);
+    expect(await m.cache.load(key)).toBeNull();
+    expect(get(m.aliasStore).list).toEqual([]);
+  });
+
+  it('a stale list response during a pending toggle is dropped, then one refresh=true re-fetch applies', async () => {
+    const list = [mk(1), mk(2)];
+    await loaded(list);
+    const toggle = deferred<{ ok: boolean }>();
+    h.api.setActive.mockReturnValue(toggle.promise);
+    const stale = deferred<Alias[]>();
+    h.api.listAliases.mockReset();
+    h.api.listAliases.mockReturnValueOnce(stale.promise);
+    const rp = m.aliasStore.refresh();
+    const tp = m.aliasStore.setActive('id1', false);
+    stale.resolve(list); // pre-mutation data
+    await tick();
+    await tick();
+    expect(get(m.aliasStore).list[0]?.is_active).toBe(false); // not clobbered
+    expect(h.api.listAliases).toHaveBeenCalledTimes(1);
+    h.api.listAliases.mockResolvedValue([mk(1, { is_active: false }), mk(2)]);
+    toggle.resolve({ ok: true });
+    await tp;
+    await rp;
+    expect(h.api.listAliases).toHaveBeenCalledTimes(2);
+    expect(h.api.listAliases).toHaveBeenLastCalledWith(true);
+    expect(get(m.aliasStore).list).toEqual([mk(1, { is_active: false }), mk(2)]);
+    expect(get(m.aliasStore).error).toBeNull();
+  });
+
+  it('a mutation applied before the fetch started and still pending is not clobbered', async () => {
+    const list = [mk(1), mk(2)];
+    await loaded(list);
+    const toggle = deferred<{ ok: boolean }>();
+    h.api.setActive.mockReturnValue(toggle.promise);
+    const tp = m.aliasStore.setActive('id1', false);
+    const stale = deferred<Alias[]>();
+    h.api.listAliases.mockReset();
+    h.api.listAliases.mockReturnValueOnce(stale.promise);
+    const rp = m.aliasStore.refresh();
+    stale.resolve(list);
+    await tick();
+    await tick();
+    expect(get(m.aliasStore).list[0]?.is_active).toBe(false);
+    h.api.listAliases.mockResolvedValue([mk(1, { is_active: false }), mk(2)]);
+    toggle.resolve({ ok: true });
+    await Promise.all([tp, rp]);
+    expect(h.api.listAliases).toHaveBeenLastCalledWith(true);
+    expect(get(m.aliasStore).list[0]?.is_active).toBe(false);
+  });
+
+  it('re-fetching is bounded under continuous mutations', async () => {
+    await loaded([mk(1)]);
+    h.api.setActive.mockResolvedValue({ ok: true });
+    h.api.listAliases.mockReset();
+    const pending: Promise<void>[] = [];
+    h.api.listAliases.mockImplementation(async () => {
+      pending.push(m.aliasStore.setActive('id1', pending.length % 2 === 0));
+      return [mk(1)];
+    });
+    await m.aliasStore.refresh();
+    await Promise.all(pending);
+    for (let i = 0; i < 6; i++) await tick();
+    expect(h.api.listAliases.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(h.api.listAliases.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a rate_limited re-fetch keeps the optimistic state without an error', async () => {
+    await loaded([mk(1)]);
+    h.api.setActive.mockResolvedValue({ ok: true });
+    const stale = deferred<Alias[]>();
+    h.api.listAliases.mockReset();
+    h.api.listAliases.mockReturnValueOnce(stale.promise);
+    h.api.listAliases.mockRejectedValue(new m.ApiError(429, 'rate_limited'));
+    const toggle = deferred<{ ok: boolean }>();
+    h.api.setActive.mockReturnValue(toggle.promise);
+    const rp = m.aliasStore.refresh();
+    const tp = m.aliasStore.setActive('id1', false);
+    stale.resolve([mk(1)]);
+    toggle.resolve({ ok: true });
+    await Promise.all([rp, tp]);
+    expect(get(m.aliasStore).list[0]?.is_active).toBe(false);
+    expect(get(m.aliasStore).error).toBeNull();
+    expect(h.onApiError).not.toHaveBeenCalled();
+  });
+
+  it('same hme reserves share one request; different hmes run concurrently', async () => {
+    await loaded([]);
+    const d1 = deferred<Alias>();
+    const d2 = deferred<Alias>();
+    h.api.reserve.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const a1 = m.aliasStore.reserve({ hme: 'one@icloud.com', label: 'a', note: '' });
+    const a1b = m.aliasStore.reserve({ hme: 'one@icloud.com', label: 'a', note: '' });
+    const a2 = m.aliasStore.reserve({ hme: 'two@icloud.com', label: 'b', note: '' });
+    expect(a1b).toBe(a1);
+    expect(a2).not.toBe(a1);
+    expect(h.api.reserve).toHaveBeenCalledTimes(2);
+    d2.resolve(mk(2, { hme: 'two@icloud.com' }));
+    d1.resolve(mk(1, { hme: 'one@icloud.com' }));
+    const [r1, r2] = await Promise.all([a1, a2]);
+    expect(r1.anonymous_id).toBe('id1');
+    expect(r2.anonymous_id).toBe('id2');
+    expect(ids().sort()).toEqual(['id1', 'id2']);
+  });
+
+  it('a failed reserve releases its hme so a retry sends again', async () => {
+    await loaded([]);
+    h.api.reserve.mockRejectedValueOnce(new m.ApiError(500, 'apple_error'));
+    await expect(m.aliasStore.reserve({ hme: 'r@icloud.com', label: 'a', note: '' })).rejects.toBeTruthy();
+    h.api.reserve.mockResolvedValueOnce(mk(7));
+    await m.aliasStore.reserve({ hme: 'r@icloud.com', label: 'a', note: '' });
+    expect(h.api.reserve).toHaveBeenCalledTimes(2);
+  });
+
+  it('generate has a single in-flight guard', async () => {
+    await loaded([]);
+    const d = deferred<{ hme: string }>();
+    h.api.generate.mockReturnValue(d.promise);
+    const p1 = m.aliasStore.generate();
+    const p2 = m.aliasStore.generate();
+    expect(p2).toBe(p1);
+    d.resolve({ hme: 'g@icloud.com' });
+    expect(await p1).toBe('g@icloud.com');
+    expect(h.api.generate).toHaveBeenCalledTimes(1);
+    h.api.generate.mockResolvedValue({ hme: 'h@icloud.com' });
+    expect(await m.aliasStore.generate()).toBe('h@icloud.com');
   });
 });

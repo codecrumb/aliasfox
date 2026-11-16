@@ -3,6 +3,27 @@ import type { Alias } from '../src/lib/types';
 import { decryptJson, encryptJson, importCacheKey } from '../src/lib/crypto';
 import { cache } from '../src/lib/cache';
 
+const hold = vi.hoisted(() => ({ encrypt: null as Promise<void> | null }));
+vi.mock('../src/lib/crypto', async () => {
+  const actual = await vi.importActual<typeof import('../src/lib/crypto')>('../src/lib/crypto');
+  return {
+    ...actual,
+    encryptJson: async (k: CryptoKey, v: unknown) => {
+      const gate = hold.encrypt;
+      const r = await actual.encryptJson(k, v);
+      if (gate) await gate;
+      return r;
+    }
+  };
+});
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await tick();
+}
+async function cacheDbExists(): Promise<boolean> {
+  return (await indexedDB.databases()).some((d) => d.name === 'aliasfox-cache');
+}
+
 function b64url(bytes: Uint8Array): string {
   let s = '';
   for (const b of bytes) s += String.fromCharCode(b);
@@ -66,6 +87,7 @@ beforeEach(async () => {
   await cache.clear();
 });
 afterEach(() => {
+  hold.encrypt = null;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -200,5 +222,58 @@ describe('cache', () => {
     await expect(cache.save(key, [alias(1)])).resolves.toBeUndefined();
     await expect(cache.load(key)).resolves.toBeNull();
     await expect(cache.clear()).resolves.toBeUndefined();
+  });
+
+  it('a save held in encryptJson across clear() cannot resurrect the cache', async () => {
+    const key = await importCacheKey(KEY_A);
+    let release!: () => void;
+    hold.encrypt = new Promise<void>((r) => (release = r));
+    const p = cache.save(key, Array.from({ length: 500 }, (_, i) => alias(i)));
+    await tick();
+    await cache.clear();
+    hold.encrypt = null;
+    release();
+    await p;
+    await settle();
+    expect(await cacheDbExists()).toBe(false);
+    expect(await cache.load(key)).toBeNull();
+  });
+
+  it('a save held at openDb across clear() cannot resurrect the cache', async () => {
+    const key = await importCacheKey(KEY_A);
+    const real = indexedDB;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let first = true;
+    vi.stubGlobal('indexedDB', {
+      open: (name: string, v?: number) => {
+        const req = real.open(name, v);
+        if (!first) return req;
+        first = false;
+        return new Proxy(req, {
+          set(t, prop, val) {
+            if (prop === 'onsuccess') {
+              t.onsuccess = function (this: IDBRequest<IDBDatabase>, ev: Event) {
+                void gate.then(() => (val as (e: Event) => void).call(this, ev));
+              };
+              return true;
+            }
+            return Reflect.set(t, prop, val);
+          },
+          get: (t, prop) => Reflect.get(t, prop, t)
+        });
+      },
+      deleteDatabase: (n: string) => real.deleteDatabase(n),
+      databases: () => real.databases()
+    });
+    const p = cache.save(key, [alias(1)]);
+    await tick();
+    await cache.clear();
+    release();
+    await p;
+    await settle();
+    vi.unstubAllGlobals();
+    expect(await cacheDbExists()).toBe(false);
+    expect(await cache.load(key)).toBeNull();
   });
 });

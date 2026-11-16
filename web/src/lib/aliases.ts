@@ -36,7 +36,38 @@ let gen = 0;
 let mutSeq = 0;
 let initPromise: Promise<void> | null = null;
 let refreshPromise: Promise<void> | null = null;
-let reservePromise: Promise<Alias> | null = null;
+const reserves = new Map<string, Promise<Alias>>();
+let generatePromise: Promise<string> | null = null;
+// Mutations currently awaiting their API call, plus waiters released when none are pending.
+let pendingMutations = 0;
+let idleWaiters: Array<() => void> = [];
+let refetchPromise: Promise<FetchOutcome> | null = null;
+const MAX_REFETCHES = 2;
+
+type FetchOutcome = 'applied' | 'stale' | 'gone' | 'kept';
+
+function mutationStart(): void {
+  pendingMutations++;
+  mutSeq++;
+}
+
+function mutationEnd(g: number): void {
+  if (g !== gen) return; // clear() already reset the counters
+  pendingMutations--;
+  mutSeq++;
+  if (pendingMutations === 0) wakeIdle();
+}
+
+function wakeIdle(): void {
+  const w = idleWaiters;
+  idleWaiters = [];
+  for (const f of w) f();
+}
+
+function whenIdle(): Promise<void> {
+  if (pendingMutations === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => idleWaiters.push(resolve));
+}
 
 const UNEXPECTED = 'unexpected_response';
 
@@ -64,30 +95,55 @@ function fail(e: unknown): void {
 async function persist(g: number): Promise<void> {
   const key = cryptoKey;
   if (key === null || g !== gen) return;
-  await cache.save(key, listNow());
+  await cache.save(key, listNow()); // cache.save itself aborts if clear() ran meanwhile
 }
 
 function validList(v: unknown): v is Alias[] {
   return Array.isArray(v) && v.every((a) => a !== null && typeof a === 'object' && 'anonymous_id' in a);
 }
 
+// One list request. The response is applied only if no mutation is pending and none started or
+// settled since the request began; otherwise it is stale and dropped.
+async function attempt(g: number, refresh: boolean): Promise<FetchOutcome> {
+  const seq = mutSeq;
+  const res: unknown = await api.listAliases(refresh);
+  if (g !== gen) return 'gone';
+  if (pendingMutations > 0 || seq !== mutSeq) return 'stale';
+  if (!validList(res)) {
+    patchState({ error: UNEXPECTED });
+    return 'applied';
+  }
+  setList(res, { fromCache: false, error: null });
+  await persist(g);
+  return 'applied';
+}
+
+// A single queued re-fetch after pending mutations settle. refresh=true bypasses the server's
+// cached list; a rate limit keeps the optimistic state quietly.
+function refetch(g: number): Promise<FetchOutcome> {
+  if (refetchPromise !== null) return refetchPromise;
+  const p: Promise<FetchOutcome> = (async (): Promise<FetchOutcome> => {
+    await whenIdle();
+    if (g !== gen) return 'gone';
+    try {
+      return await attempt(g, true);
+    } catch (e) {
+      if (g !== gen) return 'gone';
+      if (e instanceof ApiError && e.detail === 'rate_limited') return 'kept';
+      throw e;
+    }
+  })().finally(() => {
+    if (refetchPromise === p) refetchPromise = null;
+  });
+  refetchPromise = p;
+  return p;
+}
+
 async function fetchAndApply(g: number, refresh: boolean): Promise<void> {
   patchState({ refreshing: true });
   try {
-    let res: unknown;
-    // A local mutation during the request makes the response stale: re-fetch once.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const seq = mutSeq;
-      res = await api.listAliases(refresh);
-      if (g !== gen) return;
-      if (seq === mutSeq) break;
-    }
-    if (!validList(res)) {
-      patchState({ error: UNEXPECTED });
-      return;
-    }
-    setList(res, { fromCache: false, error: null });
-    await persist(g);
+    let out = await attempt(g, refresh);
+    for (let n = 0; out === 'stale' && n < MAX_REFETCHES; n++) out = await refetch(g);
   } catch (e) {
     if (g !== gen) return;
     fail(e);
@@ -142,8 +198,7 @@ function refresh(): Promise<void> {
   return p;
 }
 
-async function generate(): Promise<string> {
-  const g = gen;
+async function runGenerate(g: number): Promise<string> {
   try {
     const res = await api.generate();
     if (res === null || typeof res !== 'object' || typeof res.hme !== 'string') {
@@ -156,29 +211,43 @@ async function generate(): Promise<string> {
   }
 }
 
+function generate(): Promise<string> {
+  if (generatePromise !== null) return generatePromise;
+  const p: Promise<string> = runGenerate(gen).finally(() => {
+    if (generatePromise === p) generatePromise = null;
+  });
+  generatePromise = p;
+  return p;
+}
+
 async function runReserve(g: number, b: { hme: string; label: string; note: string }): Promise<Alias> {
+  mutationStart();
   try {
     const created = await api.reserve(b);
     if (g !== gen) return created;
     if (created === null || typeof created !== 'object' || typeof created.anonymous_id !== 'string') {
       throw new ApiError(0, UNEXPECTED);
     }
-    mutSeq++;
     setList([created, ...listNow()], { error: null });
     await persist(g);
     return created;
   } catch (e) {
     if (g === gen) fail(e);
     throw e;
+  } finally {
+    mutationEnd(g);
   }
 }
 
+// Guarded per hme: a double trigger for the same address shares one request, while a different
+// address runs its own.
 function reserve(b: { hme: string; label: string; note: string }): Promise<Alias> {
-  if (reservePromise !== null) return reservePromise;
+  const existing = reserves.get(b.hme);
+  if (existing !== undefined) return existing;
   const p: Promise<Alias> = runReserve(gen, b).finally(() => {
-    if (reservePromise === p) reservePromise = null;
+    if (reserves.get(b.hme) === p) reserves.delete(b.hme);
   });
-  reservePromise = p;
+  reserves.set(b.hme, p);
   return p;
 }
 
@@ -191,19 +260,20 @@ async function optimistic(
   const g = gen;
   const previous = listNow();
   const applied = apply(previous);
-  mutSeq++;
+  mutationStart();
   setList(applied, { error: null });
   try {
     await call();
   } catch (e) {
     if (g === gen) {
-      mutSeq++;
       const current = listNow();
       // Untouched since we applied: restore the exact previous list. Otherwise revert only ours.
       setList(current === applied ? previous : undo(current, previous));
       fail(e);
     }
     throw e;
+  } finally {
+    mutationEnd(g);
   }
   await persist(g);
 }
@@ -266,7 +336,11 @@ async function clear(): Promise<void> {
   cryptoKey = null;
   initPromise = null;
   refreshPromise = null;
-  reservePromise = null;
+  reserves.clear();
+  generatePromise = null;
+  refetchPromise = null;
+  pendingMutations = 0;
+  wakeIdle();
   store.set(initialState());
   await cache.clear();
 }

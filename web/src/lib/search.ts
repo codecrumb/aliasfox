@@ -15,6 +15,7 @@ export interface Index {
 const SEP = '\u0001';
 const MAX_NEEDLE = 200;
 const MAX_FUZZY_TERMS = 4;
+const MAX_FUZZY_NEEDLE = 48;
 const INFO_THRESH = 1000;
 
 export function normalize(s: string): string {
@@ -70,7 +71,7 @@ const FUZZY_SAFE = /^[\x20-\x7e]+$/;
 
 function fuzzyEligible(needle: string, terms: string[]): boolean {
   if (!FUZZY_SAFE.test(needle) || !/[a-z0-9]/.test(needle)) return false;
-  if (terms.length > MAX_FUZZY_TERMS || needle.includes('"')) return false;
+  if (needle.length > MAX_FUZZY_NEEDLE || terms.length > MAX_FUZZY_TERMS || needle.includes('"')) return false;
   return !terms.some((t) => t.startsWith('-') || t.startsWith('^') || t.startsWith('!'));
 }
 
@@ -84,8 +85,12 @@ function pick(index: Index, idxs: number[]): Alias[] {
 }
 
 export function query(index: Index, text: string): Alias[] {
-  const needle = normalize(String(text)).slice(0, MAX_NEEDLE).trim();
-  if (needle === '') return index.newestFirst.slice();
+  const raw = normalize(String(text)).slice(0, MAX_NEEDLE);
+  if (raw.trim() === '') return index.newestFirst.slice();
+  // Whitespace controls separate terms; any other control char (notably the haystack separator
+  // \u0001) is dropped so it can never match across fields.
+  const needle = raw.replace(/[\t\n\v\f\r]/g, ' ').replace(/\p{Cc}/gu, '').trim();
+  if (needle === '') return [];
   const terms = needle.split(/\s+/);
   if (Array.from(needle).length === 1 || !fuzzyEligible(needle, terms)) return scan(index, terms);
   try {

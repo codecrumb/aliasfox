@@ -93,17 +93,34 @@ async function load(key: CryptoKey): Promise<Alias[] | null> {
   }
 }
 
+// Bumped synchronously at the start of clear(); a save that began earlier aborts silently, so a
+// logout can never be followed by a late write that resurrects the cache.
+let cacheEpoch = 0;
+
 async function save(key: CryptoKey, aliases: Alias[]): Promise<void> {
+  const epoch = cacheEpoch;
+  let db: IDBDatabase | null = null;
   try {
     if (idb() === null) return;
     const blob = await encryptJson(key, aliases);
-    await withStore('readwrite', (s) => s.put({ v: 1, blob }, RECORD));
+    if (epoch !== cacheEpoch) return;
+    db = await openDb();
+    if (epoch !== cacheEpoch) return;
+    const tx = db.transaction(STORE, 'readwrite');
+    const finished = done(tx, null);
+    // No await between the last epoch check and put().
+    tx.objectStore(STORE).put({ v: 1, blob }, RECORD);
+    if (epoch !== cacheEpoch) tx.abort();
+    await finished;
   } catch {
-    // quota / unavailable: the cache is best effort
+    // quota / unavailable / aborted: the cache is best effort
+  } finally {
+    db?.close();
   }
 }
 
 async function clear(): Promise<void> {
+  cacheEpoch++;
   const f = idb();
   if (f === null) return;
   await deleteRecord();
