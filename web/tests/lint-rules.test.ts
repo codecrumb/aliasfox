@@ -85,6 +85,37 @@ describe('banned patterns are rejected in src', () => {
     'Function() without new': "export function f(s: string) { return Function(s); }",
     'setTimeout template literal': 'export function f(s: string) { setTimeout(`${s}`, 1); }',
     'setTimeout concatenation': "export function f(s: string) { setTimeout('a' + s, 1); }",
+    'setTimeout String() call': 'export function f(s: string) { setTimeout(String(s), 1); }',
+    'setTimeout conditional': "export function f(s: string) { setTimeout(s ? 'a' : 'b', 1); }",
+    'setTimeout logical': "export function f(s: string) { setTimeout(s || 'a', 1); }",
+    'setTimeout call result': 'export function f(s: string, mk: (x: string) => never) { setTimeout(mk(s), 1); }',
+    'globalThis.setTimeout string-ish':
+      'export function f(s: string) { globalThis.setTimeout(String(s), 1); }',
+    'window.setInterval conditional':
+      "export function f(s: string) { window.setInterval(s ? 'a' : 'b', 1); }",
+    'setAttributeNS href name':
+      "export function f(e: Element, s: string) { e.setAttributeNS(null, 'href', s); }",
+    'setAttributeNS onclick name':
+      "export function f(e: Element, s: string) { e.setAttributeNS(null, 'onclick', s); }",
+    'setAttributeNS srcdoc name':
+      "export function f(e: Element, s: string) { e.setAttributeNS(null, 'srcdoc', s); }",
+    'setAttributeNS non-literal name':
+      "export function f(e: Element, n: string, s: string) { e.setAttributeNS(null, n, s); }",
+    'computed href javascript: literal':
+      "export function f(a: HTMLAnchorElement) { a['href'] = 'javascript:x'; }",
+    'computed src data:text/html literal':
+      "export function f(a: HTMLIFrameElement) { a['src'] = 'data:text/html,<b>x</b>'; }",
+    'createElementNS script':
+      "export const e = () => document.createElementNS('http://www.w3.org/1999/xhtml', 'script');",
+    'createElementNS style':
+      "export const e = () => document.createElementNS('http://www.w3.org/1999/xhtml', 'style');",
+    'createElementNS iframe':
+      "export const e = () => document.createElementNS('http://www.w3.org/1999/xhtml', 'iframe');",
+    'createElementNS non-literal name':
+      "export const e = (t: string) => document.createElementNS('http://www.w3.org/1999/xhtml', t);",
+    'window.Function()': 'export function f(s: string) { return window.Function(s); }',
+    'globalThis.Function()': 'export function f(s: string) { return globalThis.Function(s); }',
+    'indirect eval': 'export function f(s: string) { return (0, eval)(s); }',
     'window.setInterval string': "export function f() { window.setInterval('x()', 1); }"
   };
   for (const [name, code] of Object.entries(banned)) {
@@ -142,6 +173,19 @@ describe('allowed patterns pass', () => {
       'export function f(o: Record<string, string>, k: { id: string }, v: string) { o[k.id] = v; }',
     'literal-key assignment on a record': "export function f(o: Record<string, string>) { o['a'] = 'b'; }",
     'createElement div': "export const e = () => document.createElement('div');",
+    'setTimeout with arrow': 'export function f(x: () => void) { setTimeout(() => x(), 100); }',
+    'setTimeout with member':
+      'export const o = { tick() {}, go() { setTimeout(this.tick, 100); } };',
+    'setTimeout with indexed member':
+      'export function f(fns: Array<() => void>) { setTimeout(fns[0]!, 1); }',
+    'window.setTimeout with arrow':
+      'export function f(x: () => void) { window.setTimeout(() => x(), 1); }',
+    'setAttributeNS benign xlink name':
+      "export function f(e: Element, s: string) { e.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:title', s); }",
+    'createElementNS svg':
+      "export const e = () => document.createElementNS('http://www.w3.org/2000/svg', 'svg');",
+    'createElementNS path':
+      "export const e = () => document.createElementNS('http://www.w3.org/2000/svg', 'path');",
     'setTimeout with identifier': 'export function f(cb: () => void) { setTimeout(cb, 1); }',
     'href to a relative literal':
       "export function f(a: HTMLAnchorElement) { a.href = '/assets/x'; }",

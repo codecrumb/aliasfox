@@ -64,16 +64,29 @@ const restrictedSyntax = [
     message: 'document.write/writeln are banned.'
   },
   {
-    selector: `CallExpression[callee.property.name=/^setAttribute(NS)?$/][arguments.0.value=${BAD_ATTRS}]`,
+    selector: `CallExpression[callee.property.name='setAttribute'][arguments.0.value=${BAD_ATTRS}]`,
     message: 'setAttribute of on*/srcdoc/href/src/action/formaction is banned.'
   },
   {
-    selector: 'CallExpression[callee.property.name=/^setAttribute(NS)?$/][arguments.0.type!="Literal"]',
+    selector: `CallExpression[callee.property.name='setAttributeNS'][arguments.1.value=${BAD_ATTRS}]`,
+    message: 'setAttributeNS of on*/srcdoc/href/src/action/formaction is banned.'
+  },
+  {
+    selector: "CallExpression[callee.property.name='setAttribute'][arguments.0.type!='Literal']",
     message: 'setAttribute needs a literal attribute name (so it can be checked).'
+  },
+  {
+    selector: "CallExpression[callee.property.name='setAttributeNS'][arguments.1.type!='Literal']",
+    message: 'setAttributeNS needs a literal attribute name (so it can be checked).'
   },
   {
     selector:
       "AssignmentExpression[left.property.name=/^(href|src)$/][right.type='Literal'][right.value=/^\\s*(javascript:|data:text\\/html)/i]",
+    message: 'javascript:/data:text/html URLs are banned.'
+  },
+  {
+    selector:
+      "AssignmentExpression[left.property.value=/^(href|src)$/][right.type='Literal'][right.value=/^\\s*(javascript:|data:text\\/html)/i]",
     message: 'javascript:/data:text/html URLs are banned.'
   },
   {
@@ -84,6 +97,24 @@ const restrictedSyntax = [
   {
     selector: "CallExpression[callee.property.name='createElement'][arguments.0.type!='Literal']",
     message: 'createElement needs a literal tag name (so it can be checked).'
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='createElementNS'][arguments.1.value=/^(script|style|iframe|object|embed)$/i]",
+    message: 'Creating script/style/iframe/object/embed elements is banned.'
+  },
+  {
+    selector: "CallExpression[callee.property.name='createElementNS'][arguments.1.type!='Literal']",
+    message: 'createElementNS needs a literal tag name (so it can be checked).'
+  },
+  {
+    selector: ":matches(CallExpression, NewExpression)[callee.property.name='Function']",
+    message: 'window.Function()/globalThis.Function() is eval.'
+  },
+  {
+    selector:
+      "CallExpression[callee.type='SequenceExpression']:matches([callee.expressions.1.name='eval'], [callee.expressions.2.name='eval'])",
+    message: 'Indirect eval is banned.'
   },
   {
     selector:
@@ -99,16 +130,14 @@ const restrictedSyntax = [
     selector: "CallExpression[callee.name='Function']",
     message: 'Function() is eval.'
   },
-  {
-    selector:
-      "CallExpression[callee.name=/^(setTimeout|setInterval)$/][arguments.0.type=/^(Literal|TemplateLiteral|BinaryExpression)$/]",
-    message: 'setTimeout/setInterval must receive a function, not a string.'
-  },
-  {
-    selector:
-      "CallExpression[callee.property.name=/^(setTimeout|setInterval)$/][arguments.0.type=/^(Literal|TemplateLiteral|BinaryExpression)$/]",
-    message: 'setTimeout/setInterval must receive a function, not a string.'
-  },
+  ...[
+    "CallExpression[callee.name=/^(setTimeout|setInterval)$/]",
+    "CallExpression[callee.property.name=/^(setTimeout|setInterval)$/]"
+  ].map((call) => ({
+    selector: `${call}:not([arguments.0.type=/^(ArrowFunctionExpression|FunctionExpression|Identifier|MemberExpression|TSNonNullExpression)$/])`,
+    message:
+      'setTimeout/setInterval must receive a function (arrow, function, identifier or member), never a computed string.'
+  })),
   {
     selector: "SvelteElement[name.name='svelte:element']",
     message: '<svelte:element> (dynamic tag names) is banned.'
