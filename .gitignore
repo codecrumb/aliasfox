@@ -8,3 +8,5 @@ __pycache__/
 .pytest_cache/
 neon.ts.local
 node_modules/
+.neon
+.DS_Store
