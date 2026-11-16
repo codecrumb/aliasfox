@@ -66,11 +66,20 @@ def fake_factory(cls):
 
 
 class FakeService:
-    def __init__(self):
-        self.forgotten = []
+    """Mimics AliasService's session writes (replace_session/disconnect)."""
 
-    async def forget(self, user_id):
-        self.forgotten.append(user_id)
+    def __init__(self, store=None):
+        self.store = store
+        self.replaced = []
+        self.disconnected = []
+
+    async def replace_session(self, user_id, state):
+        self.replaced.append(user_id)
+        self.store.save(user_id, state)
+
+    async def disconnect(self, user_id):
+        self.disconnected.append(user_id)
+        self.store.delete(user_id)
 
     async def is_connected(self, user_id):
         return True
@@ -93,7 +102,7 @@ def env():
     e = Env()
     e.api_cls = type("A", (FakeApi,), {"made": []})
     e.store, e.engine = new_store()
-    e.svc = FakeService()
+    e.svc = FakeService(e.store)
     e.flow = LoginFlow(service_factory=fake_factory(e.api_cls))
     settings = Settings(secret_key=SECRET)
     e.client = TestClient(
@@ -114,7 +123,7 @@ def test_connect_cookie_stores_session(env, monkeypatch):
     r = env.client.post("/api/connect/cookie", json={"cookie": "X-APPLE-WEBAUTH-USER=v"})
     assert r.status_code == 200 and r.json() == {"status": "ok"}
     assert env.store.load(1).webservices_url == "https://p1.icloud.com"
-    assert env.svc.forgotten == [1]
+    assert env.svc.replaced == [1]
 
 
 def test_connect_invalid_cookie_400_without_echo(env, monkeypatch):
@@ -143,7 +152,7 @@ def test_login_needs_2fa_then_verify_stores_session(env):
     assert st.cookies == {"X-APPLE-WEBAUTH-USER": COOKIE_VALUE}
     assert st.webservices_url == "https://p1-maildomainws.icloud.com"
     assert st.dsid == "42" and st.extra == {"trust_token": "TT"}
-    assert env.svc.forgotten == [1]
+    assert env.svc.replaced == [1]
 
 
 def test_login_without_2fa_saves_immediately(env):
@@ -238,7 +247,7 @@ def test_forget_session_deletes_row(env):
     r = env.client.delete("/api/connect")
     assert r.status_code == 200 and r.json() == {"status": "disconnected"}
     assert env.store.load(1) is None
-    assert env.svc.forgotten == [1]
+    assert env.svc.disconnected == [1]
 
 
 def test_apple_login_rate_limited(env):

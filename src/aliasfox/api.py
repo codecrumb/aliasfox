@@ -21,7 +21,7 @@ from aliasfox.apple.login import (
 from aliasfox.auth import client_ip, current_user, limiter_key
 from aliasfox.ratelimit import RateLimiter
 from aliasfox.service import AliasService, NotConnected
-from aliasfox.sessions import SessionStore
+from aliasfox.sessions import SessionStore, SessionUnreadable
 
 APPLE_WINDOW_SECONDS = 15 * 60
 LOGIN_PER_IP = 5
@@ -145,20 +145,17 @@ def build_router(
 
     @router.get("/status")
     async def status(user_id: User):
-        return {
-            "connected": await service.is_connected(user_id),
-            "mode": settings.aliasfox_mode,
-            "auth_enabled": settings.auth_enabled,
-        }
+        body: dict = {"mode": settings.aliasfox_mode, "auth_enabled": settings.auth_enabled}
+        try:
+            body = {"connected": await service.is_connected(user_id), **body}
+        except SessionUnreadable:
+            body = {"connected": False, "reason": "session_unreadable", **body}
+        return body
 
     # --- Apple connect -------------------------------------------------------
     # Limiter slots are reserved BEFORE touching Apple and are NOT given back on
     # failure (each attempt can push a 2FA prompt and failures can lock the
     # account). They are released only if the attempt never reached Apple.
-
-    async def _save(user_id: int, state) -> None:
-        await run_in_threadpool(store.save, user_id, state)
-        await service.forget(user_id)
 
     @router.post("/connect/cookie")
     async def connect_cookie(body: CookieBody, request: Request, user_id: User):
@@ -171,7 +168,7 @@ def build_router(
             return JSONResponse(
                 {"detail": "invalid_cookie", "message": str(exc)}, status_code=400
             )
-        await _save(user_id, state)
+        await service.replace_session(user_id, state)
         return {"status": "ok"}
 
     @router.post("/connect/login")
@@ -195,7 +192,7 @@ def build_router(
             login_global.release(global_key)
             raise
         if result.status == "ok":
-            await _save(user_id, result.state)
+            await service.replace_session(user_id, result.state)
             return {"status": "ok"}
         return {"status": "needs_2fa", "flow_id": result.flow_id}
 
@@ -205,14 +202,13 @@ def build_router(
         if not verify_ip.hit(key):
             return _rate_limited(verify_ip.retry_after(key))
         state = await run_in_threadpool(login_flow.verify, user_id, body.flow_id, body.code)
-        await _save(user_id, state)
+        await service.replace_session(user_id, state)
         return {"status": "ok"}
 
     @router.delete("/connect")
     async def disconnect(user_id: User):
         await run_in_threadpool(login_flow.cancel_user, user_id)
-        await run_in_threadpool(store.delete, user_id)
-        await service.forget(user_id)
+        await service.disconnect(user_id)
         return {"status": "disconnected"}
 
     return router
@@ -228,6 +224,10 @@ def install_error_handlers(app: FastAPI) -> None:
             for e in exc.errors()
         ]
         return JSONResponse({"detail": detail}, status_code=422)
+
+    @app.exception_handler(SessionUnreadable)
+    async def session_unreadable(request: Request, exc: SessionUnreadable):
+        return JSONResponse({"detail": "session_unreadable"}, status_code=409)
 
     @app.exception_handler(NotConnected)
     async def not_connected(request: Request, exc: NotConnected):

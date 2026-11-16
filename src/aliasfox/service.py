@@ -7,6 +7,7 @@ best-effort; aliases are cached in memory only.
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -38,6 +39,11 @@ class AliasService:
         self._clock = clock
         self._locks: dict[int, asyncio.Lock] = {}
         self._cache: dict[int, tuple[float, list[Alias]]] = {}
+        # Bumped by replace_session/disconnect. A client built earlier must not
+        # write its rotated cookies over a newer session (or resurrect a deleted
+        # one); the check and the write share _write_lock so they are atomic.
+        self._gen: dict[int, int] = {}
+        self._write_lock = threading.Lock()
 
     def _lock(self, user_id: int) -> asyncio.Lock:
         lock = self._locks.get(user_id)
@@ -46,9 +52,14 @@ class AliasService:
         return lock
 
     def _persist(self, user_id: int) -> Callable[[AppleSessionState], None]:
+        generation = self._gen.get(user_id, 0)
+
         def persist(state: AppleSessionState) -> None:
             try:
-                self._store.save(user_id, state)
+                with self._write_lock:
+                    if self._gen.get(user_id, 0) != generation:
+                        return  # session replaced or disconnected since this client was built
+                    self._store.save(user_id, state)
             except Exception as exc:  # never mask the Apple result
                 log.warning("failed to persist session: %s", type(exc).__name__)
 
@@ -86,8 +97,30 @@ class AliasService:
         return await run_in_threadpool(work)
 
     async def forget(self, user_id: int) -> None:
-        """Drop the user's cached alias list (after connect/disconnect)."""
+        """Drop the user's cached alias list."""
         async with self._lock(user_id):
+            self._cache.pop(user_id, None)
+
+    async def replace_session(self, user_id: int, state: AppleSessionState) -> None:
+        """Store a freshly connected session (the only writer besides rotation)."""
+
+        def write() -> None:
+            with self._write_lock:
+                self._gen[user_id] = self._gen.get(user_id, 0) + 1
+                self._store.save(user_id, state)
+
+        async with self._lock(user_id):
+            await run_in_threadpool(write)
+            self._cache.pop(user_id, None)
+
+    async def disconnect(self, user_id: int) -> None:
+        def delete() -> None:
+            with self._write_lock:
+                self._gen[user_id] = self._gen.get(user_id, 0) + 1
+                self._store.delete(user_id)
+
+        async with self._lock(user_id):
+            await run_in_threadpool(delete)
             self._cache.pop(user_id, None)
 
     async def _mutate(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:

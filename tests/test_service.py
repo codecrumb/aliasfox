@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.db import init_db
 from aliasfox.service import AliasService, NotConnected
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
 KEY = b"k" * 32
 
@@ -323,3 +323,102 @@ async def test_forget_drops_list_cache_only_for_that_user():
     svc._cache[2] = (0.0, [])
     await svc.forget(1)
     assert 1 not in svc._cache and 2 in svc._cache
+
+
+# --- B1: session writes through the service, generation guard -----------------------
+
+
+def _state(**cookies):
+    return AppleSessionState({"c": "v", **cookies}, "https://ws.example")
+
+
+async def test_replace_session_saves_and_drops_cache(svc, store, tracker):
+    await svc.list_aliases(1)
+    assert tracker.list_count == 1
+    await svc.replace_session(1, _state(new="1"))
+    assert store.load(1).cookies == {"c": "v", "new": "1"}
+    await svc.list_aliases(1)
+    assert tracker.list_count == 2  # cache dropped
+
+
+async def test_disconnect_deletes_and_drops_cache(svc, store, tracker):
+    await svc.list_aliases(1)
+    await svc.disconnect(1)
+    assert store.load(1) is None
+    with pytest.raises(NotConnected):
+        await svc.list_aliases(1)
+    await svc.disconnect(1)  # idempotent
+
+
+async def test_persist_callback_skips_after_disconnect(store, tracker, clock):
+    clients = []
+
+    class Capture(FakeClient):
+        tracker = None
+
+        def __init__(self, state, *, on_state_change=None):
+            super().__init__(state, on_state_change=on_state_change)
+            clients.append(self)
+
+    Capture.tracker = tracker
+    svc = AliasService(store, client_factory=Capture, clock=clock)
+    await svc.list_aliases(1)
+    stale = clients[0]
+    await svc.disconnect(1)
+    stale.on_state_change(_state(stale="ROTATED"))
+    assert store.load(1) is None
+
+
+async def test_persist_callback_skips_after_replace(store, tracker, clock):
+    clients = []
+
+    class Capture(FakeClient):
+        def __init__(self, state, *, on_state_change=None):
+            super().__init__(state, on_state_change=on_state_change)
+            clients.append(self)
+
+    Capture.tracker = tracker
+    svc = AliasService(store, client_factory=Capture, clock=clock)
+    await svc.list_aliases(1)
+    await svc.replace_session(1, _state(fresh="1"))
+    clients[0].on_state_change(_state(stale="ROTATED"))
+    assert store.load(1).cookies == {"c": "v", "fresh": "1"}
+
+
+async def test_persist_still_saves_when_generation_unchanged(svc, store, tracker):
+    tracker.rotate = True
+    await svc.list_aliases(1)
+    assert store.load(1).cookies["rotated"] == "new-cookie"
+
+
+async def test_concurrent_disconnect_beats_slow_rotating_call(svc, store, tracker):
+    tracker.rotate = True
+    tracker.sleep = 0.2
+    slow = asyncio.create_task(svc.list_aliases(1, refresh=True))
+    await asyncio.sleep(0.05)  # the call is in flight
+    await svc.disconnect(1)
+    await slow
+    assert store.load(1) is None
+
+
+async def test_concurrent_reconnect_beats_slow_rotating_call(svc, store, tracker):
+    tracker.rotate = True
+    tracker.sleep = 0.2
+    slow = asyncio.create_task(svc.list_aliases(1, refresh=True))
+    await asyncio.sleep(0.05)
+    await svc.replace_session(1, _state(fresh="1"))
+    await slow
+    assert store.load(1).cookies == {"c": "v", "fresh": "1"}
+
+
+async def test_unreadable_session_raises_session_unreadable(store, tracker, clock):
+    other = SessionStore(store._sessions.kw["bind"], b"z" * 32)
+    cls = type("F", (FakeClient,), {"tracker": tracker})
+    svc = AliasService(other, client_factory=cls, clock=clock)
+    with pytest.raises(SessionUnreadable):
+        await svc.list_aliases(1)
+    with pytest.raises(SessionUnreadable):
+        await svc.is_connected(1)
+    # a reconnect repairs it
+    await svc.replace_session(1, _state())
+    assert await svc.is_connected(1) is True

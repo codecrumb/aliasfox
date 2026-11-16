@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from aliasfox.sessions import SessionUnreadable
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.auth import COOKIE_NAME
 from aliasfox.config import Settings
@@ -326,3 +327,26 @@ def test_security_headers_on_guard_403s(client):
 def test_guards_still_block_before_service(client, svc):
     client.post("/api/aliases/generate", headers={"Origin": "http://evil.example"})
     assert svc.calls == []
+
+
+# --- B2: unreadable stored session -------------------------------------------------
+
+
+def test_session_unreadable_maps_to_409(client, svc):
+    svc.error = SessionUnreadable()
+    r = client.get("/api/aliases")
+    assert r.status_code == 409
+    assert r.json() == {"detail": "session_unreadable"}
+
+
+def test_status_reports_unreadable_not_500(client, svc):
+    svc.error = SessionUnreadable()
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["connected"] is False
+    assert body["reason"] == "session_unreadable"
+
+
+def test_status_has_no_reason_normally(client, svc):
+    assert "reason" not in client.get("/api/status").json()

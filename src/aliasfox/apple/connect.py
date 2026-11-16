@@ -11,7 +11,7 @@ import re
 import httpx
 
 from aliasfox.apple.hme import apply_set_cookies, check_webservices_url
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
 # --- Unverified Apple details -------------------------------------------------
 VALIDATE_URL = "https://setup.icloud.com/setup/ws/1/validate"
@@ -171,7 +171,10 @@ def seed_from_env(
     text = settings.icloud_cookie
     if not text or not text.strip():
         return False
-    existing = store.load(SEED_USER_ID)
+    try:
+        existing = store.load(SEED_USER_ID)
+    except SessionUnreadable:
+        existing = None  # overwrite what we cannot read
     if existing is not None and is_session_valid(existing, transport=transport):
         return False
     store.save(SEED_USER_ID, connect_with_cookie(text, transport=transport))

@@ -4,8 +4,16 @@ from dataclasses import asdict, dataclass, field
 from sqlalchemy import Engine
 from sqlalchemy.orm import sessionmaker
 
-from aliasfox.crypto import decrypt, encrypt
+from aliasfox.crypto import DecryptionError, decrypt, encrypt
 from aliasfox.db import AppleSessionRow
+
+
+class SessionUnreadable(Exception):
+    """The stored session cannot be decrypted or parsed (rotated key, corruption).
+    Fixed message: never carries blob or key material."""
+
+    def __init__(self) -> None:
+        super().__init__("stored session is unreadable; reconnect")
 
 
 @dataclass
@@ -43,8 +51,11 @@ class SessionStore:
             blob = row.blob if row else None
         if blob is None:
             return None
-        data = json.loads(decrypt(self._key, blob, aad=self._aad(user_id)))
-        return AppleSessionState(**data)
+        try:
+            data = json.loads(decrypt(self._key, blob, aad=self._aad(user_id)))
+            return AppleSessionState(**data)
+        except (DecryptionError, ValueError, TypeError, KeyError):
+            raise SessionUnreadable() from None
 
     def delete(self, user_id: int) -> None:
         with self._sessions.begin() as s:

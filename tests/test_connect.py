@@ -209,3 +209,10 @@ def test_connect_with_ellipsis_never_reports_unicode_error():
         )
     assert "Unicode" not in str(e.value)
     assert str(e.value) == TRUNC_MSG
+
+
+def test_seed_overwrites_unreadable_stored_session(store):
+    other = SessionStore(store._sessions.kw["bind"], b"z" * 32)
+    other.save(1, AppleSessionState(cookies={"X-APPLE-WEBAUTH-USER": "old"}, webservices_url=HME_URL))
+    assert seed_from_env(make_settings(COOKIE), store, transport=httpx.MockTransport(validate_ok)) is True
+    assert store.load(1).dsid == "777"

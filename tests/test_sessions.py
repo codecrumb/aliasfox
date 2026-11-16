@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 
 from aliasfox.crypto import DecryptionError
 from aliasfox.db import AppleSessionRow, init_db
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
 KEY = b"k" * 32
 
@@ -65,7 +65,7 @@ def test_blob_bound_to_user(store, engine):
         blob = s.scalar(select(AppleSessionRow.blob).where(AppleSessionRow.user_id == 1))
         s.add(AppleSessionRow(user_id=2, blob=blob))
         s.commit()
-    with pytest.raises(DecryptionError):
+    with pytest.raises(SessionUnreadable):
         store.load(2)
 
 
@@ -88,3 +88,39 @@ def test_bad_key_length_rejected(engine):
 def test_repr_does_not_contain_cookie_values():
     state = AppleSessionState(cookies={"c": "SECRETVALUE"}, webservices_url="https://x")
     assert "SECRETVALUE" not in repr(state)
+
+
+def _put_blob(engine, blob, user_id=1):
+    with Session(engine) as s, s.begin():
+        row = s.get(AppleSessionRow, user_id)
+        if row is None:
+            s.add(AppleSessionRow(user_id=user_id, blob=blob))
+        else:
+            row.blob = blob
+
+
+def test_rotated_secret_key_is_session_unreadable(store, engine):
+    store.save(1, _state())
+    other = SessionStore(engine, b"z" * 32)
+    with pytest.raises(SessionUnreadable) as ei:
+        other.load(1)
+    assert "reconnect" in str(ei.value)
+    assert "super-secret" not in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "plaintext",
+    [b"not json", b"[1, 2]", b'{"webservices_url": "x"}', b'{"cookies": {}, "webservices_url": "x", "bogus": 1}', b"\xff\xfe"],
+)
+def test_corrupt_plaintext_is_session_unreadable(store, engine, plaintext):
+    from aliasfox.crypto import encrypt
+
+    _put_blob(engine, encrypt(KEY, plaintext, aad=b"1"))
+    with pytest.raises(SessionUnreadable):
+        store.load(1)
+
+
+def test_truncated_blob_is_session_unreadable(store, engine):
+    _put_blob(engine, b"short")
+    with pytest.raises(SessionUnreadable):
+        store.load(1)
