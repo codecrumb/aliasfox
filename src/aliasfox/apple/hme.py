@@ -214,11 +214,10 @@ class HmeClient:
             self._on_state_change(self._state)
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
-        params = {"dsid": self._state.dsid} if self._state.dsid else None
         content = json.dumps(body) if body is not None else None
         try:
             resp = self._http.request(
-                method, path, params=params, content=content, headers=self._headers()
+                method, path, content=content, headers=self._headers()
             )
         except httpx.HTTPError as exc:
             raise HmeError(None, f"network error: {type(exc).__name__}") from None

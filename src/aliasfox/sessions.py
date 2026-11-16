@@ -13,7 +13,7 @@ class AppleSessionState:
     cookies: dict[str, str] = field(repr=False)
     webservices_url: str
     dsid: str | None = None
-    extra: dict = field(default_factory=dict)
+    extra: dict = field(default_factory=dict, repr=False)
 
 
 class SessionStore:

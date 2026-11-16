@@ -35,6 +35,14 @@ def _state():
     )
 
 
+def test_extra_not_in_repr():
+    state = AppleSessionState(
+        cookies={}, webservices_url="https://x", extra={"trust_token": "TRUSTTOKENVALUE"}
+    )
+    assert "TRUSTTOKENVALUE" not in repr(state)
+    assert "TRUSTTOKENVALUE" not in str(state)
+
+
 def test_save_load_roundtrip(store):
     store.save(1, _state())
     assert store.load(1) == _state()

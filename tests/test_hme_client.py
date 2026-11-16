@@ -54,7 +54,8 @@ def test_list_parses_aliases():
     r = seen["req"]
     assert r.method == "GET"
     assert r.url.path == "/v2/hme/list"
-    assert r.url.params["dsid"] == "12345"
+    assert "dsid" not in r.url.params
+    assert r.url.query == b""
     assert r.headers["origin"] == "https://www.icloud.com"
     assert r.headers["referer"] == "https://www.icloud.com/"
     assert r.headers["content-type"] == "text/plain"
