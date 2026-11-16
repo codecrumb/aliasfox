@@ -12,7 +12,7 @@ from aliasfox.apple.connect import connect_with_cookie
 from aliasfox.apple.hme import HmeClient
 from aliasfox.config import Settings
 
-SECRET = "e2e-secret-key-value"
+SECRET = "e2e-secret-key-value-0123456789abcdef"
 COOKIE_VALUE = "PLAINTEXTCOOKIEVALUE123"
 COOKIE = f"X-APPLE-WEBAUTH-USER={COOKIE_VALUE}; other=zzz"
 BASE = "https://p99-maildomainws.icloud.com"

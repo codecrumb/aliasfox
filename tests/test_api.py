@@ -10,7 +10,7 @@ from aliasfox.db import init_db
 from aliasfox.service import NotConnected
 from aliasfox.sessions import SessionStore
 
-SECRET = "unit-test-secret-key"
+SECRET = "unit-test-secret-key-0123456789abcdef"
 COOKIE_TEXT = "X-APPLE-WEBAUTH-USER=SUPERSECRETCOOKIE"
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "

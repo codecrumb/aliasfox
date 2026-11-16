@@ -5,7 +5,7 @@ from aliasfox.main import create_app
 
 
 def test_healthz_ok(tmp_path):
-    client = TestClient(create_app(Settings(secret_key="x", data_dir=tmp_path)))
+    client = TestClient(create_app(Settings(secret_key="x" * 32, data_dir=tmp_path)))
     r = client.get("/healthz")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}

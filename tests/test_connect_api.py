@@ -16,7 +16,7 @@ from aliasfox.db import AppleSessionRow, init_db
 from aliasfox.main import create_app
 from aliasfox.sessions import AppleSessionState, SessionStore
 
-SECRET = "unit-test-secret-key"
+SECRET = "unit-test-secret-key-0123456789abcdef"
 PASSWORD = "hunter2-SECRET-pw"
 APPLE_ID = "someone@example.com"
 COOKIE_VALUE = "SUPERSECRETCOOKIEVALUE"

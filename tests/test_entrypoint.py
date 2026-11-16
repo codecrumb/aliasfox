@@ -51,7 +51,7 @@ def test_gen_secret(capsys):
 
 def test_default_runs_uvicorn_with_settings(monkeypatch):
     captured = {}
-    monkeypatch.setattr(entry, "get_settings", lambda: Settings(secret_key="k", host="127.0.0.1", port=9123))
+    monkeypatch.setattr(entry, "get_settings", lambda: Settings(secret_key="k" * 32, host="127.0.0.1", port=9123))
     monkeypatch.setattr(entry.uvicorn, "run", lambda app, **kw: captured.update(app=app, **kw))
     monkeypatch.setattr(entry, "create_app", lambda s: ("APP", s.port))
     assert entry.main([]) == 0
@@ -66,7 +66,7 @@ def test_default_runs_uvicorn_with_settings(monkeypatch):
 def test_public_bind_guard_applies_before_server(monkeypatch):
     from aliasfox.config import ConfigError
 
-    monkeypatch.setattr(entry, "get_settings", lambda: Settings(secret_key="k", host="0.0.0.0"))
+    monkeypatch.setattr(entry, "get_settings", lambda: Settings(secret_key="k" * 32, host="0.0.0.0"))
     monkeypatch.setattr(entry.uvicorn, "run", lambda *a, **k: pytest.fail("server started"))
     with pytest.raises(ConfigError):
         entry.main([])

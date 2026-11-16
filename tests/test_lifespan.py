@@ -33,7 +33,7 @@ def new_store():
 
 
 def make_app(cookie=None, flow=None):
-    settings = Settings(secret_key="unit-test-secret-key", icloud_cookie=cookie)
+    settings = Settings(secret_key="unit-test-secret-key-0123456789abcdef", icloud_cookie=cookie)
     return main_mod.create_app(
         settings, service=FakeService(), store=new_store(), login_flow=flow or LoginFlow()
     )

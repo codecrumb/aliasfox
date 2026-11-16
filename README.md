@@ -35,9 +35,9 @@ export ALIASFOX_SECRET_KEY="$(.venv/bin/python -m aliasfox gen-secret)" DATA_DIR
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ALIASFOX_SECRET_KEY` | none, required | Encrypts stored Apple sessions and signs login cookies. The app will not start without it. |
+| `ALIASFOX_SECRET_KEY` | none, required | Encrypts stored Apple sessions and signs login cookies. At least 32 characters or the app will not start. |
 | `AUTH_ENABLED` | `false` | Require an AliasFox password. Needed for any non-loopback bind. |
-| `ALIASFOX_PASSWORD_HASH` | none | Argon2id hash, required when auth is on. Make one with `python -m aliasfox hash-password`. |
+| `ALIASFOX_PASSWORD_HASH` | none | Argon2id hash, required when auth is on. Make one with `python -m aliasfox hash-password`. Quote it in `.env` files (`'$argon2id$...'`) because `$` is interpolated; an unparsable hash refuses startup. |
 | `DATABASE_URL` | SQLite in `DATA_DIR` | Postgres URL. `postgres://` and `postgresql://` are normalised. |
 | `DATA_DIR` | `/data` | Where the SQLite file lives. |
 | `ICLOUD_COOKIE` | none | Local testing only: seeds a session at startup if none valid is stored. |
@@ -81,6 +81,7 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
 
 - Run a single worker. Rate limiters and pending login flows are in memory; `python -m aliasfox`
   already does this.
+- Logging out revokes every outstanding session cookie ("log out everywhere"). Dev databases created before this change get the `users.session_epoch` column added automatically; Alembic migrations arrive with plan 3.
 - Public deployment: set `AUTH_ENABLED=true` and `ALIASFOX_PASSWORD_HASH`, remove
   `ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK`, and put a TLS-terminating proxy in front.
 - Render free tier has no persistent disk: set `DATABASE_URL` to a Postgres instance, and ping
