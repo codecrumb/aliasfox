@@ -228,7 +228,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HmeError)
     async def apple_error(request: Request, exc: HmeError):
         return JSONResponse(
-            {"detail": "apple_error", "code": exc.code, "message": exc.message},
+            {"detail": "apple_error", "code": exc.code, "message": (exc.message or "")[:HME_MESSAGE_MAX]},
             status_code=502,
         )
 

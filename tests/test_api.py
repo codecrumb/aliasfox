@@ -141,6 +141,14 @@ def test_hme_error_is_502_with_code_and_no_cookie_text(client, svc):
     assert COOKIE_TEXT not in r.text
 
 
+def test_hme_error_message_capped_at_200_chars(client, svc):
+    svc.error = HmeError(1, "x")
+    svc.error.message = "x" * 5000  # bypass HmeError's own cap: the handler caps too
+    r = client.get("/api/aliases")
+    assert r.status_code == 502
+    assert r.json()["message"] == "x" * 200
+
+
 def test_hme_error_with_no_code(client, svc):
     svc.error = HmeError(None, "bad")
     r = client.get("/api/aliases")
