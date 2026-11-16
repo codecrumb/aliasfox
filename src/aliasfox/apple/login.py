@@ -200,6 +200,7 @@ class LoginFlow:
         self, user_id: int, apple_id: str, password: str, *, china: bool = False
     ) -> LoginResult:
         self._sweep()
+        self.cancel_user(user_id)  # at most one pending flow per user
         with self._lock:
             if len(self._flows) + self._starting >= self._max_pending:
                 raise TooManyFlows()
@@ -271,7 +272,15 @@ class LoginFlow:
             if not ok:
                 if flow.attempts >= self._max_attempts:
                     self._drop(flow_id, flow)
+                else:
+                    # pyicloud clears its trusted-device bridge state after every
+                    # validate call: a retry needs a fresh code request.
+                    try:
+                        flow.service.request_2fa_code()
+                    except Exception as exc:  # Apple may have pushed it anyway
+                        log.info("request_2fa_code failed: %s", type(exc).__name__)
                 raise InvalidCode()
+            self._trust(flow.service)
             try:
                 state = _build_state(flow.service)
             except (AppleLoginFailed, UntrustedAppleUrl):
@@ -282,6 +291,16 @@ class LoginFlow:
             finally:
                 self._drop(flow_id, flow)
             return state
+
+    @staticmethod
+    def _trust(service: Any) -> None:
+        """Ask Apple to trust this session. The code was already accepted, so a
+        failure here must not fail the login."""
+        try:
+            if not getattr(service, "is_trusted_session", True):
+                service.trust_session()
+        except Exception as exc:
+            log.warning("trust_session failed: %s", type(exc).__name__)
 
     def cancel(self, flow_id: str) -> None:
         self._sweep()

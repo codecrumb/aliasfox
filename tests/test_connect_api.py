@@ -184,7 +184,7 @@ def test_error_mapping(env):
 
 def test_too_many_flows_429(env):
     env.flow._max_pending = 1
-    assert env.client.post("/api/connect/login", json=LOGIN).status_code == 200
+    env.flow.start(2, APPLE_ID, PASSWORD)  # another user holds the only slot
     r = env.client.post("/api/connect/login", json=LOGIN)
     assert r.status_code == 429 and r.json() == {"detail": "too_many_attempts"}
 

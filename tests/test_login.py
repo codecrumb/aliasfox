@@ -39,6 +39,7 @@ class FakeService:
     auth_error: Exception | None = None
     request_error: Exception | None = None
     kind = "trusted_device"
+    trust_error: Exception | None = None
 
     def __init__(self, apple_id, password, cookie_directory, china_mainland):
         if self.auth_error:
@@ -52,17 +53,32 @@ class FakeService:
         self.webservices = {"premiummailsettings": {"url": "https://p1-maildomainws.icloud.com:443"}}
         self.two_factor_delivery_method = self.kind
         self.requested = False
+        self.request_count = 0
         self.attempts = 0
+        self.bridge = False
+        self.trust_calls = 0
+        self.is_trusted_session = False
         self.instances.append(self)
 
     def request_2fa_code(self):
         self.requested = True
+        self.request_count += 1
+        self.bridge = True  # Apple pushed the code even when the HTTP call then errors
         if self.request_error:
             raise self.request_error
 
     def validate_2fa_code(self, code):
+        # Mimics pyicloud: the trusted-device bridge state is consumed by every
+        # validate call, so a retry needs a fresh request_2fa_code().
         self.attempts += 1
-        return code == self.good_code
+        armed, self.bridge = self.bridge, False
+        return armed and code == self.good_code
+
+    def trust_session(self):
+        self.trust_calls += 1
+        if self.trust_error:
+            raise self.trust_error
+        return True
 
 
 def make_factory(**attrs):
@@ -184,9 +200,9 @@ def test_flow_bound_to_user():
 def test_flow_cap():
     f, fac = flow(max_pending=2)
     f.start(1, APPLE_ID, PASSWORD)
-    f.start(1, APPLE_ID, PASSWORD)
+    f.start(2, APPLE_ID, PASSWORD)
     with pytest.raises(TooManyFlows):
-        f.start(1, APPLE_ID, PASSWORD)
+        f.start(3, APPLE_ID, PASSWORD)
     assert len(fac.cls.instances) == 2  # never reached Apple
 
 
@@ -366,3 +382,84 @@ def test_concurrent_verify_one_wins():
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert sum(1 for r in results if r != "expired") == 1
+
+
+# --- B3: wrong code retry ----------------------------------------------------------
+
+
+def test_fake_mimics_pyicloud_retry_needs_fresh_request():
+    svc = make_factory(requires_2fa=True).cls("a", "p", os.getcwd(), False)
+    svc.request_2fa_code()
+    assert svc.validate_2fa_code("000000") is False
+    assert svc.validate_2fa_code("123456") is False  # bridge consumed
+    svc.request_2fa_code()
+    assert svc.validate_2fa_code("123456") is True
+
+
+def test_wrong_code_rerequests_so_correct_retry_succeeds():
+    f, fac = flow()
+    res = f.start(1, APPLE_ID, PASSWORD)
+    inst = fac.cls.instances[0]
+    with pytest.raises(InvalidCode):
+        f.verify(1, res.flow_id, "000000")
+    assert inst.request_count == 2
+    assert f.verify(1, res.flow_id, "123456").webservices_url.startswith("https://p1-")
+
+
+def test_rerequest_failure_after_wrong_code_is_not_fatal():
+    f, fac = flow(make_factory(requires_2fa=True, request_error=RuntimeError("push " + PASSWORD)))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    with pytest.raises(InvalidCode):
+        f.verify(1, res.flow_id, "000000")
+    assert f.verify(1, res.flow_id, "123456")
+
+
+def test_attempt_cap_still_five_by_default_and_no_rerequest_on_last():
+    f, fac = flow()
+    res = f.start(1, APPLE_ID, PASSWORD)
+    inst = fac.cls.instances[0]
+    for _ in range(5):
+        with pytest.raises(InvalidCode):
+            f.verify(1, res.flow_id, "000000")
+    with pytest.raises(FlowExpired):
+        f.verify(1, res.flow_id, "123456")
+    assert inst.request_count == 5  # initial + 4 re-requests; none after the dropping 5th
+
+
+def test_trust_session_failure_still_completes_login():
+    f, fac = flow(make_factory(requires_2fa=True, trust_error=RuntimeError("boom " + PASSWORD)))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    st = f.verify(1, res.flow_id, "123456")
+    assert st.webservices_url
+    assert fac.cls.instances[0].trust_calls == 1
+
+
+def test_trust_session_called_after_correct_code():
+    f, fac = flow()
+    res = f.start(1, APPLE_ID, PASSWORD)
+    f.verify(1, res.flow_id, "123456")
+    assert fac.cls.instances[0].trust_calls == 1
+
+
+# --- B4: per-user flow cap ---------------------------------------------------------
+
+
+def test_start_cancels_users_existing_flow_first():
+    f, fac = flow()
+    first = f.start(1, APPLE_ID, PASSWORD)
+    other = f.start(2, APPLE_ID, PASSWORD)
+    d_first = fac.cls.instances[0].cookie_directory
+    second = f.start(1, APPLE_ID, PASSWORD)
+    assert not os.path.exists(d_first)
+    with pytest.raises(FlowExpired):
+        f.verify(1, first.flow_id, "123456")
+    assert f.verify(2, other.flow_id, "123456")  # other users untouched
+    assert f.verify(1, second.flow_id, "123456")
+
+
+def test_per_user_cap_is_one_pending_flow():
+    f, fac = flow()
+    for _ in range(4):
+        f.start(1, APPLE_ID, PASSWORD)
+    pending = [i for i in fac.cls.instances if os.path.isdir(i.cookie_directory)]
+    assert len(pending) == 1
