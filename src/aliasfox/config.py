@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     signup_allowlist: str = Field("", validation_alias=_env("SIGNUP_ALLOWLIST"))
     neon_auth_base_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_BASE_URL"))
     neon_auth_jwks_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_JWKS_URL"))
+    # Expected `iss` of Neon Auth tokens. Default: scheme://host of
+    # NEON_AUTH_BASE_URL (unverified against a real token).
+    neon_auth_issuer: str | None = Field(None, validation_alias=_env("NEON_AUTH_ISSUER"))
     public_url: str | None = Field(None, validation_alias=_env("PUBLIC_URL"))
     contact_email: str | None = Field(None, validation_alias=_env("CONTACT_EMAIL"))
     host: str = Field("127.0.0.1", validation_alias=_env("HOST"))

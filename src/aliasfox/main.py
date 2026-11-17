@@ -13,12 +13,14 @@ from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
 from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.db import init_db, make_engine
+from aliasfox.exchange import install_exchange, neon_issuer
 from aliasfox.keys import KeyRing
 from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
     SECURITY_HEADERS,
     BodyLimitMiddleware,
     SecurityHeadersMiddleware,
 )
+from aliasfox.neon_jwt import NeonTokenVerifier
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
 from aliasfox.users import UserDirectory
@@ -43,7 +45,8 @@ def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlo
         # pyicloud logs the Apple ID at DEBUG; httpx logs full request URLs.
         for noisy in ("pyicloud", "httpx"):
             logging.getLogger(noisy).setLevel(logging.WARNING)
-        if settings.icloud_cookie and store is not None:
+        # Single mode only: in multi mode there is no owner to seed it for.
+        if settings.aliasfox_mode == "single" and settings.icloud_cookie and store is not None:
             try:
                 await run_in_threadpool(seed_from_env, settings, store)
             except Exception as exc:  # never crash startup; never log cookie text
@@ -70,16 +73,18 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     validate_startup(settings)
+    multi = settings.aliasfox_mode == "multi"
     epochs = None
-    if service is None:
+    if service is None or multi:  # multi mode always needs the users table
         engine = make_engine(settings)
         init_db(engine)
         keyring = KeyRing(settings.secret_key)
         epochs = UserDirectory(engine, keyring)
-        if settings.aliasfox_mode == "single":
+        if not multi:
             epochs.ensure_single_user()  # multi mode has no default user
-        store = SessionStore(engine, keyring)
-        service = AliasService(store)
+        if service is None:
+            store = SessionStore(engine, keyring)
+            service = AliasService(store)
     flow = login_flow or LoginFlow()
     app = FastAPI(
         title="AliasFox",
@@ -89,7 +94,12 @@ def create_app(
         openapi_url=None,
         redirect_slashes=False,  # no scheme-downgrading redirects
     )
-    install_auth(app, settings, epochs)
+    install_auth(app, settings, epochs, password_login=not multi)
+    if multi:
+        verifier = NeonTokenVerifier(
+            jwks_url=settings.neon_auth_jwks_url, issuer=neon_issuer(settings)
+        )
+        install_exchange(app, settings, verifier, epochs)
 
     @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz() -> dict[str, str]:

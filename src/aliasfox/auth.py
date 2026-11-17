@@ -76,12 +76,15 @@ class MemoryEpochs:
             return self._epochs[user_id]
 
 
-def _valid_epoch(value: object) -> bool:
+def _plain_int(value: object) -> bool:
+    # bool is an int subclass (True == 1) and 1.0 == 1: both must be refused.
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _validated_epoch(request: Request, settings: Settings) -> int | None:
-    """The session epoch the cookie carries, if it is valid and still current."""
+def _validated_epoch(request: Request, settings: Settings) -> tuple[int, int] | None:
+    """(user_id, epoch) from the cookie, if it is signed, unexpired, names an
+    existing user and carries that user's current epoch. This is the ONLY
+    source of the authenticated user id."""
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
@@ -89,14 +92,15 @@ def _validated_epoch(request: Request, settings: Settings) -> int | None:
         data = _serializer(settings).loads(token, max_age=COOKIE_MAX_AGE)
     except BadSignature:  # includes SignatureExpired
         return None
-    if not isinstance(data, dict) or data.get("u") != USER_ID or not _valid_epoch(data.get("e")):
+    if not isinstance(data, dict):
         return None
-    current = request.app.state.epochs.get(USER_ID)
-    return data["e"] if current is not None and data["e"] == current else None
-
-
-def _cookie_is_valid(request: Request, settings: Settings) -> bool:
-    return _validated_epoch(request, settings) is not None
+    user_id, epoch = data.get("u"), data.get("e")
+    if not _plain_int(user_id) or not _plain_int(epoch):
+        return None
+    current = request.app.state.epochs.get(user_id)
+    if current is None or epoch != current:
+        return None
+    return user_id, epoch
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
@@ -123,7 +127,22 @@ def _cookie_secure(request: Request, settings: Settings) -> bool:
     we cannot see must not yield a downgradable session cookie."""
     if _is_https(request, settings):
         return True
-    return settings.auth_enabled and _hostname(request.headers.get("host", "")) not in LOCAL_HOSTNAMES
+    return settings.auth_required and _hostname(request.headers.get("host", "")) not in LOCAL_HOSTNAMES
+
+
+def issue_cookie(
+    response: Response, request: Request, settings: Settings, user_id: int, epoch: int
+) -> None:
+    """Set the signed session cookie for `user_id` at `epoch`."""
+    response.set_cookie(
+        COOKIE_NAME,
+        _serializer(settings).dumps({"u": user_id, "e": epoch}),
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="strict",
+        secure=_cookie_secure(request, settings),
+        path="/",
+    )
 
 
 def _throttled(retry_after: int) -> JSONResponse:
@@ -136,19 +155,28 @@ def _throttled(retry_after: int) -> JSONResponse:
 
 def current_user(request: Request) -> int:
     settings: Settings = request.app.state.settings
-    if not settings.auth_enabled:
+    if not settings.auth_required:
         request.state.session_epoch = 0  # no sessions: constant by construction
         return USER_ID
-    epoch = _validated_epoch(request, settings)
-    if epoch is not None:
-        request.state.session_epoch = epoch
-        return USER_ID
+    validated = _validated_epoch(request, settings)
+    if validated is not None:
+        user_id, request.state.session_epoch = validated
+        return user_id
     raise HTTPException(status_code=401, detail="not_authenticated")
 
 
 def install_auth(
-    app: FastAPI, settings: Settings, epochs: MemoryEpochs | UserDirectory | None = None
+    app: FastAPI,
+    settings: Settings,
+    epochs: MemoryEpochs | UserDirectory | None = None,
+    *,
+    password_login: bool = True,
 ) -> None:
+    """Session cookie validation, request guards and logout.
+
+    `password_login=False` (multi mode) leaves `/api/auth/login` unregistered;
+    sign-in then happens through `exchange.install_exchange`.
+    """
     _serializer(settings)  # fail fast: no fallback signing key
     app.state.settings = settings
     app.state.epochs = epochs or MemoryEpochs()
@@ -162,7 +190,7 @@ def install_auth(
     async def request_guards(request: Request, call_next):
         if request.url.path not in GUARD_EXEMPT_PATHS:
             host = request.headers.get("host", "")
-            if not settings.auth_enabled and _hostname(host) not in LOCAL_HOSTNAMES:
+            if not settings.auth_required and _hostname(host) not in LOCAL_HOSTNAMES:
                 return JSONResponse({"detail": "bad_host"}, status_code=403)
             origin = request.headers.get("origin")
             if (
@@ -173,7 +201,6 @@ def install_auth(
                 return JSONResponse({"detail": "bad_origin"}, status_code=403)
         return await call_next(request)
 
-    @app.post("/api/auth/login")
     def login(body: LoginBody, request: Request, response: Response):
         ip = limiter_key(client_ip(
                 request, trusted_proxy=settings.trusted_proxy, hops=settings.trusted_proxy_hops
@@ -200,24 +227,20 @@ def install_auth(
         epoch = request.app.state.epochs.get(USER_ID)
         if epoch is None:
             return JSONResponse({"detail": "invalid_credentials"}, status_code=401)
-        response.set_cookie(
-            COOKIE_NAME,
-            _serializer(settings).dumps({"u": USER_ID, "e": epoch}),
-            max_age=COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="strict",
-            secure=_cookie_secure(request, settings),
-            path="/",
-        )
+        issue_cookie(response, request, settings, USER_ID, epoch)
         return {"ok": True}
+
+    if password_login:
+        app.post("/api/auth/login")(login)
 
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response):
         # "Logout = log out everywhere": bumping the epoch invalidates every
-        # outstanding cookie. Only a valid cookie may bump it, so an anonymous
-        # caller cannot kick the owner out.
-        if _cookie_is_valid(request, settings):
-            request.app.state.epochs.bump(USER_ID)
+        # outstanding cookie of THAT user. Only a valid cookie may bump it, and
+        # only for the user it names, so nobody can log anyone else out.
+        validated = _validated_epoch(request, settings)
+        if validated is not None:
+            request.app.state.epochs.bump(validated[0])
         response.delete_cookie(
             COOKIE_NAME,
             httponly=True,

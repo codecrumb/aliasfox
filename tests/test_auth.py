@@ -639,3 +639,51 @@ def test_login_throttle_uses_configured_hops(pw_hash):
     assert r.status_code == 429
     r = login(c, "bad", headers={"X-Forwarded-For": "1.1.1.1, 8.8.8.8, 10.1.1.1"})
     assert r.status_code == 401
+
+
+# --- Task 6: cookie carries any validated user id -----------------------------------
+
+
+@pytest.mark.parametrize("bad", [True, 1.0, "1", None, [1]])
+def test_cookie_user_id_must_be_plain_int(pw_hash, bad):
+    c = client(build(pw_hash))
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": bad, "e": 0}))
+    assert c.get("/api/protected").status_code == 401
+
+
+def test_cookie_for_unknown_user_rejected_even_if_epoch_matches(pw_hash):
+    app = build(pw_hash)
+    c = client(app)
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 2, "e": 0}))
+    assert c.get("/api/protected").status_code == 401
+    assert c.post("/api/auth/logout").status_code == 200
+    assert app.state.epochs.get(2) is None  # an invalid cookie bumps nobody
+
+
+def test_current_user_returns_cookie_user_id(pw_hash):
+    app = build(pw_hash)
+    app.state.epochs.bump(7)  # MemoryEpochs: user 7 now exists with epoch 1
+    c = client(app)
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 7, "e": 1}))
+    assert c.get("/api/protected").json() == {"uid": 7}
+    assert c.post("/api/auth/logout").status_code == 200
+    assert app.state.epochs.get(7) == 2
+    assert app.state.epochs.get(1) == 0  # only the cookie's user is bumped
+
+
+def test_issue_cookie_is_shared_by_login(pw_hash):
+    from aliasfox import auth
+
+    assert callable(auth.issue_cookie)
+    c = client(build(pw_hash))
+    login(c)
+    assert serializer().loads(c.cookies["aliasfox_session"]) == {"u": 1, "e": 0}
+
+
+def test_password_login_false_omits_login_route(pw_hash):
+    settings = Settings(secret_key=SECRET, password_hash=pw_hash, auth_enabled=True)
+    app = FastAPI()
+    install_auth(app, settings, password_login=False)
+    c = client(app)
+    assert login(c).status_code == 404
+    assert c.post("/api/auth/logout").status_code == 200

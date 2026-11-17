@@ -144,7 +144,7 @@ def build_router(
         return {
             "cache_key": base64.urlsafe_b64encode(key).rstrip(b"=").decode(),
             "mode": settings.aliasfox_mode,
-            "auth_enabled": settings.auth_enabled,
+            "auth_enabled": settings.auth_required,
         }
 
     @router.get("/aliases")
@@ -192,7 +192,7 @@ def build_router(
 
     @router.get("/status")
     async def status(user_id: User):
-        body: dict = {"mode": settings.aliasfox_mode, "auth_enabled": settings.auth_enabled}
+        body: dict = {"mode": settings.aliasfox_mode, "auth_enabled": settings.auth_required}
         try:
             body = {"connected": await service.is_connected(user_id), **body}
         except SessionUnreadable:
