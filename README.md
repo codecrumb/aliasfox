@@ -76,6 +76,10 @@ Before going live:
   so Neon Auth's session cookie is a third-party cookie for the app; browsers that block those may fail
   at the token step (unverified).
 - Neon's shared SMTP is for development only. A public launch needs your own SMTP configured in Neon Auth.
+- `SIGNUPS_ENABLED=false` closes sign-up to AliasFox only, not at Neon Auth. While it is false, disable
+  public sign-up in the Neon Auth settings if Neon offers that (unverified). Otherwise strangers can still
+  create Neon Auth accounts and trigger verification emails from your SMTP domain, although they get no
+  AliasFox access.
 - Run a single worker: `WEB_CONCURRENCY` must be unset or `1` (caches and rate limits are per process;
   startup refuses more).
 - Verify `TRUSTED_PROXY_HOPS` on your host (see Deploying to Render for the check).
