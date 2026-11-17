@@ -217,3 +217,90 @@ def test_ensure_single_user_rejects_foreign_row_1(engine, ring):
         UserDirectory(engine, ring).ensure_single_user()
     assert "someone-else" not in str(ei.value)
     assert _wrapped(engine, DEFAULT_USER_ID) is None
+
+
+# --- single -> multi switch (final review F8) ---------------------------------------------
+
+
+def test_remove_single_user_removes_row_and_session(users, engine, ring):
+    from aliasfox.sessions import AppleSessionState, SessionStore
+
+    users.ensure_single_user()
+    other = users.create("sub-other")
+    store = SessionStore(engine, ring)
+    for uid in (DEFAULT_USER_ID, other):
+        store.save(uid, AppleSessionState({"c": "v"}, "https://ws.example"))
+    assert users.remove_single_user() is True
+    assert users.find_by_subject("single") is None
+    assert _count(engine, f"select count(*) from apple_sessions where user_id={DEFAULT_USER_ID}") == 0
+    assert store.load(other).cookies == {"c": "v"}  # nobody else touched
+    assert users.remove_single_user() is False  # nothing left to remove
+
+
+def _single_db_with_session(tmp_path):
+    """A single-mode deployment over the SQLite file multi mode will use, with a
+    saved Apple session; returns the owner's single-mode cookie value."""
+    from helpers import MULTI_SECRET, multi_mode_settings, session_cookie
+
+    from aliasfox.main import create_app
+    from aliasfox.sessions import AppleSessionState, SessionStore
+
+    url = multi_mode_settings(tmp_path).database_url
+    single = Settings(secret_key=MULTI_SECRET, database_url=url, data_dir=tmp_path)
+    app = create_app(single)
+    eng = make_engine(single)
+    SessionStore(eng, KeyRing(MULTI_SECRET)).save(
+        DEFAULT_USER_ID, AppleSessionState({"acct": "owner"}, "https://ws.example")
+    )
+    return eng, session_cookie(MULTI_SECRET, DEFAULT_USER_ID, app.state.epochs.get(DEFAULT_USER_ID))
+
+
+def test_multi_startup_removes_single_mode_account(tmp_path, monkeypatch, caplog):
+    from helpers import MultiUserEnv
+
+    from aliasfox.auth import COOKIE_NAME
+
+    eng, old_cookie = _single_db_with_session(tmp_path)
+    assert _count(eng, "select count(*) from apple_sessions") == 1
+    with caplog.at_level("INFO", logger="aliasfox.main"):
+        env = MultiUserEnv(tmp_path, monkeypatch, ["a"])
+    assert _count(eng, "select count(*) from users where auth_subject='single'") == 0
+    assert _count(eng, "select count(*) from apple_sessions") == 0
+    assert [r.getMessage() for r in caplog.records if r.name == "aliasfox.main"] == [
+        "removed the single-mode account"
+    ]
+    stale = env.anonymous()
+    stale.cookies.set(COOKIE_NAME, old_cookie)
+    assert stale.get("/api/status").status_code == 401
+    c, uid = env.sign_in("a")  # the first multi user is created and its cookie works
+    assert c.get("/api/status").status_code == 200
+    stale.cookies.set(COOKIE_NAME, old_cookie)
+    assert stale.get("/api/status").status_code == 401  # still dead, even if id 1 was reused
+
+
+def test_multi_startup_leaves_multi_users_alone(tmp_path, monkeypatch):
+    from helpers import MultiUserEnv
+
+    env = MultiUserEnv(tmp_path, monkeypatch, ["a", "b"])
+    ca, a = env.sign_in("a")
+    env.connect(ca, "acct-a")
+    before = env.raw("select id, auth_subject, wrapped_key, session_epoch from users").all()
+    blob = env.blob(a)
+    again = MultiUserEnv(tmp_path, monkeypatch, ["a", "b"])
+    assert again.raw("select id, auth_subject, wrapped_key, session_epoch from users").all() == before
+    assert again.blob(a) == blob
+    assert ca.get("/api/status").status_code == 200
+
+
+def test_single_mode_never_removes_the_single_user(tmp_path, monkeypatch):
+    from aliasfox.main import create_app
+
+    def boom(self):
+        raise AssertionError("remove_single_user called in single mode")
+
+    monkeypatch.setattr(UserDirectory, "remove_single_user", boom, raising=False)
+    from helpers import MULTI_SECRET
+
+    eng, _ = _single_db_with_session(tmp_path)
+    create_app(Settings(secret_key=MULTI_SECRET, database_url=str(eng.url), data_dir=tmp_path))
+    assert _count(eng, "select count(*) from users where auth_subject='single'") == 1

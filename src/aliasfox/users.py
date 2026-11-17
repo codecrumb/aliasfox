@@ -128,6 +128,19 @@ class UserDirectory:
                 continue  # another process inserted the row; re-check it
         raise RuntimeError("could not ensure the single-mode user")
 
+    def remove_single_user(self) -> bool:
+        """Multi mode only, at startup: delete a leftover single-mode user (subject
+        "single") and its Apple session in one transaction. Returns whether a
+        row was removed. Its old cookie then names no user (or, if SQLite reuses
+        the id, a user with a different random epoch)."""
+        with self._sessions.begin() as s:
+            user_id = s.scalar(select(User.id).where(User.auth_subject == SINGLE_SUBJECT))
+            if user_id is None:
+                return False
+            s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))
+            s.execute(delete(User).where(User.id == user_id))
+            return True
+
     def delete(self, user_id: int) -> None:
         """Remove the user's Apple session and user row (with its wrapped key).
 

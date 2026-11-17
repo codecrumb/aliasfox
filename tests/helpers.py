@@ -62,6 +62,16 @@ def multi_mode_settings(tmp_path, **kw):
     )
 
 
+def session_cookie(secret: str, user_id: int, epoch: int) -> str:
+    """A validly signed AliasFox session cookie value for {u: user_id, e: epoch}."""
+    from itsdangerous import URLSafeTimedSerializer
+
+    from aliasfox.crypto import derive_key
+
+    key = derive_key(secret, info=b"aliasfox-cookie-v1")
+    return URLSafeTimedSerializer(key.hex()).dumps({"u": user_id, "e": epoch})
+
+
 # --- fake Apple: one in-memory "iCloud" with several accounts ------------------------
 
 

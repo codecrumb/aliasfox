@@ -81,6 +81,9 @@ Before going live:
 - Verify `TRUSTED_PROXY_HOPS` on your host (see Deploying to Render for the check).
 - The landing, privacy and terms pages are served in multi mode, and users can delete their account from
   the Account view.
+- Switching an existing single-mode deployment to multi mode deletes the single-mode account and its
+  stored Apple session at the first multi-mode startup (the old owner cookie stops working). Reconnect
+  Apple after signing up.
 
 ### Suspending a user
 
