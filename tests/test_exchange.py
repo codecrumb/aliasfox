@@ -179,13 +179,41 @@ def test_unverified_email_cannot_create(tmp_path, signups):
         signups_enabled=signups,
         signup_allowlist="owner@example.com",
     )
-    for token in ("unverified", "no-email"):
+    # Without an email nobody is on the allowlist: while closed that is signups_closed.
+    expected = {
+        "unverified": "email_not_verified",
+        "no-email": "email_not_verified" if signups else "signups_closed",
+    }
+    for token, detail in expected.items():
         c = e.client()
         r = exchange(c, token)
         assert r.status_code == 403, token
-        assert r.json() == {"detail": "email_not_verified"}
+        assert r.json() == {"detail": detail}, token
         assert COOKIE_NAME not in c.cookies
     assert e.count_users() == 0
+
+
+def test_unverified_stranger_told_signups_closed_before_verification(tmp_path):
+    e = env(tmp_path, {"t": ident("sub-x", email="stranger@example.com", verified=False)},
+            signups_enabled=False, signup_allowlist="owner@example.com")
+    c = e.client()
+    r = exchange(c, "t")
+    assert r.status_code == 403 and r.json() == {"detail": "signups_closed"}
+    assert COOKIE_NAME not in c.cookies and e.count_users() == 0
+
+
+def test_unverified_allowlisted_email_is_not_admitted(tmp_path):
+    e = env(tmp_path, {
+        "unverified": ident("sub-o", email="  Owner@Example.com ", verified=False),
+        "verified": ident("sub-o", email="  Owner@Example.com ", verified=True),
+    }, signups_enabled=False, signup_allowlist="owner@example.com")
+    c = e.client()
+    r = exchange(c, "unverified")
+    assert r.status_code == 403 and r.json() == {"detail": "email_not_verified"}
+    assert COOKIE_NAME not in c.cookies and e.count_users() == 0
+    # once verified, the trimmed, lowercased email matches the allowlist
+    assert exchange(c, "verified").status_code == 200
+    assert e.count_users() == 1
 
 
 def test_no_email_stored_in_db(tmp_path):

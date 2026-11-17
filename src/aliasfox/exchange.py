@@ -1,8 +1,8 @@
 """POST /api/auth/exchange: trade a Neon Auth token for a local session cookie.
 
 The token's `sub` maps to a local user. A known subject signs in. An unknown
-subject needs a verified email and then either open sign-ups or an email on
-the allowlist; the email is compared, never stored or logged. The session
+subject needs open sign-ups or an email on the allowlist, and then a verified
+email; the email is compared, never stored or logged. The session
 cookie names the local user id and is validated against the database epoch on
 every request (auth.current_user).
 """
@@ -52,12 +52,17 @@ def _deny(status: int, detail: str) -> JSONResponse:
 
 
 def may_sign_up(settings: Settings, identity: Identity) -> str | None:
-    """None if `identity` may create an account, else the refusal detail."""
-    if not identity.email_verified or not identity.email:
+    """None if `identity` may create an account, else the refusal detail.
+
+    Closed sign-ups are checked first, so a stranger is not sent through email
+    verification only to be refused afterwards. An allowlisted email still has
+    to be verified."""
+    email = (identity.email or "").strip().lower()
+    if not settings.signups_enabled and email not in settings.allowlist:
+        return "signups_closed"
+    if not identity.email_verified or not email:
         return "email_not_verified"
-    if settings.signups_enabled or identity.email.lower() in settings.allowlist:
-        return None
-    return "signups_closed"
+    return None
 
 
 def install_exchange(
