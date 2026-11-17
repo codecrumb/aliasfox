@@ -237,6 +237,18 @@ describe('SignUp', () => {
     expect(n.signUp).toHaveBeenCalledWith('me@example.com', 'correct horse 1!');
   });
 
+  it('signed up with a session but email unverified: the exchange refusal opens the code step and asks for a code', async () => {
+    exchange.mockReset().mockRejectedValueOnce(new ApiError(403, 'email_not_verified'));
+    render(SignUp, { onNavigate: vi.fn() });
+    await fillAndSubmit();
+    const code = (await screen.findByLabelText('Code')) as HTMLInputElement;
+    expect(n.sendVerificationCode).toHaveBeenCalledWith('me@example.com');
+    exchange.mockImplementation(async (t: string) => void order.push(`exchange:${t}`));
+    await type(code, '654321');
+    await fireEvent.submit(code.closest('form') as HTMLFormElement);
+    await waitFor(() => expect(n.verifyEmailCode).toHaveBeenCalledWith('me@example.com', '654321'));
+  });
+
   it('success with verification: code step, then verify, sign in, token, exchange', async () => {
     n.signUp.mockResolvedValueOnce({ needsVerification: true });
     render(SignUp, { onNavigate: vi.fn() });

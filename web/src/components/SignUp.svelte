@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { appConfig } from '../lib/config';
   import { neonAuth } from '../lib/neonAuth';
-  import { enterApp, enterWithSession, signInErrorText } from '../lib/signin';
+  import { enterApp, enterWithSession, needsVerification, signInErrorText } from '../lib/signin';
   import EmailCode from './EmailCode.svelte';
 
   interface Props {
@@ -38,6 +38,14 @@
       }
       await enterWithSession();
     } catch (err) {
+      if (needsVerification(err)) {
+        // Neon opened a session without verifying the email: ask for the code now.
+        await neonAuth.sendVerificationCode(addr).catch(() => {});
+        codeFor = addr;
+        codePassword = pw;
+        view = 'code';
+        return;
+      }
       error = signInErrorText(err);
     } finally {
       submitting = false;
