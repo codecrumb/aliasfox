@@ -312,6 +312,8 @@ def test_cache_key_differs_per_user_and_changes_on_logout(env, ab):
 
 # --- route coverage ----------------------------------------------------------------------
 
+# Multi mode's static public pages (pages.py); `/` serves the SPA when signed in.
+PAGE_ROUTES = {(m, p) for m in ("GET", "HEAD") for p in ("/", "/privacy", "/terms", "/site.css")}
 PUBLIC = {
     ("GET", "/healthz"),
     ("HEAD", "/healthz"),
@@ -320,6 +322,7 @@ PUBLIC = {
     ("POST", "/api/auth/logout"),
     ("GET", "/{full_path:spa_path}"),  # SPA shell and public files from the build
     ("HEAD", "/{full_path:spa_path}"),
+    *PAGE_ROUTES,
 }
 PUBLIC_MOUNTS = {"/assets"}  # hashed static build assets
 
@@ -383,7 +386,11 @@ def test_mode_specific_routes(tmp_path, monkeypatch, dist):
     single_settings = Settings(secret_key=MULTI_SECRET, data_dir=tmp_path / "s")
     single = route_table(main_mod.create_app(single_settings, dist_dir=dist))
     assert single - multi == {("POST", "/api/auth/login")}
-    assert multi - single == {("DELETE", "/api/account"), ("POST", "/api/auth/exchange")}
+    assert multi - single == {
+        ("DELETE", "/api/account"),
+        ("POST", "/api/auth/exchange"),
+        *PAGE_ROUTES,
+    }
 
 
 # --- id reuse after account deletion -----------------------------------------------------

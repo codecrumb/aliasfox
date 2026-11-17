@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c0f">
+<title>AliasFox: manage your iCloud Hide My Email addresses</title>
+<meta name="description" content="AliasFox is an unofficial, open-source, keyboard-first web app to search, create, label, deactivate and delete your iCloud Hide My Email addresses.">
+<link rel="canonical" href="{{PUBLIC_URL}}/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">AliasFox</a>
+    <a class="header-link" href="/login">Log in</a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <section class="hero" aria-labelledby="headline">
+    <h1 id="headline">AliasFox manages your iCloud Hide My Email addresses</h1>
+    <p class="lead">A fast, keyboard-first web app for the Hide My Email addresses in your iCloud account. You connect your Apple account once; AliasFox then talks to iCloud for you.</p>
+    <div class="actions">
+      {{SIGNUPS}}
+      <a class="button" href="/login">Log in</a>
+    </div>
+  </section>
+
+  <section aria-labelledby="what">
+    <h2 id="what">What it does</h2>
+    <ul class="features">
+      <li><strong>Search</strong><span>Find any address by label, note, site or status as you type.</span></li>
+      <li><strong>Generate</strong><span>Create a new Hide My Email address and give it a label.</span></li>
+      <li><strong>Label</strong><span>Edit labels and notes so you remember where each address is used.</span></li>
+      <li><strong>Deactivate or delete</strong><span>Stop mail to an address, turn it back on, or delete it.</span></li>
+    </ul>
+    <p>Everything has a keyboard shortcut: the search box always has focus, <kbd>Enter</kbd> copies the selected address, and <kbd>?</kbd> lists the rest. It also works on a phone.</p>
+  </section>
+
+  <section aria-labelledby="know">
+    <h2 id="know">Before you sign up</h2>
+    <ul>
+      <li>AliasFox is <strong>unofficial</strong>. It is not affiliated with or endorsed by Apple.</li>
+      <li>To reach iCloud, the server keeps your Apple web session, encrypted. That session can do more in iCloud than manage Hide My Email. The <a href="/privacy">privacy policy</a> says exactly what is stored and what the risks are.</li>
+      <li>It is provided without warranty, with no guarantee of security or availability. Apple could limit or block access at any time.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="source">
+    <h2 id="source">Open source</h2>
+    <p>The code that runs this site is public under the AGPL-3.0-or-later licence. You can read it, report problems, or run your own copy: <a href="https://github.com/codecrumb/aliasfox">github.com/codecrumb/aliasfox</a>.</p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <nav aria-label="Site">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="https://github.com/codecrumb/aliasfox">Source code</a>
+    </nav>
+    <p>AliasFox is an unofficial project, not affiliated with or endorsed by Apple. Apple, iCloud and Hide My Email are trademarks of Apple Inc.</p>
+  </div>
+</footer>
+</body>
+</html>

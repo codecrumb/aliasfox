@@ -70,6 +70,7 @@ def install_web(app: FastAPI, dist_dir: Path | None = None) -> None:
     index = root / "index.html"
     if not index.is_file():
         return  # nothing built: the app still starts, `/` is the normal 404
+    app.state.spa_index = index  # pages.py serves it at `/` to signed-in users
 
     assets = root / "assets"
     if assets.is_dir():

@@ -21,6 +21,7 @@ from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
     SecurityHeadersMiddleware,
 )
 from aliasfox.neon_jwt import NeonTokenVerifier
+from aliasfox.pages import install_pages
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
 from aliasfox.users import UserDirectory
@@ -107,6 +108,7 @@ def create_app(
 
     app.include_router(build_router(service, store, settings, flow, directory=epochs))
     install_error_handlers(app)
+    install_pages(app, settings)  # multi mode only; before the SPA catch-all
     install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
     # add_middleware: last added is outermost.
     app.add_middleware(GZipMiddleware, minimum_size=1024)

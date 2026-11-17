@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c0f">
+<title>Privacy policy · AliasFox</title>
+<meta name="description" content="What AliasFox stores, what it does not store, the risks of letting a server hold your Apple session, and how to delete your data.">
+<link rel="canonical" href="{{PUBLIC_URL}}/privacy">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">AliasFox</a>
+    <a class="header-link" href="/login">Log in</a>
+  </div>
+</header>
+
+<main id="main" class="wrap doc">
+  <div class="draft" role="note">
+    <p><strong>Draft, not legal advice.</strong> This policy has not yet been reviewed by the operator and may change.</p>
+  </div>
+  <h1>Privacy policy</h1>
+  <p class="updated">Last updated 2026-11-17</p>
+
+  <h2 id="who">Who runs this</h2>
+  <p>This site is run by the AliasFox project (GitHub owner: codecrumb). AliasFox is unofficial and not affiliated with or endorsed by Apple. Its source code is public at <a href="https://github.com/codecrumb/aliasfox">github.com/codecrumb/aliasfox</a>, so you can check what this policy says against what the code does.</p>
+  <p>This policy covers the AliasFox service at <a href="{{PUBLIC_URL}}/privacy">{{PUBLIC_URL}}</a>.</p>
+
+  <h2 id="stored">What AliasFox stores</h2>
+  <p>For each account, the AliasFox database holds:</p>
+  <ul>
+    <li>an identifier from the sign-in provider (an opaque user id, not your email address);</li>
+    <li>a wrapped data key: a random key made for you, itself encrypted with a key that only the server has;</li>
+    <li>one encrypted Apple session (the cookies iCloud gives a signed-in browser), once you connect Apple. Only the latest one is kept;</li>
+    <li>timestamps (when your account was created and when your Apple session was last saved) and a counter that is increased when you log out, so logging out ends every open session.</li>
+  </ul>
+
+  <h2 id="not-stored">What AliasFox does not store</h2>
+  <ul>
+    <li><strong>Your Apple password is never stored.</strong> It is used once, in server memory, to log in to Apple, and kept only until the login finishes (at most 10 minutes while waiting for your two-factor code). It is not written to the database, to disk or to logs.</li>
+    <li>Your aliases, labels and notes are not stored on the server. To keep the app fast, the server keeps your alias list in memory for up to 60 seconds after it fetches it from Apple; it is never written to the database.</li>
+    <li>Your browser keeps an encrypted copy of your alias list (in IndexedDB) so the app opens quickly. It is cleared when you log out.</li>
+    <li>AliasFox does not write IP addresses, request lines or cookies to its database or its own logs. IP addresses are held in server memory for rate limiting (to slow down password guessing and abuse) and are forgotten when the limit window ends or the server restarts.</li>
+  </ul>
+
+  <h2 id="apple">Your Apple session and its risks</h2>
+  <p>Please read this before you connect Apple.</p>
+  <ul>
+    <li>The server holds the key that decrypts the stored Apple sessions. Your session is encrypted in the database, but if someone obtained both the database and the server secret, they could decrypt every stored session, including yours. A leak of the database alone does not expose them.</li>
+    <li>While the server handles one of your requests, your Apple session is decrypted in server memory.</li>
+    <li>An Apple session grants broader iCloud web access than Hide My Email. AliasFox only calls Hide My Email, but whoever holds the session could use it for other iCloud web services until it expires or you sign out of it at Apple.</li>
+    <li>Apple sees the requests coming from the server's datacenter address, not from your device. Many users share that address, and Apple may slow down, challenge or block it.</li>
+    <li>Nothing uses your Apple session while you are away: the server talks to Apple only while handling a request you made.</li>
+  </ul>
+
+  <h2 id="providers">Sign-in provider and hosting</h2>
+  <ul>
+    <li>Sign-up and log-in are handled by Neon Auth, run by Neon. Neon holds your email address and a hash of your password (the password hash), not AliasFox.</li>
+    <li>The service is hosted on Render (the web server) and Neon (the database). Both keep their own request and system logs, which can include IP addresses, under their own retention policies. AliasFox adds no IP storage of its own to its database.</li>
+  </ul>
+
+  <h2 id="cookies">Cookies</h2>
+  <p>AliasFox sets one strictly necessary session cookie that keeps you logged in. It is HttpOnly (scripts cannot read it) and SameSite=Strict (it is not sent with requests from other sites). The sign-in provider may set its own sign-in cookies while you log in. There is no tracking: no analytics, no advertising, no third-party scripts or fonts.</p>
+
+  <h2 id="control">Disconnect or delete everything</h2>
+  <ul>
+    <li><strong>Disconnect Apple:</strong> in the app, open Account and choose Disconnect Apple. This deletes your stored Apple session. Your AliasFox account stays.</li>
+    <li><strong>Delete account:</strong> in the app, open Account and choose Delete account. This deletes your stored Apple session, your wrapped data key and your user record from the AliasFox database, and logs you out.</li>
+    <li>Deleting your account may not yet remove your record at the sign-in provider (your email address and password hash at Neon). To have that record removed, ask us using the contact details below. {{CONTACT}}</li>
+  </ul>
+
+  <h2 id="changes">Changes</h2>
+  <p>If this policy changes, the new version will be posted on this page with a new date. Earlier versions are kept in the history of the source repository.</p>
+
+  <h2 id="contact">Contact</h2>
+  <p>{{CONTACT}}</p>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <nav aria-label="Site">
+      <a href="/">Home</a>
+      <a href="/privacy" aria-current="page">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="https://github.com/codecrumb/aliasfox">Source code</a>
+    </nav>
+    <p>AliasFox is an unofficial project, not affiliated with or endorsed by Apple. Apple, iCloud and Hide My Email are trademarks of Apple Inc.</p>
+  </div>
+</footer>
+</body>
+</html>

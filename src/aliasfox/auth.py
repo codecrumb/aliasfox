@@ -105,6 +105,12 @@ def _validated_epoch(request: Request, settings: Settings) -> tuple[int, int] | 
     return user_id, epoch
 
 
+def has_valid_session(request: Request) -> bool:
+    """True when the request carries a session cookie that would authenticate
+    an API call right now (signed, unexpired, current epoch)."""
+    return _validated_epoch(request, request.app.state.settings) is not None
+
+
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     if not settings.secret_key:
         raise ConfigError("ALIASFOX_SECRET_KEY is required for auth")

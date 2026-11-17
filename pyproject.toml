@@ -29,7 +29,13 @@ dev = ["pytest", "pytest-asyncio"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-aliasfox = ["migrations/*.mako", "migrations/*.py", "migrations/versions/*.py"]
+aliasfox = [
+    "migrations/*.mako",
+    "migrations/*.py",
+    "migrations/versions/*.py",
+    "page_templates/*.html",
+    "page_templates/*.css",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
