@@ -47,8 +47,10 @@ def apple_handler(request: httpx.Request) -> httpx.Response:
     )
 
 
-def build(tmp_path, monkeypatch):
-    transport = httpx.MockTransport(apple_handler)
+def build(tmp_path, monkeypatch, handler=apple_handler, dist_dir=None, **settings_kw):
+    """Real create_app over a fake Apple transport. `handler` replaces the Apple
+    fake, `dist_dir` serves a web bundle, `settings_kw` (e.g. auth) go to Settings."""
+    transport = httpx.MockTransport(handler)
     monkeypatch.setattr(
         api_mod,
         "connect_with_cookie",
@@ -62,8 +64,9 @@ def build(tmp_path, monkeypatch):
             client_factory=lambda state, **kw: HmeClient(state, transport=transport, **kw),
         ),
     )
-    settings = Settings(secret_key=SECRET, data_dir=tmp_path)  # no ICLOUD_COOKIE
-    return TestClient(main_mod.create_app(settings), base_url="http://localhost")
+    settings = Settings(secret_key=SECRET, data_dir=tmp_path, **settings_kw)  # no ICLOUD_COOKIE
+    app = main_mod.create_app(settings, dist_dir=dist_dir)
+    return TestClient(app, base_url="http://localhost")
 
 
 def test_connect_list_restart_and_no_plaintext(tmp_path, monkeypatch):
