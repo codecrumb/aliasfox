@@ -1,7 +1,6 @@
 .git
 .venv
-.env
-.env.*
+**/.env*
 !.env.example
 data/
 .superpowers/
@@ -14,3 +13,6 @@ __pycache__/
 node_modules/
 neon.ts*
 scripts/
+web/node_modules/
+web/dist/
+src/aliasfox/static/

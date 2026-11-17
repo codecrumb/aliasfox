@@ -102,18 +102,23 @@ def _valid_epoch(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _cookie_is_valid(request: Request, settings: Settings) -> bool:
+def _validated_epoch(request: Request, settings: Settings) -> int | None:
+    """The session epoch the cookie carries, if it is valid and still current."""
     token = request.cookies.get(COOKIE_NAME)
     if not token:
-        return False
+        return None
     try:
         data = _serializer(settings).loads(token, max_age=COOKIE_MAX_AGE)
     except BadSignature:  # includes SignatureExpired
-        return False
+        return None
     if not isinstance(data, dict) or data.get("u") != USER_ID or not _valid_epoch(data.get("e")):
-        return False
+        return None
     current = request.app.state.epochs.get(USER_ID)
-    return current is not None and data["e"] == current
+    return data["e"] if current is not None and data["e"] == current else None
+
+
+def _cookie_is_valid(request: Request, settings: Settings) -> bool:
+    return _validated_epoch(request, settings) is not None
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
@@ -154,8 +159,11 @@ def _throttled(retry_after: int) -> JSONResponse:
 def current_user(request: Request) -> int:
     settings: Settings = request.app.state.settings
     if not settings.auth_enabled:
+        request.state.session_epoch = 0  # no sessions: constant by construction
         return USER_ID
-    if _cookie_is_valid(request, settings):
+    epoch = _validated_epoch(request, settings)
+    if epoch is not None:
+        request.state.session_epoch = epoch
         return USER_ID
     raise HTTPException(status_code=401, detail="not_authenticated")
 

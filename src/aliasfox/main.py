@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -20,6 +21,7 @@ from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
 )
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
+from aliasfox.web import install_web
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ def create_app(
     service: AliasService | None = None,
     store: SessionStore | None = None,
     login_flow: LoginFlow | None = None,
+    dist_dir: Path | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     validate_startup(settings)
@@ -90,6 +93,7 @@ def create_app(
 
     app.include_router(build_router(service, store, settings, flow))
     install_error_handlers(app)
+    install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
     # add_middleware: last added is outermost.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(BodyLimitMiddleware)

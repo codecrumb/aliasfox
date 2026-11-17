@@ -12,3 +12,10 @@ node_modules/
 .DS_Store
 .superpowers/
 *.egg-info/
+src/aliasfox/static/
+web/node_modules/
+web/dist/
+*.swp
+*.swo
+.*.sw?
+*~

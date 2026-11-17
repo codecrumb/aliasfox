@@ -1,11 +1,12 @@
 """JSON API for Hide My Email aliases. Every route requires `current_user`; the
 user id handed to the service comes only from there, never from request input."""
 
+import base64
 import time
 from typing import Annotated
 
 from fastapi.exceptions import RequestValidationError
-from fastapi import APIRouter, Depends, FastAPI, Path, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -20,6 +21,7 @@ from aliasfox.apple.login import (
     TooManyFlows,
 )
 from aliasfox.auth import client_ip, current_user, limiter_key
+from aliasfox.crypto import derive_cache_key
 from aliasfox.ratelimit import RateLimiter
 from aliasfox.service import AliasService, NotConnected
 from aliasfox.sessions import SessionStore, SessionUnreadable
@@ -127,6 +129,18 @@ def build_router(
 
     router = APIRouter(prefix="/api")
     User = Annotated[int, Depends(current_user)]
+
+    @router.get("/session")
+    def session(request: Request, user_id: User):
+        if not settings.secret_key:
+            raise HTTPException(status_code=500, detail="internal_error")
+        epoch = request.state.session_epoch  # the one current_user validated
+        key = derive_cache_key(settings.secret_key, user_id, epoch)
+        return {
+            "cache_key": base64.urlsafe_b64encode(key).rstrip(b"=").decode(),
+            "mode": settings.aliasfox_mode,
+            "auth_enabled": settings.auth_enabled,
+        }
 
     @router.get("/aliases")
     async def list_aliases(user_id: User, refresh: bool = False):
