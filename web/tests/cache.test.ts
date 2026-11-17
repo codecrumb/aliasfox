@@ -245,13 +245,14 @@ describe('cache', () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let first = true;
-    let held = false;
+    let markHeld!: () => void;
+    const heldReached = new Promise<void>((r) => (markHeld = r));
     vi.stubGlobal('indexedDB', {
       open: (name: string, v?: number) => {
         const req = real.open(name, v);
         if (!first) return req;
         first = false;
-        held = true;
+        markHeld();
         return new Proxy(req, {
           set(t, prop, val) {
             if (prop === 'onsuccess') {
@@ -269,11 +270,10 @@ describe('cache', () => {
       databases: () => real.databases()
     });
     const p = cache.save(key, [alias(1)]);
-    // Wait until save() has really reached openDb (encryption is asynchronous and can take longer
-    // than one macrotask under load); otherwise clear()'s own open would be the one held, and
-    // clear() would wait for a gate only this test can release.
-    for (let i = 0; i < 2000 && !held; i++) await tick();
-    expect(held).toBe(true);
+    // Wait (event-based) until save() has really reached openDb: encryption is asynchronous and can
+    // take longer than a macrotask under load. Otherwise clear()'s own open would be the held one,
+    // and clear() would wait for a gate only this test can release.
+    await heldReached;
     await cache.clear();
     release();
     await p;
@@ -281,5 +281,5 @@ describe('cache', () => {
     vi.unstubAllGlobals();
     expect(await cacheDbExists()).toBe(false);
     expect(await cache.load(key)).toBeNull();
-  });
+  }, 15_000);
 });

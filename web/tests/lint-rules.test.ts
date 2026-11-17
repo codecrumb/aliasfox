@@ -1,6 +1,10 @@
 import { ESLint } from 'eslint';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+
+// Every test here runs ESLint (the first one also loads the whole TypeScript/Svelte toolchain),
+// which is CPU heavy: allow generous time so a loaded machine cannot fail them by timeout.
+vi.setConfig({ testTimeout: 30_000 });
 
 const eslint = new ESLint({ cwd: resolve(import.meta.dirname, '..') });
 
