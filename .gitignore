@@ -15,3 +15,7 @@ node_modules/
 src/aliasfox/static/
 web/node_modules/
 web/dist/
+*.swp
+*.swo
+.*.sw?
+*~
