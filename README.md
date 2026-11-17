@@ -106,7 +106,10 @@ Per user: an opaque sign-in provider user id (not the email), a wrapped data key
 session (cookies, service address, Apple account id, and a trust token when issued), timestamps and a
 logout counter. Never stored: the Apple password, and aliases, labels or notes (aliases are cached in
 server memory for at most about two minutes; IP addresses are in memory only, for rate limiting). Neon
-holds your email address and password hash at the sign-in provider. The privacy page of the running
+holds your email address and password hash at the sign-in provider, plus a display name: the part of
+the email before the @, sent at sign-up because Neon Auth requires a name. Deleting the account asks
+Neon to delete that record; if the request does not go through, the app says so and it is removed on
+request. The privacy page of the running
 service is the authoritative statement.
 
 ### Self-hosting vs hosted

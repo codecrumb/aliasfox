@@ -279,10 +279,14 @@ def test_privacy_memory_and_retention_wording_matches_code(tmp_path, monkeypatch
         "dropped within about two minutes after its limit window ends",
         "ten to eleven minutes",
         "trust token",
-        "is not removed automatically",
-        "removed on request",
+        "AliasFox asks the sign-in provider (Neon) to delete your sign-in record when you "
+        "delete your account",
+        "If that request does not go through, the app tells you, and it is removed on request",
+        "the part of your email address before the @ is sent to the sign-in provider as the "
+        "account's display name",
         "sign you in, check the session and manage Hide My Email",
     ):
         assert phrase in html, phrase
+    assert "not removed automatically" not in html
     assert "only calls Hide My Email" not in html
     assert "sign out of it at Apple" not in html

@@ -60,7 +60,7 @@
 
   <h2 id="providers">Sign-in provider and hosting</h2>
   <ul>
-    <li>Sign-up and log-in are handled by Neon Auth, run by Neon. Neon holds your email address and a hash of your password (the password hash), not AliasFox.</li>
+    <li>Sign-up and log-in are handled by Neon Auth, run by Neon. Neon holds your email address and a hash of your password (the password hash), not AliasFox. When you sign up, the part of your email address before the @ is sent to the sign-in provider as the account's display name, because Neon Auth requires a name.</li>
     <li>The service is hosted on Render (the web server) and Neon (the database). Both keep their own request and system logs, which can include IP addresses, under their own retention policies. AliasFox adds no IP storage of its own to its database.</li>
   </ul>
 
@@ -71,7 +71,7 @@
   <ul>
     <li><strong>Disconnect Apple:</strong> in the app, open Account and choose Disconnect Apple. This deletes your stored Apple session. Your AliasFox account stays.</li>
     <li><strong>Delete account:</strong> in the app, open Account and choose Delete account. This deletes your stored Apple session, your wrapped data key and your user record from the AliasFox database, and logs you out.</li>
-    <li>Your record at the sign-in provider (your email address and password hash at Neon) is not removed automatically when you delete your account. Write to the contact address and it will be removed on request. {{CONTACT}}</li>
+    <li>AliasFox asks the sign-in provider (Neon) to delete your sign-in record when you delete your account. If that request does not go through, the app tells you, and it is removed on request. {{CONTACT}}</li>
   </ul>
 
   <h2 id="changes">Changes</h2>
