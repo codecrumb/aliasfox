@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Alias } from '../src/lib/types';
-import { buildIndex, query } from '../src/lib/search';
+import { buildIndex, parseQuery, query, sortAliases } from '../src/lib/search';
 
 function mk(n: number, over: Partial<Alias> = {}): Alias {
   return {
@@ -20,6 +20,45 @@ function mk(n: number, over: Partial<Alias> = {}): Alias {
 }
 
 const ids = (l: Alias[]) => l.map((a) => a.anonymous_id);
+
+describe('qualifiers and sorting', () => {
+  const list = [
+    mk(1, { label: 'Netflix', is_active: true, domain: 'netflix.com', origin: 'SAFARI', created_ms: 3000 }),
+    mk(2, { label: 'Gift card', is_active: false, origin_app_name: 'Spotify', origin: 'IN_APP', created_ms: 1000 }),
+    mk(3, { label: '', note: 'gym', is_active: false, forward_to: 'a@fastmail.test', created_ms: null }),
+    mk(4, { label: 'Álvaro', is_active: true, domain: 'shop.example', created_ms: 2000 })
+  ];
+  const idx = buildIndex(list);
+
+  it('filters by status, field, origin, quotes and negation', () => {
+    expect(ids(query(idx, 'is:off')).sort()).toEqual(['id2', 'id3']);
+    expect(ids(query(idx, 'is:active')).sort()).toEqual(['id1', 'id4']);
+    expect(ids(query(idx, '-is:off')).sort()).toEqual(['id1', 'id4']);
+    expect(ids(query(idx, 'site:netflix'))).toEqual(['id1']);
+    expect(ids(query(idx, 'app:spotify'))).toEqual(['id2']);
+    expect(ids(query(idx, 'to:fastmail'))).toEqual(['id3']);
+    expect(ids(query(idx, 'from:safari'))).toEqual(['id1']);
+    expect(ids(query(idx, 'label:"gift card"'))).toEqual(['id2']);
+    expect(ids(query(idx, 'label:alvaro'))).toEqual(['id4']);
+    expect(ids(query(idx, 'is:off gym'))).toEqual(['id3']);
+    expect(query(idx, 'is:bogus')).toEqual([]);
+  });
+
+  it('leaves unknown keys and empty values alone', () => {
+    expect(parseQuery('http://x.test')).toEqual({ free: 'http://x.test', quals: [], sort: null });
+    expect(parseQuery('is: netflix').quals).toEqual([]);
+    expect(ids(query(idx, 'netflix is:'))).toEqual(['id1']);
+  });
+
+  it('parses sort and orders results', () => {
+    expect(parseQuery('sort:oldest foo')).toMatchObject({ free: ' foo', sort: 'oldest' });
+    expect(parseQuery('sort:nonsense').sort).toBeNull();
+    expect(ids(sortAliases(list, 'oldest'))).toEqual(['id2', 'id4', 'id1', 'id3']);
+    expect(ids(sortAliases(list, 'label'))).toEqual(['id4', 'id2', 'id1', 'id3']);
+    expect(ids(sortAliases(list, 'address'))).toEqual(['id1', 'id2', 'id3', 'id4']);
+    expect(sortAliases(list, 'newest')).toBe(list);
+  });
+});
 
 describe('search', () => {
   it('test_query_matches_label_domain_note_forward_and_app_name', () => {

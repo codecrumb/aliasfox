@@ -33,6 +33,12 @@
       <dd><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>1</kbd></span><span class="or">…</span><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>0</kbd></span></dd>
     </div>
   </dl>
+  <h3 class="tips-title">Search tips</h3>
+  <ul class="tips">
+    <li><code>is:off</code> or <code>is:active</code> — by status; <code>-is:off</code> excludes</li>
+    <li><code>label:</code> <code>note:</code> <code>site:</code> <code>app:</code> <code>to:</code> <code>from:safari</code> — one field only; quote a phrase: <code>label:"gift card"</code></li>
+    <li><code>sort:oldest</code> <code>sort:label</code> <code>sort:address</code> — order the results</li>
+  </ul>
   {#each notes as n (n)}
     <p class="field-hint">{n}</p>
   {/each}
@@ -72,6 +78,23 @@
   .combo {
     display: inline-flex;
     gap: 3px;
+  }
+  .tips-title {
+    margin-top: var(--space-5);
+    font-size: 0.9375rem;
+  }
+  .tips {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-5);
+    color: var(--muted);
+    font-size: 0.875rem;
+    display: grid;
+    gap: var(--space-1);
+  }
+  code {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
   }
   .or {
     color: var(--muted);

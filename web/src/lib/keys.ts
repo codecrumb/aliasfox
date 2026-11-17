@@ -16,6 +16,8 @@ export type KeyId =
   | 'pageDown'
   | 'clear'
   | 'refresh'
+  | 'filter'
+  | 'sort'
   | 'help';
 
 export interface Combo {
@@ -94,6 +96,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   { id: 'last', keys: [['End']], label: 'Last alias (empty search)', combos: [{ key: 'End' }], when: 'searchEmpty' },
   { id: 'clear', keys: [['Esc']], label: 'Clear the search', combos: [{ key: 'Escape' }], when: 'searchNotEmpty' },
   { id: 'refresh', keys: [['Alt', 'R']], label: 'Refresh from Apple', combos: [{ code: 'KeyR', alt: true }] },
+  { id: 'filter', keys: [['Alt', 'F']], label: 'Cycle All, Active and Inactive', combos: [{ code: 'KeyF', alt: true }] },
+  { id: 'sort', keys: [['Alt', 'S']], label: 'Cycle the sort order', combos: [{ code: 'KeyS', alt: true }] },
   { id: 'help', keys: [['?']], label: 'Keyboard shortcuts (empty search)', combos: [{ key: '?', anyShift: true }], when: 'searchEmpty' }
 ];
 

@@ -29,8 +29,10 @@
     selected: boolean;
     /** Number shown while Alt/Option is held (the row's Alt+digit shortcut). */
     hint?: string;
+    /** Briefly highlighted after its address was copied. */
+    flash?: boolean;
   }
-  let { alias, id, index, total, selected, hint }: Props = $props();
+  let { alias, id, index, total, selected, hint, flash = false }: Props = $props();
 
   const label = $derived(cap(alias.label).trim());
   const origin = $derived(originLabel(alias.origin));
@@ -41,6 +43,7 @@
   class="row"
   class:selected
   class:off={!alias.is_active}
+  class:flash
   role="option"
   {id}
   aria-selected={selected}
@@ -61,6 +64,7 @@
     {#if !alias.is_active}<span class="badge off-badge">Off</span>{/if}
     {#if origin}<span class="badge">{origin}</span>{/if}
   </span>
+  {#if selected}<kbd class="enter" aria-hidden="true">↵ copy</kbd>{/if}
 </div>
 
 <style>
@@ -91,6 +95,22 @@
     width: 3px;
     border-radius: 2px;
     background: var(--accent);
+  }
+  .row.flash {
+    background: color-mix(in srgb, var(--ok) 18%, var(--surface));
+  }
+  .row {
+    transition: background-color var(--dur) var(--ease);
+  }
+  .enter {
+    display: none;
+    flex: none;
+    color: var(--muted);
+  }
+  @media (hover: hover) and (min-width: 640px) {
+    .enter {
+      display: inline-flex;
+    }
   }
   .num {
     flex: none;

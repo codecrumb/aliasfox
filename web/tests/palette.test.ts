@@ -162,6 +162,60 @@ describe('palette list', () => {
     await waitFor(() => expect(live).toHaveTextContent(/^1 result$/));
   });
 
+  it('Alt+F cycles the status filter and the tabs show live counts', async () => {
+    setList([alias(1), alias(2, { is_active: false, label: 'Dormant' }), alias(3)]);
+    render(Palette);
+    await tick();
+    const group = screen.getByRole('group', { name: 'Status' });
+    const tabs = within(group).getAllByRole('button');
+    expect(tabs.map((t) => t.textContent)).toEqual(['All3', 'Active2', 'Inactive1']);
+    await key(search(), { key: 'f', code: 'KeyF', altKey: true });
+    expect(within(group).getByRole('button', { name: 'Active' })).toHaveAttribute('aria-pressed', 'true');
+    await key(search(), { key: 'f', code: 'KeyF', altKey: true });
+    expect(within(group).getByRole('button', { name: 'Inactive' })).toHaveAttribute('aria-pressed', 'true');
+    await key(search(), { key: 'f', code: 'KeyF', altKey: true });
+    expect(within(group).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('sort: Alt+S, the button, the menu and sort: in the search all reorder the list', async () => {
+    setList([alias(1, { label: 'Zed', created_ms: 3000 }), alias(2, { label: 'Amy', created_ms: 1000 }), alias(3, { label: 'Moe', created_ms: 2000 })]);
+    render(Palette);
+    await tick();
+    const labels = () => options().map((o) => o.textContent ?? '');
+    const order = () => labels().map((t) => ['Zed', 'Amy', 'Moe'].find((n) => t.includes(n)));
+    expect(order()).toEqual(['Zed', 'Moe', 'Amy']);
+    await key(search(), { key: 's', code: 'KeyS', altKey: true });
+    expect(order()).toEqual(['Amy', 'Moe', 'Zed']); // oldest
+    await fireEvent.click(screen.getByRole('button', { name: /Sort: Oldest/ }));
+    expect(order()).toEqual(['Amy', 'Moe', 'Zed']); // label A-Z happens to match
+    await key(search(), { key: 's', code: 'KeyS' }); // real typing disarms the dead-key guard
+    await type(search(), 'sort:newest');
+    expect(order()).toEqual(['Zed', 'Moe', 'Amy']);
+  });
+
+  it('Alt number hints show only after Alt is held for a moment', async () => {
+    vi.useFakeTimers();
+    try {
+      setList([alias(1), alias(2)]);
+      render(Palette);
+      await tick();
+      await fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(document.querySelector('kbd.num')).toBeNull();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(document.querySelector('kbd.num')).not.toBeNull();
+      await fireEvent.keyUp(window, { key: 'Alt', code: 'AltLeft' });
+      expect(document.querySelector('kbd.num')).toBeNull();
+      // A quick Alt+2 never shows them.
+      await fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+      await fireEvent.keyDown(window, { key: '2', code: 'Digit2', altKey: true });
+      await vi.advanceTimersByTimeAsync(600);
+      expect(document.querySelector('kbd.num')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('status filter: segmented control and actions menu', async () => {
     setList([alias(1), alias(2, { is_active: false, label: 'Dormant' }), alias(3)]);
     render(Palette);

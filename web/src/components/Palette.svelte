@@ -6,7 +6,7 @@
   import { copyText } from '../lib/clipboard';
   import { describeError } from '../lib/errors';
   import { KEYMAP, cap, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
-  import { query } from '../lib/search';
+  import { parseQuery, query, sortAliases, type SortMode } from '../lib/search';
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
@@ -39,6 +39,12 @@
     { id: 'active', label: 'Active' },
     { id: 'inactive', label: 'Inactive' }
   ];
+  const SORTS: { id: SortMode; label: string }[] = [
+    { id: 'newest', label: 'Newest' },
+    { id: 'oldest', label: 'Oldest' },
+    { id: 'label', label: 'Label A–Z' },
+    { id: 'address', label: 'Address A–Z' }
+  ];
   const SKELETON = [0, 1, 2, 3, 4, 5, 6, 7];
   const UNREADABLE =
     "AliasFox can't read the stored Apple session (the server key may have changed). Reconnect to continue.";
@@ -69,13 +75,45 @@
 
   const list = $derived($aliasStore.list);
   const searched = $derived(query($aliasStore.index, q));
+  // `sort:oldest` in the search box beats the sort picked with the button or Alt+S.
+  let sortMode = $state<SortMode>('newest');
+  const sort = $derived(parseQuery(q).sort ?? sortMode);
+  const sortLabel = $derived(SORTS.find((s) => s.id === sort)?.label ?? 'Newest');
   const results = $derived(
-    filter === 'all' ? searched : searched.filter((a) => (filter === 'active' ? a.is_active : !a.is_active))
+    sortAliases(
+      filter === 'all' ? searched : searched.filter((a) => (filter === 'active' ? a.is_active : !a.is_active)),
+      sort
+    )
   );
+  // Counts follow the search text, so the tabs show how many of each kind match right now.
+  const counts = $derived({
+    all: searched.length,
+    active: searched.filter((a) => a.is_active).length,
+    inactive: searched.filter((a) => !a.is_active).length
+  });
   const win = $derived(windowFor(scrollTop, viewH, results.length));
   const visible = $derived(results.slice(win.start, win.end));
   // Holding Alt/Option labels the first ten visible rows 1..9,0; Alt+<digit> selects that row.
+  // The hints appear only after Alt has been held for ALT_HINT_MS, so a quick Alt+<digit> jumps
+  // without the numbers flashing up first.
+  const ALT_HINT_MS = 400;
   let altHeld = $state(false);
+  let altTimer: ReturnType<typeof setTimeout> | undefined;
+  function altDown(e: KeyboardEvent): void {
+    if (e.key !== 'Alt') {
+      cancelAlt(false);
+    } else if (!e.repeat && altTimer === undefined && !altHeld) {
+      altTimer = setTimeout(() => {
+        altTimer = undefined;
+        altHeld = true;
+      }, ALT_HINT_MS);
+    }
+  }
+  function cancelAlt(hide: boolean): void {
+    if (altTimer !== undefined) clearTimeout(altTimer);
+    altTimer = undefined;
+    if (hide) altHeld = false;
+  }
   const numberBase = $derived(firstVisibleRow(scrollTop));
   const selected = $derived<Alias | null>(results[selIndex] ?? null);
   const activeDescendant = $derived(
@@ -123,7 +161,7 @@
   // top; a refresh of the same view keeps the same alias selected (by id) when it still exists.
   $effect.pre(() => {
     const r = results;
-    const key = `${q}\u0000${filter}`;
+    const key = `${q}\u0000${filter}\u0000${sort}`;
     untrack(() => {
       const changed = key !== lastKey;
       lastKey = key;
@@ -198,6 +236,21 @@
     focusSearch();
   }
 
+  function setSort(m: SortMode): void {
+    sortMode = m;
+    focusSearch();
+  }
+
+  function cycleSort(): void {
+    const i = SORTS.findIndex((s) => s.id === sortMode);
+    setSort(SORTS[(i + 1) % SORTS.length]?.id ?? 'newest');
+  }
+
+  function cycleFilter(): void {
+    const i = FILTERS.findIndex((f) => f.id === filter);
+    setFilter(FILTERS[(i + 1) % FILTERS.length]?.id ?? 'all');
+  }
+
   function openReconnect(): void {
     reconnectOpen = true;
   }
@@ -206,11 +259,19 @@
     dialog = null;
   }
 
+  let flashId = $state<string | null>(null);
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
   async function copyAlias(a: Alias | null): Promise<void> {
     if (!a) return;
     const hme = a.hme;
     const r = await copyText(hme);
-    if (r === 'copied') toasts.push({ kind: 'ok', text: `Copied ${hme}` });
+    if (r === 'copied') {
+      toasts.push({ kind: 'ok', text: `Copied ${hme}` });
+      flashId = a.anonymous_id;
+      if (flashTimer !== undefined) clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => (flashId = null), 700);
+    }
     else if (dialog === null) dialog = { kind: 'copy', text: hme };
   }
 
@@ -306,6 +367,9 @@
       { id: 'edit', label: 'Edit label and note', keys: keysFor('edit'), disabled: none },
       { id: 'delete', label: 'Delete', keys: keysFor('delete'), disabled: none, danger: true },
       { id: 'forward', label: 'Change forward-to address' },
+      { id: 'sort-cycle', label: 'Cycle sort order', keys: keysFor('sort') },
+      ...SORTS.map((s) => ({ id: `sort-${s.id}`, label: `Sort: ${s.label}`, current: sortMode === s.id })),
+      { id: 'filter-cycle', label: 'Cycle filter', keys: keysFor('filter') },
       { id: 'filter-all', label: 'Filter: All', current: filter === 'all' },
       { id: 'filter-active', label: 'Filter: Active', current: filter === 'active' },
       { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive' },
@@ -332,6 +396,15 @@
         return openDelete();
       case 'forward':
         return openForward();
+      case 'sort-cycle':
+        return cycleSort();
+      case 'sort-newest':
+      case 'sort-oldest':
+      case 'sort-label':
+      case 'sort-address':
+        return setSort(id.slice(5) as SortMode);
+      case 'filter-cycle':
+        return cycleFilter();
       case 'filter-all':
         return setFilter('all');
       case 'filter-active':
@@ -377,6 +450,8 @@
       pageDown: () => select(selIndex + pageSize(viewH)),
       clear: () => (q = ''),
       refresh: () => void refresh(),
+      filter: cycleFilter,
+      sort: cycleSort,
       help: () => (dialog = { kind: 'help' })
     };
   }
@@ -478,6 +553,8 @@
 
   onDestroy(() => {
     if (announceTimer !== undefined) clearTimeout(announceTimer);
+    if (flashTimer !== undefined) clearTimeout(flashTimer);
+    cancelAlt(false);
     window.removeEventListener('resize', measure);
     resizeObs?.disconnect();
   });
@@ -485,13 +562,13 @@
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === 'Alt') altHeld = true;
+    altDown(e);
     onWindowKey(e);
   }}
   onkeyup={(e) => {
-    if (e.key === 'Alt') altHeld = false;
+    if (e.key === 'Alt') cancelAlt(true);
   }}
-  onblur={() => (altHeld = false)}
+  onblur={() => cancelAlt(true)}
 />
 
 <section
@@ -560,10 +637,18 @@
           type="button"
           aria-pressed={filter === f.id}
           onmousedown={(e) => e.preventDefault()}
-          onclick={() => setFilter(f.id)}>{f.label}</button
+          onclick={() => setFilter(f.id)}
+          >{f.label}{#if !loadingEmpty}<span class="n" aria-hidden="true">{counts[f.id].toLocaleString()}</span>{/if}</button
         >
       {/each}
     </div>
+    <button
+      type="button"
+      class="ghost sort"
+      aria-label="Sort: {sortLabel}. Change sort order"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={cycleSort}>{sortLabel}</button
+    >
     <p class="count" aria-hidden="true">{countText}</p>
     <p class="visually-hidden" data-testid="result-count" role="status" aria-live="polite">{announced}</p>
   </div>
@@ -592,6 +677,7 @@
             index={win.start + k}
             total={results.length}
             selected={win.start + k === selIndex}
+            flash={a.anonymous_id === flashId}
             hint={altHeld ? numberHint(win.start + k - numberBase) : undefined}
           />
         {/each}
@@ -640,6 +726,8 @@
     <span><kbd>Enter</kbd> copy</span>
     <span><kbd>Shift</kbd><kbd>Enter</kbd> on/off</span>
     <span><kbd>{cap('Alt', mac)}</kbd><kbd>E</kbd> edit</span>
+    <span><kbd>{cap('Alt', mac)}</kbd><kbd>F</kbd> filter</span>
+    <span><kbd>{cap('Alt', mac)}</kbd><kbd>S</kbd> sort</span>
     <span><kbd>{mac ? '⌘' : 'Ctrl'}</kbd><kbd>K</kbd> actions</span>
     <span><kbd>?</kbd> all shortcuts</span>
   </footer>
@@ -857,6 +945,16 @@
     color: var(--muted);
     font-size: 0.875rem;
   }
+  .seg .n {
+    margin-left: var(--space-2);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .seg button[aria-pressed='true'] .n {
+    color: inherit;
+    opacity: 0.8;
+  }
   .seg button:hover:not(:disabled) {
     color: var(--text);
   }
@@ -864,6 +962,19 @@
     background: var(--elevated);
     color: var(--text);
     box-shadow: var(--shadow-1);
+  }
+  .sort {
+    margin-left: auto;
+    padding: 0 var(--space-3);
+    font-size: 0.875rem;
+  }
+  .sort::after {
+    content: '';
+    display: inline-block;
+    margin-left: var(--space-2);
+    border: 4px solid transparent;
+    border-top-color: currentColor;
+    transform: translateY(2px);
   }
   .count {
     color: var(--muted);

@@ -257,7 +257,7 @@ describe('a11y: Palette', () => {
     render(Palette);
     await tick();
     await expectNoViolations();
-    expect(tabNames()).toEqual(['New alias', 'Actions', 'Search aliases', 'All', 'Active', 'Inactive']);
+    expect(tabNames()).toEqual(['New alias', 'Actions', 'Search aliases', 'All', 'Active', 'Inactive', 'Sort: Newest. Change sort order']);
     assertEveryInteractiveReachable();
     assertNoPositiveTabindex();
   });
@@ -299,6 +299,7 @@ describe('a11y: Palette', () => {
       'All',
       'Active',
       'Inactive',
+      'Sort: Newest. Change sort order',
       'Copy address',
       'Turn off',
       'Edit',

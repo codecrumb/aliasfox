@@ -84,7 +84,131 @@ function pick(index: Index, idxs: number[]): Alias[] {
   return out;
 }
 
+// GitHub-style qualifiers: `is:off`, `site:amazon`, `label:"gift card"`, `-app:spotify`, `sort:oldest`.
+// Anything else (including an unknown `key:`) stays ordinary search text.
+export type SortMode = 'newest' | 'oldest' | 'label' | 'address';
+type QualKey = 'is' | 'label' | 'note' | 'site' | 'app' | 'to' | 'from' | 'sort';
+export interface Qual {
+  key: Exclude<QualKey, 'sort'>;
+  value: string;
+  negate: boolean;
+}
+export interface Parsed {
+  free: string;
+  quals: Qual[];
+  sort: SortMode | null;
+}
+
+const QUAL_KEYS: Record<string, QualKey> = {
+  is: 'is',
+  label: 'label',
+  note: 'note',
+  site: 'site',
+  domain: 'site',
+  app: 'app',
+  to: 'to',
+  forward: 'to',
+  from: 'from',
+  origin: 'from',
+  sort: 'sort'
+};
+const SORTS: Record<string, SortMode> = {
+  new: 'newest',
+  newest: 'newest',
+  old: 'oldest',
+  oldest: 'oldest',
+  label: 'label',
+  name: 'label',
+  address: 'address',
+  email: 'address'
+};
+const ORIGIN_NAMES: Record<string, string> = { SAFARI: 'safari', MAIL: 'mail', IN_APP: 'app', ON_DEMAND: 'on demand' };
+const QUAL_RE = /(^|\s)(-?)([a-z]+):(?:"([^"]*)"|(\S*))/gi;
+const MAX_PARSE = 1000;
+
+export function parseQuery(text: string): Parsed {
+  const quals: Qual[] = [];
+  let sort: SortMode | null = null;
+  const free = String(text)
+    .slice(0, MAX_PARSE)
+    .replace(QUAL_RE, (whole, lead: string, neg: string, k: string, quoted?: string, bare?: string) => {
+      const key = Object.hasOwn(QUAL_KEYS, k.toLowerCase()) ? QUAL_KEYS[k.toLowerCase()] : undefined;
+      if (key === undefined) return whole;
+      const value = normalize(quoted ?? bare ?? '').trim();
+      if (key === 'sort') {
+        if (Object.hasOwn(SORTS, value)) sort = SORTS[value] ?? null;
+      } else if (value !== '') {
+        quals.push({ key, value, negate: neg === '-' });
+      }
+      return lead;
+    });
+  return { free, quals, sort };
+}
+
+function has(v: string | null | undefined, needle: string): boolean {
+  return typeof v === 'string' && normalize(v).includes(needle);
+}
+
+function matchesQual(a: Alias, q: Qual): boolean {
+  let hit: boolean;
+  switch (q.key) {
+    case 'is':
+      hit = ['active', 'on'].includes(q.value) ? a.is_active : ['inactive', 'off'].includes(q.value) ? !a.is_active : false;
+      break;
+    case 'label':
+      hit = has(a.label, q.value);
+      break;
+    case 'note':
+      hit = has(a.note, q.value);
+      break;
+    case 'site':
+      hit = has(a.domain, q.value);
+      break;
+    case 'app':
+      hit = has(a.origin_app_name, q.value);
+      break;
+    case 'to':
+      hit = has(a.forward_to, q.value);
+      break;
+    case 'from':
+      hit = has(a.origin, q.value) || has(a.origin === null ? null : ORIGIN_NAMES[a.origin], q.value);
+      break;
+  }
+  return hit !== q.negate;
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
+/** Orders a result list. 'newest' keeps the incoming order (newest first, or best match first). */
+export function sortAliases(list: Alias[], mode: SortMode): Alias[] {
+  if (mode === 'newest') return list;
+  const out = list.slice();
+  if (mode === 'oldest') {
+    return out.sort((a, b) => {
+      const x = a.created_ms ?? null;
+      const y = b.created_ms ?? null;
+      if (x === y) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return x - y;
+    });
+  }
+  const key = (a: Alias): string => (mode === 'label' ? (a.label ?? '').trim() : a.hme);
+  return out.sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1;
+    return collator.compare(x, y);
+  });
+}
+
 export function query(index: Index, text: string): Alias[] {
+  const { free, quals } = parseQuery(text);
+  const base = queryText(index, free);
+  return quals.length === 0 ? base : base.filter((a) => quals.every((q) => matchesQual(a, q)));
+}
+
+function queryText(index: Index, text: string): Alias[] {
   const raw = normalize(String(text)).slice(0, MAX_NEEDLE);
   if (raw.trim() === '') return index.newestFirst.slice();
   // Whitespace controls separate terms; any other control char (notably the haystack separator
