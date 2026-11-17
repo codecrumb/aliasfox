@@ -1,6 +1,8 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from argon2 import extract_parameters
 from pydantic import AliasChoices, Field
@@ -44,8 +46,24 @@ class Settings(BaseSettings):
     )
     trusted_proxy: bool = Field(False, validation_alias=_env("TRUSTED_PROXY"))
     trusted_proxy_hops: int = Field(1, ge=1, validation_alias=_env("TRUSTED_PROXY_HOPS"))
+    signups_enabled: bool = Field(False, validation_alias=_env("SIGNUPS_ENABLED"))
+    signup_allowlist: str = Field("", validation_alias=_env("SIGNUP_ALLOWLIST"))
+    neon_auth_base_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_BASE_URL"))
+    neon_auth_jwks_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_JWKS_URL"))
+    public_url: str | None = Field(None, validation_alias=_env("PUBLIC_URL"))
+    contact_email: str | None = Field(None, validation_alias=_env("CONTACT_EMAIL"))
     host: str = Field("127.0.0.1", validation_alias=_env("HOST"))
     port: int = Field(8080, validation_alias=_env("PORT"))
+
+    @property
+    def allowlist(self) -> frozenset[str]:
+        return frozenset(
+            e for e in (p.strip().lower() for p in self.signup_allowlist.split(",")) if e
+        )
+
+    @property
+    def auth_required(self) -> bool:
+        return self.auth_enabled or self.aliasfox_mode == "multi"
 
     @classmethod
     def settings_customise_sources(
@@ -75,6 +93,29 @@ def _is_argon2_hash(value: str) -> bool:
     return True
 
 
+def _validate_multi(s: Settings) -> None:
+    # In multi mode AUTH_ENABLED and ALIASFOX_PASSWORD_HASH are ignored.
+    for ok, name in (
+        (s.neon_auth_base_url, "NEON_AUTH_BASE_URL"),
+        (s.neon_auth_jwks_url, "NEON_AUTH_JWKS_URL"),
+        (s.database_url, "DATABASE_URL"),
+    ):
+        if not ok:
+            raise ConfigError(f"{name} is required when ALIASFOX_MODE=multi")
+    if not s.trusted_proxy:
+        raise ConfigError("TRUSTED_PROXY=true is required when ALIASFOX_MODE=multi")
+    raw = os.environ.get("WEB_CONCURRENCY", "1").strip() or "1"
+    try:
+        workers = int(raw)
+    except ValueError:
+        raise ConfigError("WEB_CONCURRENCY must be an integer") from None
+    if workers > 1:
+        raise ConfigError(
+            "ALIASFOX_MODE=multi requires a single worker process; "
+            "WEB_CONCURRENCY must be 1 (in-memory caches and rate limits are per-process)"
+        )
+
+
 def validate_startup(s: Settings) -> None:
     if not s.secret_key:
         raise ConfigError("ALIASFOX_SECRET_KEY is required")
@@ -83,8 +124,15 @@ def validate_startup(s: Settings) -> None:
             f"ALIASFOX_SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters; "
             "generate one with `python -m aliasfox gen-secret`"
         )
+    if s.public_url:
+        parsed = urlparse(s.public_url)
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http" and parsed.hostname in LOCAL_HOSTS
+        ):
+            raise ConfigError("PUBLIC_URL must be https (http is allowed only for localhost)")
     if s.aliasfox_mode == "multi":
-        raise ConfigError("multi mode is not implemented yet")
+        _validate_multi(s)
+        return
     if s.auth_enabled and not s.password_hash:
         raise ConfigError("ALIASFOX_PASSWORD_HASH is required when AUTH_ENABLED=true")
     if s.auth_enabled and not _is_argon2_hash(s.password_hash):

@@ -18,6 +18,8 @@ dependencies = [
     "pydantic-settings",
     "itsdangerous",
     "pyicloud",
+    "alembic",
+    "pyjwt[crypto]",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +27,9 @@ dev = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+aliasfox = ["migrations/*.mako", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

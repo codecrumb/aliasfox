@@ -69,10 +69,76 @@ def test_short_secret_key_refused_without_echo():
     validate_startup(make(secret_key="k" * 32))
 
 
-def test_multi_mode_refused_until_plan_3():
-    with pytest.raises(ConfigError, match="multi mode is not implemented yet"):
-        validate_startup(make(aliasfox_mode="multi"))
+def multi(**kw):
+    base = dict(
+        aliasfox_mode="multi",
+        neon_auth_base_url="https://auth.example.com",
+        neon_auth_jwks_url="https://auth.example.com/jwks",
+        database_url="postgresql://u:p@db/x",
+        trusted_proxy=True,
+    )
+    base.update(kw)
+    return make(**base)
+
+
+def test_allowlist_parsing():
+    s = make(signup_allowlist=" A@x.com, ,b@y.com")
+    assert s.allowlist == frozenset({"a@x.com", "b@y.com"})
+    assert make().allowlist == frozenset()
+
+
+def test_signups_default_off():
+    assert make().signups_enabled is False
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["neon_auth_base_url", "neon_auth_jwks_url", "database_url", "trusted_proxy"],
+)
+def test_multi_requires_neon_urls_database_and_trusted_proxy(missing):
+    kw = {missing: False if missing == "trusted_proxy" else None}
+    with pytest.raises(ConfigError):
+        validate_startup(multi(**kw))
+
+
+def test_multi_refuses_web_concurrency_above_one(monkeypatch):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    with pytest.raises(ConfigError, match="WEB_CONCURRENCY"):
+        validate_startup(multi())
+    monkeypatch.setenv("WEB_CONCURRENCY", "1")
+    validate_startup(multi())
+
+
+def test_multi_no_longer_refused_when_configured():
+    validate_startup(multi())
     validate_startup(make(aliasfox_mode="single"))
+
+
+def test_multi_ignores_auth_enabled_and_password_hash():
+    validate_startup(multi(auth_enabled=True, password_hash=None))
+
+
+def test_auth_required_property():
+    assert make().auth_required is False
+    assert make(auth_enabled=True).auth_required is True
+    assert make(aliasfox_mode="multi").auth_required is True
+
+
+@pytest.mark.parametrize(
+    "url,ok",
+    [
+        ("https://aliasfox.example.com", True),
+        ("http://localhost:8080", True),
+        ("http://127.0.0.1:8080", True),
+        ("http://aliasfox.example.com", False),
+    ],
+)
+def test_public_url_must_be_https_unless_localhost(url, ok):
+    if ok:
+        validate_startup(make(public_url=url))
+    else:
+        with pytest.raises(ConfigError, match="PUBLIC_URL"):
+            validate_startup(make(public_url=url))
 
 
 @pytest.mark.parametrize(
