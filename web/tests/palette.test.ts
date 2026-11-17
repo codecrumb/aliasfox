@@ -305,6 +305,50 @@ describe('palette keyboard actions', () => {
     );
   });
 
+  it.each([
+    ['Cmd+Enter', { metaKey: true }],
+    ['Ctrl+Enter', { ctrlKey: true }]
+  ])('%s saves the edit from anywhere in the dialog, once', async (_name, mod) => {
+    setList([alias(1, { label: 'Old', note: 'old note' })]);
+    render(Palette);
+    await tick();
+    const targets = [
+      () => within(dialog('Edit alias')).getByLabelText('Label'),
+      () => within(dialog('Edit alias')).getByLabelText('Note'),
+      () => within(dialog('Edit alias')).getByRole('button', { name: 'Cancel' }),
+      () => within(dialog('Edit alias')).getByRole('button', { name: 'Save' }),
+      () => dialog('Edit alias')
+    ];
+    for (const target of targets) {
+      store.update.mockClear();
+      await key(search(), { key: 'e', code: 'KeyE', altKey: true });
+      await type(within(dialog('Edit alias')).getByLabelText('Label') as HTMLInputElement, 'New label');
+      await key(target(), { key: 'Enter', code: 'Enter', ...mod });
+      expect(store.update).toHaveBeenCalledTimes(1); // once: the field's own handling must not double it
+      expect(store.update).toHaveBeenCalledWith('id-1', { label: 'New label', note: 'old note' });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    }
+  });
+
+  it('plain Enter on the Cancel button still just cancels', async () => {
+    setList([alias(1, { label: 'Old' })]);
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'e', code: 'KeyE', altKey: true });
+    const dlg = dialog('Edit alias');
+    await key(within(dlg).getByRole('button', { name: 'Cancel' }), { key: 'Enter', code: 'Enter' });
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
+  it('the hint no longer says the shortcut only works from the note', async () => {
+    setList([alias(1, { label: 'Old' })]);
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'e', code: 'KeyE', altKey: true });
+    expect(dialog('Edit alias')).toHaveTextContent(/(Ctrl|⌘) Enter saves/);
+    expect(dialog('Edit alias')).not.toHaveTextContent('saves from here');
+  });
+
   it('test_option_e_dead_key_does_not_replace_the_label', async () => {
     setList([alias(1, { label: 'Old', note: '' })]);
     render(Palette);

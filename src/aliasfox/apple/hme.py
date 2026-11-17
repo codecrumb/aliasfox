@@ -9,6 +9,7 @@ in one place.
 """
 
 import json
+import logging
 import time
 from urllib.parse import urlsplit
 from collections.abc import Callable
@@ -18,6 +19,8 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from aliasfox.sessions import AppleSessionState
+
+log = logging.getLogger(__name__)
 
 # --- Endpoints (list verified by the spike; the write endpoints are not) -------------------------------------------------
 EP_LIST = "/v2/hme/list"
@@ -267,8 +270,21 @@ class HmeClient:
         )
         entry = result.get(F_RESERVED)
         if not isinstance(entry, dict):
-            raise HmeError(None, "reserve returned no alias")
-        return _parse_alias(entry)
+            # Apple's response did not carry the alias where we expect it. Take any alias-shaped
+            # object in it; failing that, the reserve may still have worked, so look it up.
+            entry = next(
+                (v for v in result.values() if isinstance(v, dict) and v.get(F_ID) and v.get(F_HME)),
+                None,
+            )
+        if isinstance(entry, dict):
+            return _parse_alias(entry)
+        # Key names only: values can be addresses and ids.
+        keys = sorted(map(str, result))
+        log.warning("reserve response has no alias; result keys: %s", keys)
+        for alias in self.list():
+            if alias.hme == hme:
+                return alias
+        raise HmeError(None, f"reserve returned no alias (response keys: {', '.join(keys) or 'none'})")
 
     def update_metadata(self, anonymous_id: str, label: str, note: str | None = None) -> None:
         body = {F_ID: anonymous_id, F_LABEL: label}

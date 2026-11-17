@@ -116,6 +116,54 @@ def test_reserve_sends_expected_body():
     assert a.anonymous_id == "id7"
 
 
+def test_reserve_accepts_the_alias_under_a_different_key():
+    c, _ = client_for(lambda req: ok({"reservedEmail": entry(7, "L")}))
+    assert c.reserve("a7@icloud.com", "L").anonymous_id == "id7"
+
+
+def test_reserve_without_an_alias_in_the_response_looks_it_up_in_the_list(caplog):
+    caplog.set_level("INFO")
+    paths = []
+
+    def handler(req):
+        paths.append((req.method, req.url.path))
+        if req.url.path == "/v1/hme/reserve":
+            return ok({"weirdKey": "SECRET-VALUE", "count": 1})
+        return ok({"hmeEmails": [entry(3), entry(7, "L")]})
+
+    c, _ = client_for(handler)
+    a = c.reserve("a7@icloud.com", "L")
+    assert a.anonymous_id == "id7" and a.label == "L"
+    assert paths == [("POST", "/v1/hme/reserve"), ("GET", "/v2/hme/list")]
+    # the diagnostic names the keys so the real response shape can be learned, never the values
+    assert "weirdKey" in caplog.text and "count" in caplog.text
+    assert "SECRET-VALUE" not in caplog.text
+
+
+def test_reserve_that_really_did_nothing_still_raises():
+    def handler(req):
+        if req.url.path == "/v1/hme/reserve":
+            return ok({})
+        return ok({"hmeEmails": [entry(3)]})
+
+    c, _ = client_for(handler)
+    with pytest.raises(HmeError, match="reserve returned no alias"):
+        c.reserve("a7@icloud.com", "L")
+
+
+def test_reserve_failure_message_names_the_response_keys_but_not_values():
+    def handler(req):
+        if req.url.path == "/v1/hme/reserve":
+            return ok({"hmeEmail": None, "token": "SECRET-VALUE"})
+        return ok({"hmeEmails": []})
+
+    c, _ = client_for(handler)
+    with pytest.raises(HmeError) as ei:
+        c.reserve("a7@icloud.com", "L")
+    msg = str(ei.value)
+    assert "hmeEmail" in msg and "token" in msg and "SECRET-VALUE" not in msg
+
+
 def test_update_metadata_and_forward_to_bodies():
     reqs = []
 

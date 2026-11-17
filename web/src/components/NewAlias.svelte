@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { aliasStore } from '../lib/aliases';
   import { describeError, describeGenerateError, isSessionError } from '../lib/errors';
-  import { createDeadKeyGuard, isCompositionInput } from '../lib/keys';
+  import { copyText } from '../lib/clipboard';
+  import { createDeadKeyGuard, isCompositionInput, isSubmitChord } from '../lib/keys';
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
@@ -11,7 +12,7 @@
   interface Props {
     onClose: () => void;
     /** null: Apple accepted it but returned no usable alias; the caller refreshes the list. */
-    onCreated: (a: Alias | null) => void;
+    onCreated: (a: Alias | null, copied: 'copied' | 'fallback') => void;
     onReconnect: () => void;
   }
   let { onClose, onCreated, onReconnect }: Props = $props();
@@ -24,6 +25,8 @@
   let error = $state('');
   let invalid = $state(false);
   let sessionLost = $state(false);
+  // Enter was pressed before the address arrived: create as soon as it does.
+  let queued = $state(false);
   let labelInput: HTMLInputElement | undefined = $state();
   let alive = true;
 
@@ -44,13 +47,16 @@
   }
 
   onMount(() => {
+    labelInput?.focus({ preventScroll: true });
+    deadKey.arm(label);
     aliasStore.generate().then(
       async (h) => {
         if (!alive) return;
         hme = h;
-        await tick();
-        labelInput?.focus({ preventScroll: true });
-        deadKey.arm(label);
+        if (queued) {
+          queued = false;
+          void create();
+        }
       },
       (e: unknown) => {
         if (!alive) return;
@@ -64,7 +70,7 @@
   });
 
   async function create(): Promise<void> {
-    if (busy || hme === '') return;
+    if (busy || queued) return;
     const l = label.trim();
     if (l === '') {
       invalid = true;
@@ -75,10 +81,18 @@
     invalid = false;
     error = '';
     sessionLost = false;
+    if (hme === '') {
+      queued = true; // the address is still on its way
+      return;
+    }
     busy = true;
     let created: Alias | null;
+    let copying: Promise<'copied' | 'fallback'>;
     try {
-      const r: unknown = await aliasStore.reserve({ hme, label: l, note });
+      // Start the copy now, inside the key press; it completes only if the reserve does.
+      const reserving = aliasStore.reserve({ hme, label: l, note });
+      copying = copyText(hme, reserving);
+      const r: unknown = await reserving;
       created =
         r !== null && typeof r === 'object' && typeof (r as Alias).anonymous_id === 'string' && typeof (r as Alias).hme === 'string'
           ? (r as Alias)
@@ -91,29 +105,32 @@
       return;
     }
     busy = false;
-    if (alive) onCreated(created);
+    const copied = await copying;
+    if (alive) onCreated(created, copied);
   }
 
   function onLabelKey(e: KeyboardEvent): void {
     deadKey.key(e);
-    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       if (e.repeat) return; // a held Enter submits once
       void create();
     }
   }
-  function onNoteKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      if (e.repeat) return;
-      void create();
-    }
+  // Cmd/Ctrl+Enter creates from anywhere in the dialog: the fields, the buttons, the dialog itself.
+  function onChord(e: KeyboardEvent): void {
+    if (!isSubmitChord(e)) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    void create();
   }
   function onSubmit(e: SubmitEvent): void {
     e.preventDefault();
     void create();
   }
 </script>
+
+<svelte:window onkeydown={onChord} />
 
 <!-- While the reserve is pending, Esc is disabled so its result is always reported. -->
 <Modal labelledby="{uid}-title" onClose={onClose} persistent escape={!busy}>
@@ -130,43 +147,43 @@
         <span class="visually-hidden">New address:</span>
         <span class="addr mono">{hme}</span>
       </div>
-
-      <div>
-        <label for="{uid}-label">Label</label>
-        <input
-          id="{uid}-label"
-          bind:this={labelInput}
-          bind:value={label}
-          maxlength="200"
-          autocomplete="off"
-          spellcheck="false"
-          dir="auto"
-          aria-invalid={invalid}
-          aria-describedby="{uid}-hint {uid}-error"
-          oninput={(e) => {
-            invalid = false;
-            if (isCompositionInput(e)) undoDeadKey();
-          }}
-          oncompositionend={undoDeadKey}
-          onkeydown={onLabelKey}
-        />
-        <p class="field-hint" id="{uid}-hint">Where will you use this? e.g. a site name</p>
-      </div>
-      <div>
-        <label for="{uid}-note">Note <span class="optional">(optional)</span></label>
-        <textarea id="{uid}-note" bind:value={note} rows="2" maxlength="2000" dir="auto" onkeydown={onNoteKey}></textarea>
-      </div>
-      <div class="error-row">
-        <p class="field-error" id="{uid}-error" role="alert">{error}</p>
-        {#if sessionLost && $sessionStore.state !== 'ready'}
-          <button type="button" class="reconnect" onclick={onReconnect}>Reconnect</button>
-        {/if}
-      </div>
     {/if}
+
+    <div>
+      <label for="{uid}-label">Label</label>
+      <input
+        id="{uid}-label"
+        bind:this={labelInput}
+        bind:value={label}
+        maxlength="200"
+        autocomplete="off"
+        spellcheck="false"
+        dir="auto"
+        aria-invalid={invalid}
+        aria-describedby="{uid}-hint {uid}-error"
+        oninput={(e) => {
+          invalid = false;
+          if (isCompositionInput(e)) undoDeadKey();
+        }}
+        oncompositionend={undoDeadKey}
+        onkeydown={onLabelKey}
+      />
+      <p class="field-hint" id="{uid}-hint">Where will you use this? e.g. a site name</p>
+    </div>
+    <div>
+      <label for="{uid}-note">Note <span class="optional">(optional)</span></label>
+      <textarea id="{uid}-note" bind:value={note} rows="2" maxlength="2000" dir="auto"></textarea>
+    </div>
+    <div class="error-row">
+      <p class="field-error" id="{uid}-error" role="alert">{error}</p>
+      {#if sessionLost && $sessionStore.state !== 'ready'}
+        <button type="button" class="reconnect" onclick={onReconnect}>Reconnect</button>
+      {/if}
+    </div>
 
     <div class="dialog-actions">
       <button type="button" class="ghost" disabled={busy} onclick={onClose}>Cancel</button>
-      <button type="submit" class="primary" disabled={busy || hme === ''}>{busy ? 'Creating…' : 'Create'}</button>
+      <button type="submit" class="primary" disabled={busy || queued}>{busy || queued ? 'Creating…' : 'Create'}</button>
     </div>
   </form>
 </Modal>

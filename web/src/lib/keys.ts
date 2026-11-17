@@ -141,6 +141,11 @@ export function cap(name: string, mac: boolean): string {
  */
 export const DEAD_KEY_MS = 600;
 
+/** Cmd/Ctrl+Enter (not mid-composition): the "submit this dialog" chord. */
+export function isSubmitChord(e: KeyboardEvent): boolean {
+  return e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing;
+}
+
 /** An input event produced by composition (an IME or a dead key), not by typing or pasting. */
 export function isCompositionInput(e: Event): boolean {
   const i = e as Partial<InputEvent>;
