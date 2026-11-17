@@ -28,6 +28,22 @@ describe('banned patterns are rejected in src', () => {
     'document.writeln': 'export function f(s: string) { document.writeln(s); }',
     eval: 'export function f(s: string) { return eval(s); }',
     'new Function': "export function f(s: string) { return new Function(s); }",
+    'new Function with no args': 'export const f = new Function();',
+    'new globalThis.Function': 'export function f(s: string) { return new globalThis.Function(s); }',
+    "new globalThis['Function']": "export function f(s: string) { return new globalThis['Function'](s); }",
+    'Object.assign onto a node (identifier target)':
+      "export function f(e: HTMLElement) { Object.assign(e, { title: 'x' }); }",
+    'Object.assign onto a node (query result)':
+      "export const f = () => Object.assign(document.body, { className: 'x' });",
+    "Object['assign'] onto a node":
+      "export function f(e: HTMLElement) { Object['assign'](e, { title: 'x' }); }",
+    'Object.defineProperty on a node':
+      "export function f(e: HTMLElement, v: string) { Object.defineProperty(e, 'innerHTML', { value: v }); }",
+    'Object.defineProperties on a node':
+      "export function f(e: HTMLElement, v: string) { Object.defineProperties(e, { innerHTML: { value: v } }); }",
+    'Reflect.set on a node': "export function f(e: HTMLElement, k: string, v: string) { Reflect.set(e, k, v); }",
+    'Reflect.defineProperty on a node':
+      "export function f(e: HTMLElement, k: string, v: string) { Reflect.defineProperty(e, k, { value: v }); }",
     'setTimeout string': "export function f() { setTimeout('alert(1)', 10); }",
     'setInterval string': "export function f() { setInterval('alert(1)', 10); }",
     'computed assignment, call key':
@@ -162,6 +178,7 @@ describe('allowed patterns pass', () => {
   });
 
   const allowed: Record<string, string> = {
+    'Object.assign into a plain object literal': 'export const f = (a: object) => Object.assign({}, a, { b: 1 });',
     'setAttribute aria-label':
       "export function f(e: HTMLElement, s: string) { e.setAttribute('aria-label', s); }",
     'setAttribute class':

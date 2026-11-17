@@ -127,6 +127,37 @@ const restrictedSyntax = [
     message: 'eval is banned.'
   },
   {
+    selector: ":matches(NewExpression, CallExpression)[callee.property.value='Function']",
+    message: "globalThis['Function'] is eval."
+  },
+  {
+    selector: "NewExpression[callee.name='Function']",
+    message: 'new Function() is eval.'
+  },
+  // Best effort: these write arbitrary properties (innerHTML, srcdoc, on*) onto whatever object
+  // they are given, which could be a DOM node. Object.assign is allowed only into an object literal.
+  ...['assign', 'defineProperty', 'defineProperties'].flatMap((m) => {
+    const guard = m === 'assign' ? ':not([arguments.0.type=\'ObjectExpression\'])' : '';
+    return [
+      {
+        selector: `CallExpression[callee.object.name='Object'][callee.property.name='${m}']${guard}`,
+        message: `Object.${m} on a non-literal target can write innerHTML/srcdoc onto a node; assign explicit safe properties instead.`
+      },
+      {
+        selector: `CallExpression[callee.object.name='Object'][callee.property.value='${m}']${guard}`,
+        message: `Object.${m} on a non-literal target can write innerHTML/srcdoc onto a node; assign explicit safe properties instead.`
+      }
+    ];
+  }),
+  {
+    selector: "CallExpression[callee.object.name='Reflect'][callee.property.name=/^(set|defineProperty)$/]",
+    message: 'Reflect.set/defineProperty can write innerHTML/srcdoc onto a node; assign explicit safe properties instead.'
+  },
+  {
+    selector: "CallExpression[callee.object.name='Reflect'][callee.property.value=/^(set|defineProperty)$/]",
+    message: 'Reflect.set/defineProperty can write innerHTML/srcdoc onto a node; assign explicit safe properties instead.'
+  },
+  {
     selector: "CallExpression[callee.name='Function']",
     message: 'Function() is eval.'
   },
