@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { aliasStore } from '../lib/aliases';
   import { describeError, describeGenerateError, isSessionError } from '../lib/errors';
+  import { createDeadKeyGuard, isCompositionInput } from '../lib/keys';
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
@@ -33,6 +34,15 @@
     }
   });
 
+  // Option+N (the shortcut that opens this dialog) is a dead key on a Mac; see createDeadKeyGuard.
+  const deadKey = createDeadKeyGuard();
+  function undoDeadKey(): void {
+    const v = deadKey.restore();
+    if (v === null || label === v) return;
+    label = v;
+    if (labelInput) labelInput.value = v;
+  }
+
   onMount(() => {
     aliasStore.generate().then(
       async (h) => {
@@ -40,6 +50,7 @@
         hme = h;
         await tick();
         labelInput?.focus({ preventScroll: true });
+        deadKey.arm(label);
       },
       (e: unknown) => {
         if (!alive) return;
@@ -84,6 +95,7 @@
   }
 
   function onLabelKey(e: KeyboardEvent): void {
+    deadKey.key(e);
     if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault();
       if (e.repeat) return; // a held Enter submits once
@@ -131,7 +143,11 @@
           dir="auto"
           aria-invalid={invalid}
           aria-describedby="{uid}-hint {uid}-error"
-          oninput={() => (invalid = false)}
+          oninput={(e) => {
+            invalid = false;
+            if (isCompositionInput(e)) undoDeadKey();
+          }}
+          oncompositionend={undoDeadKey}
           onkeydown={onLabelKey}
         />
         <p class="field-hint" id="{uid}-hint">Where will you use this? e.g. a site name</p>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { isMac } from '../lib/keys';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -9,6 +10,7 @@
   let { text, onClose }: Props = $props();
 
   const uid = $props.id();
+  const mac = isMac();
   let field: HTMLInputElement | undefined = $state();
 
   function select(): void {
@@ -23,7 +25,7 @@
 
 <Modal labelledby="{uid}-title" describedby="{uid}-msg" onClose={onClose} size="sm">
   <h2 class="dialog-title" id="{uid}-title">Copy address</h2>
-  <p class="dialog-text" id="{uid}-msg">Your browser blocked copying. Press Ctrl/Cmd+C to copy.</p>
+  <p class="dialog-text" id="{uid}-msg">Your browser blocked copying. Press {mac ? '⌘' : 'Ctrl'}+C to copy.</p>
   <input
     class="mono field"
     bind:this={field}

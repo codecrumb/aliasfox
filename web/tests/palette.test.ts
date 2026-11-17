@@ -232,7 +232,7 @@ describe('palette keyboard actions', () => {
     await waitFor(() => expect(field).toHaveFocus());
     expect(field.selectionStart).toBe(0);
     expect(field.selectionEnd).toBe(field.value.length);
-    expect(dlg).toHaveTextContent('Your browser blocked copying. Press Ctrl/Cmd+C to copy.');
+    expect(dlg).toHaveTextContent('Your browser blocked copying. Press Ctrl+C to copy.');
     expect(push).not.toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('Copied') }));
     await key(field, { key: 'Escape', code: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -303,6 +303,22 @@ describe('palette keyboard actions', () => {
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith({ kind: 'error', text: "Couldn't delete addr2@icloud.com. Can't reach Apple right now." })
     );
+  });
+
+  it('test_option_e_dead_key_does_not_replace_the_label', async () => {
+    setList([alias(1, { label: 'Old', note: '' })]);
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'e', code: 'KeyE', altKey: true });
+    const label = within(dialog('Edit alias')).getByLabelText('Label') as HTMLInputElement;
+    await waitFor(() => expect(label).toHaveFocus());
+    // macOS finishes the Option+E dead key into the field that now has focus.
+    await fireEvent.input(label, { target: { value: '´' }, inputType: 'insertCompositionText', isComposing: true });
+    expect(label.value).toBe('Old');
+    // Real typing right afterwards is kept.
+    await key(label, { key: 'a', code: 'KeyA' });
+    await type(label, 'a');
+    expect(label.value).toBe('a');
   });
 
   it('test_alt_e_edits_label_and_note', async () => {

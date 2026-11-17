@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { aliasStore } from '../lib/aliases';
   import { describeError, isSessionError } from '../lib/errors';
+  import { createDeadKeyGuard, isCompositionInput, isMac } from '../lib/keys';
   import { sessionStore } from '../lib/session';
   import type { Alias } from '../lib/types';
   import Modal from './Modal.svelte';
@@ -25,6 +26,19 @@
   let invalid = $state(false);
   let sessionLost = $state(false);
   let labelInput: HTMLInputElement | undefined = $state();
+  const mac = isMac();
+  // Option+E (the shortcut that opens this dialog) is a dead key on a Mac and would otherwise
+  // replace the selected label with an accent.
+  const deadKey = createDeadKeyGuard();
+  function undoDeadKey(): void {
+    const v = deadKey.restore();
+    if (v === null || label === v) return;
+    label = v;
+    if (labelInput) {
+      labelInput.value = v;
+      labelInput.select();
+    }
+  }
 
   // After a reconnect the typed values are still here; say so instead of the stale error.
   $effect(() => {
@@ -37,6 +51,7 @@
   onMount(() => {
     labelInput?.focus({ preventScroll: true });
     labelInput?.select();
+    deadKey.arm(label);
   });
 
   async function save(): Promise<void> {
@@ -65,6 +80,7 @@
   }
 
   function onLabelKey(e: KeyboardEvent): void {
+    deadKey.key(e);
     if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault();
       if (e.repeat) return; // a held Enter submits once
@@ -102,14 +118,18 @@
         aria-invalid={invalid}
         aria-describedby="{uid}-error"
         dir="auto"
-        oninput={() => (invalid = false)}
+        oninput={(e) => {
+          invalid = false;
+          if (isCompositionInput(e)) undoDeadKey();
+        }}
+        oncompositionend={undoDeadKey}
         onkeydown={onLabelKey}
       />
     </div>
     <div>
       <label for="{uid}-note">Note</label>
       <textarea id="{uid}-note" bind:value={note} rows="3" maxlength="2000" dir="auto" onkeydown={onNoteKey}></textarea>
-      <p class="field-hint">Ctrl/⌘ Enter saves from here.</p>
+      <p class="field-hint">{mac ? '⌘' : 'Ctrl'} Enter saves from here.</p>
     </div>
     <div class="error-row">
       <p class="field-error" id="{uid}-error" role="alert">{error}</p>

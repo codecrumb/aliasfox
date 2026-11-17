@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { KEYMAP } from '../lib/keys';
+  import { KEYMAP, cap, isMac, keysFor } from '../lib/keys';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -7,7 +7,8 @@
   }
   let { onClose }: Props = $props();
   const uid = $props.id();
-  const notes = KEYMAP.flatMap((b) => (b.note ? [b.note] : []));
+  const mac = isMac();
+  const notes = mac ? KEYMAP.flatMap((b) => (b.note ? [b.note] : [])) : [];
 </script>
 
 <Modal labelledby="{uid}-title" onClose={onClose} size="lg">
@@ -18,10 +19,10 @@
       <div class="item">
         <dt>{b.label}</dt>
         <dd>
-          {#each b.keys as alt, i (i)}
+          {#each keysFor(b, mac) as alt, i (i)}
             {#if i > 0}<span class="or">or</span>{/if}
             <span class="combo">
-              {#each alt as cap, j (j)}<kbd>{cap}</kbd>{/each}
+              {#each alt as name, j (j)}<kbd>{cap(name, mac)}</kbd>{/each}
             </span>
           {/each}
         </dd>

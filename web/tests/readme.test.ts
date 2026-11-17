@@ -8,7 +8,9 @@ import { KEYMAP, type KeyBinding } from '../src/lib/keys';
 const README = readFileSync(resolve(__dirname, '../../README.md'), 'utf8');
 
 export function rowFor(b: KeyBinding): string {
-  const keys = b.keys.map((alt) => alt.map((c) => `\`${c}\``).join(' + ')).join(' or ');
+  // The README covers both platforms: every alternative from either display list, once.
+  const alts = [...new Set([...b.keys, ...(b.keysMac ?? [])].map((alt) => alt.map((c) => `\`${c}\``).join(' + ')))];
+  const keys = alts.join(' or ');
   return `| ${keys} | ${b.label} |`;
 }
 
