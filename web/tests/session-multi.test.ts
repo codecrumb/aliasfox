@@ -128,7 +128,7 @@ describe('deleteAccount', () => {
     const off = sessionStore.onLogout(wiped);
     await sessionStore.deleteAccount();
     off();
-    expect(order).toEqual(['DELETE /api/account', 'neon deleteNeonUser', 'neon signOut']);
+    await vi.waitFor(() => expect(order).toEqual(['DELETE /api/account', 'neon deleteNeonUser', 'neon signOut']));
     expect(wiped).toHaveBeenCalledTimes(1);
     const s = get(sessionStore);
     expect(s.state).toBe('login');
@@ -141,7 +141,7 @@ describe('deleteAccount', () => {
     vi.mocked(neonAuth.deleteNeonUser).mockResolvedValueOnce('pending');
     vi.mocked(neonAuth.signOut).mockRejectedValueOnce(new Error('down'));
     await sessionStore.deleteAccount();
-    expect(get(sessionStore).accountDeleted).toBe('pending');
+    await vi.waitFor(() => expect(get(sessionStore).accountDeleted).toBe('pending'));
     expect(get(sessionStore).state).toBe('login');
   });
 
@@ -167,5 +167,67 @@ describe('deleteAccount', () => {
     });
     await sessionStore.exchange('jwt');
     expect(get(sessionStore).accountDeleted).toBeNull();
+  });
+});
+
+describe('our logout and wipe never wait on Neon Auth', () => {
+  const never = () => new Promise<never>(() => {});
+  let unhandled: unknown[];
+  const onUnhandled = (e: unknown) => void unhandled.push(e);
+  beforeEach(() => {
+    unhandled = [];
+    process.on('unhandledRejection', onUnhandled);
+  });
+  afterEach(() => {
+    process.off('unhandledRejection', onUnhandled);
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it('logout: a Neon sign-out that never resolves does not delay api.logout or the wipe', async () => {
+    await signedIn(MULTI_SESSION);
+    vi.mocked(neonAuth.signOut).mockImplementation(never);
+    const wiped = vi.fn();
+    const off = sessionStore.onLogout(wiped);
+    await sessionStore.logout(); // resolves although signOut never does
+    off();
+    expect(order).toEqual(['POST /api/auth/logout']);
+    expect(wiped).toHaveBeenCalledTimes(1);
+    expect(get(sessionStore).state).toBe('login');
+  });
+
+  it('logout: a Neon rejection is swallowed (no error, no unhandled rejection)', async () => {
+    await signedIn(MULTI_SESSION);
+    vi.mocked(neonAuth.signOut).mockImplementation(async () => {
+      throw new Error('neon down');
+    });
+    await expect(sessionStore.logout()).resolves.toBeUndefined();
+    await settle();
+    expect(unhandled).toEqual([]);
+    expect(get(sessionStore).errorText).toBeNull();
+  });
+
+  it('delete: the wipe and signed-out state happen while deleteNeonUser is still pending', async () => {
+    await signedIn(MULTI_SESSION);
+    vi.mocked(neonAuth.deleteNeonUser).mockImplementation(never);
+    const wiped = vi.fn();
+    const off = sessionStore.onLogout(wiped);
+    await sessionStore.deleteAccount();
+    off();
+    expect(wiped).toHaveBeenCalledTimes(1);
+    expect(get(sessionStore).state).toBe('login');
+    expect(get(sessionStore).cacheKey).toBeNull();
+    expect(get(sessionStore).accountDeleted).toBe('deleted');
+    expect(neonAuth.signOut).not.toHaveBeenCalled(); // still waiting on deleteNeonUser, in the background
+  });
+
+  it('delete: Neon rejections are swallowed and end as pending, with no unhandled rejection', async () => {
+    await signedIn(MULTI_SESSION);
+    vi.mocked(neonAuth.deleteNeonUser).mockRejectedValue(new Error('x'));
+    vi.mocked(neonAuth.signOut).mockRejectedValue(new Error('y'));
+    await expect(sessionStore.deleteAccount()).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(get(sessionStore).accountDeleted).toBe('pending'));
+    await settle();
+    expect(unhandled).toEqual([]);
+    expect(get(sessionStore).errorText).toBeNull();
   });
 });

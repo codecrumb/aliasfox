@@ -127,7 +127,7 @@ function wipeLocal(): void {
 async function logout(): Promise<void> {
   ++gen; // invalidate any in-flight boot/markReady immediately
   const { authEnabled, mode } = get(store);
-  if (mode === 'multi') await neonSignOut();
+  if (mode === 'multi') void neonSignOut(); // never awaited: our logout and wipe don't wait on Neon
   try {
     await api.logout();
   } catch {
@@ -142,23 +142,30 @@ async function logout(): Promise<void> {
 }
 
 /**
- * Multi mode "Delete account": the server deletes everything it holds (and clears our cookie); then
- * the Neon Auth user is deleted best effort, the browser signs out of Neon and local data is wiped.
+ * Multi mode "Delete account": the server deletes everything it holds (and clears our cookie), then
+ * local data is wiped at once. Only afterwards, in the background, the Neon Auth user is deleted best
+ * effort and the browser signs out of Neon; a 'pending' result adds the notice line later.
  * A server failure rejects before anything local changes.
  */
 async function deleteAccount(): Promise<void> {
   await api.deleteAccount();
   ++gen;
-  let neon: NeonDeleteResult;
-  try {
-    neon = await neonAuth.deleteNeonUser();
-  } catch {
-    neon = 'pending';
-  }
-  await neonSignOut();
-  ++gen;
   wipeLocal();
-  patch({ state: 'login', cacheKey: null, reason: null, errorText: null, accountDeleted: neon });
+  patch({ state: 'login', cacheKey: null, reason: null, errorText: null, accountDeleted: 'deleted' });
+  const g = gen;
+  void (async () => {
+    let neon: NeonDeleteResult;
+    try {
+      neon = await neonAuth.deleteNeonUser(); // needs the Neon session: before signOut
+    } catch {
+      neon = 'pending';
+    }
+    await neonSignOut();
+    // Only if nothing happened since (a new sign-in boots, which bumps gen).
+    if (neon === 'pending' && g === gen && get(store).accountDeleted === 'deleted') {
+      patch({ accountDeleted: 'pending' });
+    }
+  })();
 }
 
 /** The aliases store imported the key into a non-extractable CryptoKey: drop the base64 copy. */
