@@ -276,6 +276,7 @@ def test_privacy_memory_and_retention_wording_matches_code(tmp_path, monkeypatch
         "reuses it for up to 60 seconds",
         "within about two minutes of your last use",
         "when you log out, disconnect Apple or delete your account",
+        "a request already in flight",
         "dropped within about two minutes after its limit window ends",
         "ten to eleven minutes",
         "trust token",

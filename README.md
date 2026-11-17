@@ -271,7 +271,7 @@ before a release:
 - Public deployment: set `AUTH_ENABLED=true` and `ALIASFOX_PASSWORD_HASH`, remove
   `ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK`, and put a TLS-terminating proxy in front.
 - Postgres: any `DATABASE_URL` works. With Neon use the pooled or direct connection string
-  (`sslmode=require`); tables are created on startup.
+  (`sslmode=require`); the schema is applied by the Alembic migrations that run at startup.
 - Memory: designed to run in 512 MB (not yet measured in a container).
 - Multi mode: see [Multi-user mode](#multi-user-mode).
 
@@ -281,9 +281,13 @@ before a release:
   file), `ALIASFOX_SECRET_KEY` (at least 32 characters) and `DATABASE_URL` (a Neon connection
   string; Render's free tier has no persistent disk).
 - Set `TRUSTED_PROXY=true`. `TRUSTED_PROXY_HOPS` defaults to 1 and must be verified on the first
-  deploy, because Render's real proxy chain is unconfirmed: make 5 wrong-password logins from your
-  browser, then check that a 6th gets 429 while a login attempt from another network (for example
-  phone data) still gets 401. If both are throttled, or neither is, adjust `TRUSTED_PROXY_HOPS`.
+  deploy, because Render's real proxy chain is unconfirmed. In multi mode (there is no password login)
+  send 5 POSTs with a junk token from one client, for example
+  `curl -si -X POST -H 'Content-Type: application/json' -d '{"token":"junk"}' https://<host>/api/auth/exchange`
+  (each gets 401 `invalid_token`), then check that the 6th gets 429 with a `Retry-After` header while
+  the same request from another network (for example phone data) still gets 401. In single mode do the
+  same with 5 wrong-password logins. If both clients are throttled, or neither is, adjust
+  `TRUSTED_PROXY_HOPS`.
 - Render injects `PORT` (usually 10000) and AliasFox binds to it automatically (the app reads
   `PORT`; the Dockerfile's 8080 is only the local default and `EXPOSE` is documentation), so no port
   setting is needed. The container `HEALTHCHECK` uses `${PORT:-8080}`.

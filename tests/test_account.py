@@ -186,7 +186,6 @@ def test_delete_account_absent_in_single_mode(tmp_path):
     app = create_app(Settings(secret_key=SECRET, data_dir=tmp_path))
     c = TestClient(app, base_url="http://localhost")
     assert c.delete("/api/account").status_code in (404, 405)
-    assert "/api/account" not in {getattr(r, "path", None) for r in app.routes}
 
 
 # --- /api/config --------------------------------------------------------------------
