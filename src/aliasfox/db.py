@@ -4,7 +4,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import DateTime, Engine, LargeBinary, create_engine, inspect, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from aliasfox.config import Settings
 
@@ -91,6 +91,5 @@ def init_db(engine: Engine) -> None:
     with engine.begin() as conn:
         adopt_legacy_schema(conn)
         command.upgrade(_alembic_config(conn), "head")
-    with Session(engine) as s, s.begin():
-        if s.get(User, DEFAULT_USER_ID) is None:
-            s.add(User(id=DEFAULT_USER_ID, auth_subject="single"))
+    # No rows are seeded here: single mode creates user DEFAULT_USER_ID through
+    # UserDirectory.ensure_single_user(); multi mode has no default user.

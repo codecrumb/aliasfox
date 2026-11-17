@@ -2,6 +2,7 @@ import json
 
 import httpx
 import pytest
+from helpers import make_store
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
@@ -14,8 +15,8 @@ from aliasfox.apple.connect import (
     seed_from_env,
 )
 from aliasfox.config import Settings
-from aliasfox.db import init_db
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.db import AppleSessionRow, init_db
+from aliasfox.sessions import AppleSessionState, SessionUnreadable
 
 SECRET = "SECRETVALUE=abc=="
 COOKIE = f"X-APPLE-WEBAUTH-USER={SECRET}; other=v2"
@@ -123,7 +124,7 @@ def test_is_session_valid_true_false_never_raises():
 def store():
     eng = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     init_db(eng)
-    return SessionStore(eng, b"k" * 32)
+    return make_store(eng)[0]
 
 
 def make_settings(cookie):
@@ -213,8 +214,11 @@ def test_connect_with_ellipsis_never_reports_unicode_error():
 
 
 def test_seed_overwrites_unreadable_stored_session(store):
-    other = SessionStore(store._sessions.kw["bind"], b"z" * 32)
-    other.save(1, AppleSessionState(cookies={"X-APPLE-WEBAUTH-USER": "old"}, webservices_url=HME_URL))
+    # A stored blob the current key cannot read (corrupt / foreign).
+    with store._sessions.begin() as s:
+        s.add(AppleSessionRow(user_id=1, blob=b"\x00" * 64))
+    with pytest.raises(SessionUnreadable):
+        store.load(1)
     assert seed_from_env(make_settings(COOKIE), store, transport=httpx.MockTransport(validate_ok)) is True
     assert store.load(1).dsid == "777"
 

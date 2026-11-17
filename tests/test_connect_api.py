@@ -3,6 +3,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import make_store
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -14,7 +15,7 @@ from aliasfox.config import Settings
 from aliasfox.crypto import hash_password
 from aliasfox.db import AppleSessionRow, init_db
 from aliasfox.main import create_app
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.sessions import AppleSessionState
 
 SECRET = "unit-test-secret-key-0123456789abcdef"
 PASSWORD = "hunter2-SECRET-pw"
@@ -96,7 +97,7 @@ def new_store():
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
     init_db(eng)
-    return SessionStore(eng, b"k" * 32), eng
+    return make_store(eng)[0], eng
 
 
 class Env:

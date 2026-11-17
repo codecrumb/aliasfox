@@ -10,10 +10,10 @@ from starlette.concurrency import run_in_threadpool
 from aliasfox.api import build_router, install_error_handlers
 from aliasfox.apple.connect import seed_from_env
 from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
-from aliasfox.auth import DbEpochs, install_auth
+from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
-from aliasfox.crypto import derive_key
 from aliasfox.db import init_db, make_engine
+from aliasfox.keys import KeyRing
 from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
     SECURITY_HEADERS,
     BodyLimitMiddleware,
@@ -21,6 +21,7 @@ from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
 )
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
+from aliasfox.users import UserDirectory
 from aliasfox.web import install_web
 
 log = logging.getLogger(__name__)
@@ -73,8 +74,11 @@ def create_app(
     if service is None:
         engine = make_engine(settings)
         init_db(engine)
-        epochs = DbEpochs(engine)
-        store = SessionStore(engine, derive_key(settings.secret_key))
+        keyring = KeyRing(settings.secret_key)
+        epochs = UserDirectory(engine, keyring)
+        if settings.aliasfox_mode == "single":
+            epochs.ensure_single_user()  # multi mode has no default user
+        store = SessionStore(engine, keyring)
         service = AliasService(store)
     flow = login_flow or LoginFlow()
     app = FastAPI(

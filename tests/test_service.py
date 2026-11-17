@@ -4,15 +4,14 @@ import threading
 import time
 
 import pytest
+from helpers import make_store
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
-from aliasfox.db import init_db
+from aliasfox.db import AppleSessionRow, init_db
 from aliasfox.service import AliasService, NotConnected
-from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
-
-KEY = b"k" * 32
+from aliasfox.sessions import AppleSessionState, SessionUnreadable
 
 
 def make_alias(i=0):
@@ -96,7 +95,8 @@ def store():
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
     init_db(eng)
-    st = SessionStore(eng, KEY)
+    st, users = make_store(eng)
+    assert users.create("second") == 2
     for uid in (1, 2):
         st.save(uid, AppleSessionState({"c": "v"}, "https://ws.example"))
     return st
@@ -412,9 +412,10 @@ async def test_concurrent_reconnect_beats_slow_rotating_call(svc, store, tracker
 
 
 async def test_unreadable_session_raises_session_unreadable(store, tracker, clock):
-    other = SessionStore(store._sessions.kw["bind"], b"z" * 32)
+    with store._sessions.begin() as s:  # corrupt the stored blob
+        s.get(AppleSessionRow, 1).blob = b"\x00" * 64
     cls = type("F", (FakeClient,), {"tracker": tracker})
-    svc = AliasService(other, client_factory=cls, clock=clock)
+    svc = AliasService(store, client_factory=cls, clock=clock)
     with pytest.raises(SessionUnreadable):
         await svc.list_aliases(1)
     with pytest.raises(SessionUnreadable):

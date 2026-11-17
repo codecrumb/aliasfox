@@ -557,12 +557,15 @@ def test_unauthenticated_or_stale_logout_does_not_bump_epoch(pw_hash):
 
 
 def test_db_epoch_store_and_current_user(tmp_path):
-    from aliasfox.auth import DbEpochs
     from aliasfox.db import init_db, make_engine
+    from aliasfox.keys import KeyRing
+    from aliasfox.users import UserDirectory
 
     engine = make_engine(Settings(secret_key=SECRET, data_dir=tmp_path))
     init_db(engine)
-    epochs = DbEpochs(engine)
+    epochs = UserDirectory(engine, KeyRing(SECRET))
+    assert epochs.get(1) is None  # init_db seeds no user
+    epochs.ensure_single_user()
     assert epochs.get(1) == 0
     assert epochs.bump(1) == 1
     assert epochs.get(1) == 1
@@ -582,9 +585,10 @@ def test_init_db_adds_missing_epoch_column_to_old_dev_db(tmp_path):
     con.close()
     engine = make_engine(Settings(secret_key=SECRET, data_dir=tmp_path))
     init_db(engine)
-    from aliasfox.auth import DbEpochs
+    from aliasfox.keys import KeyRing
+    from aliasfox.users import UserDirectory
 
-    assert DbEpochs(engine).get(1) == 0
+    assert UserDirectory(engine, KeyRing(SECRET)).get(1) == 0
 
 
 def test_create_app_wires_db_epochs_so_logout_survives_restart(tmp_path, pw_hash):

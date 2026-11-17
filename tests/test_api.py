@@ -1,6 +1,7 @@
 import re
 import pytest
 from fastapi.testclient import TestClient
+from helpers import make_store
 
 from aliasfox.sessions import SessionUnreadable
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
@@ -10,7 +11,6 @@ from aliasfox.crypto import hash_password
 from aliasfox.main import create_app
 from aliasfox.db import init_db
 from aliasfox.service import NotConnected
-from aliasfox.sessions import SessionStore
 
 SECRET = "unit-test-secret-key-0123456789abcdef"
 COOKIE_TEXT = "X-APPLE-WEBAUTH-USER=SUPERSECRETCOOKIE"
@@ -34,7 +34,7 @@ def memory_store():
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
     init_db(eng)
-    return SessionStore(eng, b"k" * 32)
+    return make_store(eng)[0]
 
 
 class FakeService:

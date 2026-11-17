@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, inspect, text
 
 from aliasfox.config import Settings
 from aliasfox.db import DEFAULT_USER_ID, init_db, make_engine
+from aliasfox.keys import KeyRing
+from aliasfox.users import UserDirectory
 
 
 def _engine(tmp_path):
@@ -24,11 +26,9 @@ def test_fresh_db_reaches_head(tmp_path):
     assert "apple_sessions" in inspect(engine).get_table_names()
     with engine.connect() as c:
         assert c.execute(text("select version_num from alembic_version")).scalar() == "0002"
-        row = c.execute(
-            text("select auth_subject, wrapped_key from users where id=:i"),
-            {"i": DEFAULT_USER_ID},
-        ).one()
-    assert tuple(row) == ("single", None)
+        # init_db seeds no rows: single mode creates its user via
+        # UserDirectory.ensure_single_user(); multi mode has no default user.
+        assert c.execute(text("select count(*) from users")).scalar() == 0
 
 
 def test_old_schema_is_upgraded(tmp_path):
@@ -59,9 +59,13 @@ def test_old_schema_is_upgraded(tmp_path):
 def test_init_db_idempotent(tmp_path):
     engine = _engine(tmp_path)
     init_db(engine)
+    UserDirectory(engine, KeyRing("k" * 32)).ensure_single_user()
     init_db(engine)
     with engine.connect() as c:
         assert c.execute(text("select count(*) from users")).scalar() == 1
+        assert c.execute(
+            text("select auth_subject from users where id=:i"), {"i": DEFAULT_USER_ID}
+        ).scalar() == "single"
 
 
 def test_in_memory_engine_works():

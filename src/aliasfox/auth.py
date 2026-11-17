@@ -6,14 +6,12 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, update
-from sqlalchemy.orm import Session
 
 from aliasfox.config import ConfigError, Settings
-from aliasfox.db import User
 from aliasfox.crypto import derive_key, verify_password
 from aliasfox.middleware import scope_is_https
 from aliasfox.ratelimit import RateLimiter
+from aliasfox.users import UserDirectory
 
 COOKIE_NAME = "aliasfox_session"
 COOKIE_MAX_AGE = 7 * 24 * 3600
@@ -76,26 +74,6 @@ class MemoryEpochs:
         with self._lock:
             self._epochs[user_id] = self._epochs.get(user_id, 0) + 1
             return self._epochs[user_id]
-
-
-class DbEpochs:
-    """`users.session_epoch`, read on every authenticated request."""
-
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
-
-    def get(self, user_id: int) -> int | None:
-        with Session(self._engine) as s:
-            return s.query(User.session_epoch).filter(User.id == user_id).scalar()
-
-    def bump(self, user_id: int) -> int:
-        with Session(self._engine) as s, s.begin():
-            s.execute(
-                update(User)
-                .where(User.id == user_id)
-                .values(session_epoch=User.session_epoch + 1)
-            )
-            return s.query(User.session_epoch).filter(User.id == user_id).scalar()
 
 
 def _valid_epoch(value: object) -> bool:
@@ -169,7 +147,7 @@ def current_user(request: Request) -> int:
 
 
 def install_auth(
-    app: FastAPI, settings: Settings, epochs: MemoryEpochs | DbEpochs | None = None
+    app: FastAPI, settings: Settings, epochs: MemoryEpochs | UserDirectory | None = None
 ) -> None:
     _serializer(settings)  # fail fast: no fallback signing key
     app.state.settings = settings

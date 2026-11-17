@@ -180,14 +180,14 @@ def test_gzip_on_large_alias_list_keeps_headers(tmp_path):
         async def list_aliases(self, user_id, refresh=False):
             return big
 
+    from helpers import make_store
+
     from aliasfox.db import init_db, make_engine
-    from aliasfox.crypto import derive_key
-    from aliasfox.sessions import SessionStore
 
     settings = Settings(secret_key=SECRET, data_dir=tmp_path)
     engine = make_engine(settings)
     init_db(engine)
-    store = SessionStore(engine, derive_key(SECRET))
+    store, _ = make_store(engine, SECRET)
     app = main_mod.create_app(settings, service=Svc(), store=store)
     c = TestClient(app, base_url="http://localhost")
     r = c.get("/api/aliases", headers={"Accept-Encoding": "gzip"})

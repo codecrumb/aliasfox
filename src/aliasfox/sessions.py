@@ -1,15 +1,17 @@
 import json
 from dataclasses import asdict, dataclass, field
 
-from sqlalchemy import Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from aliasfox.crypto import DecryptionError, decrypt, encrypt
-from aliasfox.db import AppleSessionRow
+from aliasfox.db import AppleSessionRow, User
+from aliasfox.keys import KeyRing
 
 
 class SessionUnreadable(Exception):
-    """The stored session cannot be decrypted or parsed (rotated key, corruption).
+    """The stored session cannot be decrypted or parsed (rotated key, corruption,
+    missing user or wrapped key).
     Fixed message: never carries blob or key material."""
 
     def __init__(self) -> None:
@@ -25,20 +27,35 @@ class AppleSessionState:
 
 
 class SessionStore:
-    def __init__(self, engine: Engine, key: bytes) -> None:
-        if len(key) != 32:
-            raise ValueError("key must be 32 bytes")
-        self._key = key
+    """Apple session blobs, each encrypted under its user's own data key.
+
+    The data key is unwrapped from `users.wrapped_key` on every operation and is
+    never cached. The blob's AAD is the user id, so a blob copied into another
+    user's row fails to decrypt even before the key mismatch.
+    """
+
+    def __init__(self, engine: Engine, keyring: KeyRing) -> None:
+        self._keyring = keyring
         self._sessions = sessionmaker(engine, expire_on_commit=False)
 
     @staticmethod
     def _aad(user_id: int) -> bytes:
         return str(user_id).encode()
 
+    def _data_key(self, s: Session, user_id: int) -> bytes:
+        """Missing user, missing wrapped key or unwrap failure: SessionUnreadable."""
+        wrapped = s.scalar(select(User.wrapped_key).where(User.id == user_id))
+        if wrapped is None:
+            raise SessionUnreadable()
+        try:
+            return self._keyring.unwrap(user_id, wrapped)
+        except DecryptionError:
+            raise SessionUnreadable() from None
+
     def save(self, user_id: int, state: AppleSessionState) -> None:
         plaintext = json.dumps(asdict(state)).encode()
-        blob = encrypt(self._key, plaintext, aad=self._aad(user_id))
         with self._sessions.begin() as s:
+            blob = encrypt(self._data_key(s, user_id), plaintext, aad=self._aad(user_id))
             row = s.get(AppleSessionRow, user_id)
             if row is None:
                 s.add(AppleSessionRow(user_id=user_id, blob=blob))
@@ -47,12 +64,12 @@ class SessionStore:
 
     def load(self, user_id: int) -> AppleSessionState | None:
         with self._sessions() as s:
-            row = s.get(AppleSessionRow, user_id)
-            blob = row.blob if row else None
-        if blob is None:
-            return None
+            blob = s.scalar(select(AppleSessionRow.blob).where(AppleSessionRow.user_id == user_id))
+            if blob is None:
+                return None
+            key = self._data_key(s, user_id)
         try:
-            data = json.loads(decrypt(self._key, blob, aad=self._aad(user_id)))
+            data = json.loads(decrypt(key, blob, aad=self._aad(user_id)))
             return AppleSessionState(**data)
         except (DecryptionError, ValueError, TypeError, KeyError):
             raise SessionUnreadable() from None

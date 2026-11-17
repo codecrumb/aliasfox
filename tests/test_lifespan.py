@@ -5,6 +5,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import make_store
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
@@ -13,7 +14,6 @@ from aliasfox.apple.connect import InvalidCookie
 from aliasfox.apple.login import LoginFlow
 from aliasfox.config import Settings
 from aliasfox.db import init_db
-from aliasfox.sessions import SessionStore
 
 SECRET_COOKIE = "X-APPLE-WEBAUTH-USER=TOPSECRETCOOKIETEXT"
 
@@ -29,7 +29,7 @@ class FakeService:
 def new_store():
     eng = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     init_db(eng)
-    return SessionStore(eng, b"k" * 32)
+    return make_store(eng)[0]
 
 
 def make_app(cookie=None, flow=None):
