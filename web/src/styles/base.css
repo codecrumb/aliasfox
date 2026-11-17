@@ -300,3 +300,37 @@ button.reconnect {
 [data-screen]:focus {
   outline: none;
 }
+
+/* Signed-out views in multi mode (SignIn, SignUp, email code) */
+.auth-title {
+  font-size: 1.125rem;
+}
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.auth-form .field-hint {
+  margin-top: var(--space-2);
+}
+.auth-form button.primary {
+  margin-top: var(--space-1);
+}
+.auth-alt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.auth-alt a,
+.auth-link {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+.auth-note {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}

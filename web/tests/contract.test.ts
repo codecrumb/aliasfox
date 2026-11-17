@@ -24,12 +24,25 @@ function pyFiles(dir: string): string[] {
 function backendScan(): Scan {
   return combine(pyFiles(BACKEND).map((f) => scanRoutes(readFileSync(f, 'utf8'))));
 }
-const backendRoutes = (): Route[] => backendScan().routes;
+// Routes registered by a call instead of a decorator (the scraper only reads decorators). Each one
+// is pinned to its exact registration line, so a change there fails here.
+const CALL_REGISTERED: { line: string; file: string; route: Route }[] = [
+  {
+    // single mode only: multi mode signs in through /api/auth/exchange
+    file: 'auth.py',
+    line: 'app.post("/api/auth/login")(login)',
+    route: { method: 'POST', path: '/api/auth/login', body: 'LoginBody' }
+  }
+];
+const backendRoutes = (): Route[] => [
+  ...backendScan().routes,
+  ...CALL_REGISTERED.filter((c) => src(c.file).includes(c.line)).map((c) => c.route)
+];
 
 /** Pydantic body models in api.py/auth.py: field name -> required? */
 function bodyModels(): Map<string, Map<string, boolean>> {
   const models = new Map<string, Map<string, boolean>>();
-  for (const text of [src('api.py'), src('auth.py')]) {
+  for (const text of [src('api.py'), src('auth.py'), src('exchange.py')]) {
     for (const m of text.matchAll(/class (\w+)\(BaseModel\):\n((?:[ \t]+.*\n|\n)+)/g)) {
       const fields = new Map<string, boolean>();
       for (const line of m[2]!.split('\n')) {
@@ -54,6 +67,9 @@ const UNUSED_BY_CLIENT: Record<string, string> = {};
 const SAMPLES: Record<string, unknown[]> = {
   login: ['pw'],
   logout: [],
+  config: [],
+  exchange: ['jwt'],
+  deleteAccount: [],
   session: [],
   status: [],
   listAliases: [],
@@ -258,7 +274,8 @@ describe('contract: client routes', () => {
       for (const n of readdirSync(dir)) {
         const p = join(dir, n);
         if (statSync(p).isDirectory()) walk(p);
-        else if (/\.(ts|svelte)$/.test(n) && p !== join(WEB_SRC, 'lib/api.ts')) {
+        // lib/neonAuth.ts is the one other client: it talks only to the Neon Auth origin (multi mode).
+        else if (/\.(ts|svelte)$/.test(n) && p !== join(WEB_SRC, 'lib/api.ts') && p !== join(WEB_SRC, 'lib/neonAuth.ts')) {
           if (/(?<![\w.])fetch\s*\(|\bXMLHttpRequest\b|\bnew\s+(WebSocket|EventSource)\b|\bsendBeacon\b/.test(readFileSync(p, 'utf8'))) offenders.push(p.slice(WEB_SRC.length + 1));
         }
       }

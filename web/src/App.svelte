@@ -3,15 +3,20 @@
   import ConnectApple from './components/ConnectApple.svelte';
   import Login from './components/Login.svelte';
   import Palette from './components/Palette.svelte';
+  import SignIn from './components/SignIn.svelte';
+  import SignUp from './components/SignUp.svelte';
   import StepTransition from './components/StepTransition.svelte';
   import Toasts from './components/Toasts.svelte';
   import { aliasStore } from './lib/aliases';
+  import { appConfig, loadConfig } from './lib/config';
   import { sessionStore } from './lib/session';
 
   const STEPS: Record<string, number> = {
     loading: 0,
     error: 0,
     login: 1,
+    signin: 1,
+    signup: 1.5,
     connect: 2,
     reconnect: 2,
     ready: 3
@@ -19,6 +24,8 @@
   const TITLES: Record<string, string> = {
     loading: 'Loading AliasFox',
     login: 'Log in to AliasFox',
+    signin: 'Log in to AliasFox',
+    signup: 'Create an AliasFox account',
     connect: 'Connect your Apple account',
     reconnect: 'Reconnect your Apple account',
     ready: 'AliasFox',
@@ -38,7 +45,31 @@
   const showPalette = $derived(
     sessionState === 'ready' || (sessionState === 'reconnect' && (paletteSeen || $aliasStore.list.length > 0))
   );
-  const screen = $derived(showPalette ? 'ready' : sessionState);
+  // Multi mode signed-out views are chosen by path (/login, /signup) without a router library.
+  // Single mode keeps the password Login and never reads or rewrites the URL.
+  let path = $state(location.pathname);
+  function navigate(to: string): void {
+    if (to === location.pathname) return;
+    history.pushState(history.state, '', to);
+    path = to;
+  }
+  $effect(() => {
+    const onPop = (): void => {
+      path = location.pathname;
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  });
+  const signedOutScreen = $derived(
+    !$appConfig.loaded ? 'loading' : $appConfig.mode !== 'multi' ? 'login' : path === '/signup' ? 'signup' : 'signin'
+  );
+  const screen = $derived(
+    showPalette ? 'ready' : sessionState === 'login' ? signedOutScreen : sessionState
+  );
+  // Back at the signed-out state (logout, expiry, deletion): follow the address bar again.
+  $effect.pre(() => {
+    if (sessionState === 'login') path = location.pathname;
+  });
   const step = $derived(STEPS[screen] ?? 0);
   const title = $derived(TITLES[screen] ?? 'AliasFox');
 
@@ -67,6 +98,7 @@
   });
 
   onMount(() => {
+    void loadConfig();
     void sessionStore.boot();
   });
 </script>
@@ -81,6 +113,10 @@
       </section>
     {:else if screen === 'login'}
       <Login />
+    {:else if screen === 'signin'}
+      <SignIn onNavigate={navigate} />
+    {:else if screen === 'signup'}
+      <SignUp onNavigate={navigate} />
     {:else if screen === 'connect' || screen === 'reconnect'}
       <ConnectApple />
     {:else if screen === 'ready'}

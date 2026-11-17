@@ -1,6 +1,8 @@
 import type { Alias, ConnectLoginResult, SessionInfo, StatusInfo } from './types';
 
 const TIMEOUT_MS = 45_000;
+// /api/config is fetched on every page load; single mode must not wait long for it.
+const CONFIG_TIMEOUT_MS = 5_000;
 const SERVER_MESSAGE_MAX = 200;
 
 export class ApiError extends Error {
@@ -65,7 +67,7 @@ function readJson(res: Response, signal: AbortSignal): Promise<unknown> {
   });
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const init: RequestInit = { method, credentials: 'same-origin', headers };
   if (body !== undefined) {
@@ -75,7 +77,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const controller = new AbortController();
   init.signal = controller.signal;
   // The timer covers the whole exchange, including reading the body.
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     let res: Response;
     try {
@@ -100,6 +102,9 @@ const seg = (id: string): string => encodeURIComponent(id);
 export const api = {
   login: (password: string) => request<{ ok: boolean }>('POST', '/api/auth/login', { password }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
+  config: () => request<unknown>('GET', '/api/config', undefined, CONFIG_TIMEOUT_MS),
+  exchange: (token: string) => request<{ ok: boolean }>('POST', '/api/auth/exchange', { token }),
+  deleteAccount: () => request<{ status: string }>('DELETE', '/api/account'),
   session: () => request<SessionInfo>('GET', '/api/session'),
   status: () => request<StatusInfo>('GET', '/api/status'),
   listAliases: (refresh?: boolean) =>

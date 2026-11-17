@@ -12,6 +12,7 @@
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
   import { LIST_PADDING, ROW_HEIGHT, firstVisibleRow, pageSize, scrollToShow, windowFor } from '../lib/virtual';
+  import AccountDialog from './AccountDialog.svelte';
   import ActionsMenu, { type MenuAction } from './ActionsMenu.svelte';
   import AliasRow from './AliasRow.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -34,6 +35,7 @@
     | { kind: 'help' }
     | { kind: 'forward'; current: string }
     | { kind: 'disconnect' }
+    | { kind: 'account' }
     | { kind: 'copy'; text: string };
 
   const FILTERS: { id: Filter; label: string }[] = [
@@ -500,6 +502,7 @@
       { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive' },
       { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh') },
       { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help') },
+      ...($sessionStore.mode === 'multi' ? [{ id: 'account', label: 'Account' }] : []),
       { id: 'disconnect', label: 'Disconnect Apple account', danger: true },
       { id: 'logout', label: 'Log out' }
     ];
@@ -557,6 +560,9 @@
         return;
       case 'disconnect':
         dialog = { kind: 'disconnect' };
+        return;
+      case 'account':
+        dialog = { kind: 'account' };
         return;
       case 'logout':
         return sessionStore.logout();
@@ -939,6 +945,8 @@
     onConfirm={disconnect}
     onCancel={closeDialog}
   />
+{:else if dialog?.kind === 'account'}
+  <AccountDialog onClose={closeDialog} onDisconnect={() => (dialog = { kind: 'disconnect' })} />
 {:else if dialog?.kind === 'copy'}
   <CopyFallback text={dialog.text} onClose={closeDialog} />
 {/if}

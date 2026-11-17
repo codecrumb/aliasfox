@@ -1,5 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { ApiError, api } from './api';
+import { neonAuth, type NeonDeleteResult } from './neonAuth';
 import type { SessionInfo, SessionState } from './types';
 
 export interface SessionSnapshot {
@@ -9,6 +10,8 @@ export interface SessionSnapshot {
   cacheKey: string | null;
   reason: string | null;
   errorText: string | null;
+  /** Set after "Delete account" (multi mode) for the signed-out view; cleared by the next sign-in. */
+  accountDeleted: NeonDeleteResult | null;
 }
 
 const initial: SessionSnapshot = {
@@ -17,7 +20,8 @@ const initial: SessionSnapshot = {
   mode: null,
   cacheKey: null,
   reason: null,
-  errorText: null
+  errorText: null,
+  accountDeleted: null
 };
 
 const store = writable<SessionSnapshot>({ ...initial });
@@ -90,6 +94,24 @@ async function login(password: string): Promise<void> {
   await boot();
 }
 
+/** Multi mode: trade a Neon Auth JWT for our session cookie, then load the app. */
+async function exchange(token: string): Promise<void> {
+  const g = gen;
+  await api.exchange(token);
+  if (g !== gen) return;
+  patch({ accountDeleted: null });
+  await boot();
+}
+
+/** Neon Auth calls are best effort: our own cookie and local wipe never wait on them. */
+async function neonSignOut(): Promise<void> {
+  try {
+    await neonAuth.signOut();
+  } catch {
+    // ignore
+  }
+}
+
 // The local wipe shared by logout and a server-side "not authenticated": every registered wipe
 // (alias list, in-memory CryptoKey, IndexedDB cache) runs; one failing callback cannot block the others.
 function wipeLocal(): void {
@@ -104,7 +126,8 @@ function wipeLocal(): void {
 
 async function logout(): Promise<void> {
   ++gen; // invalidate any in-flight boot/markReady immediately
-  const { authEnabled } = get(store);
+  const { authEnabled, mode } = get(store);
+  if (mode === 'multi') await neonSignOut();
   try {
     await api.logout();
   } catch {
@@ -116,6 +139,26 @@ async function logout(): Promise<void> {
   // again when boot() brings the state back to ready.
   patch({ cacheKey: null, reason: null, errorText: null, state: authEnabled ? 'login' : 'loading' });
   if (!authEnabled) await boot(); // fresh cacheKey/state; guarded by the generation counter
+}
+
+/**
+ * Multi mode "Delete account": the server deletes everything it holds (and clears our cookie); then
+ * the Neon Auth user is deleted best effort, the browser signs out of Neon and local data is wiped.
+ * A server failure rejects before anything local changes.
+ */
+async function deleteAccount(): Promise<void> {
+  await api.deleteAccount();
+  ++gen;
+  let neon: NeonDeleteResult;
+  try {
+    neon = await neonAuth.deleteNeonUser();
+  } catch {
+    neon = 'pending';
+  }
+  await neonSignOut();
+  ++gen;
+  wipeLocal();
+  patch({ state: 'login', cacheKey: null, reason: null, errorText: null, accountDeleted: neon });
 }
 
 /** The aliases store imported the key into a non-extractable CryptoKey: drop the base64 copy. */
@@ -177,7 +220,9 @@ export const sessionStore = {
   subscribe: store.subscribe,
   boot,
   login,
+  exchange,
   logout,
+  deleteAccount,
   dropCacheKey,
   onLogout,
   onApiError,

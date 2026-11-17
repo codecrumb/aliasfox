@@ -194,6 +194,11 @@ before a release:
 - Postgres: any `DATABASE_URL` works. With Neon use the pooled or direct connection string
   (`sslmode=require`); tables are created on startup.
 - Memory: designed to run in 512 MB (not yet measured in a container).
+- Multi mode (owner step): register the app's public origin (for example `https://aliasfox.onrender.com`,
+  scheme included, no trailing slash) as a Neon Auth trusted domain, e.g.
+  `neon neon-auth domain add <origin>`. The browser signs in against `NEON_AUTH_BASE_URL` directly, so in
+  multi mode the CSP `connect-src` also allows that URL's origin. Neon Auth's session cookie is then a
+  third-party cookie for the app; browsers that block those may fail at the token step (unverified).
 
 ## Deploying to Render
 
