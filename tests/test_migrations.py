@@ -72,3 +72,33 @@ def test_in_memory_engine_works():
     )
     init_db(engine)
     assert "auth_subject" in _cols(engine, "users")
+
+
+def _legacy_db(tmp_path):
+    con = sqlite3.connect(tmp_path / "aliasfox.db")
+    con.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR, created_at DATETIME)")
+    con.execute("INSERT INTO users (id) VALUES (1)")
+    con.commit()
+    con.close()
+
+
+def test_alembic_cli_path_adopts_legacy_db_without_secret_key(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import aliasfox
+    from alembic import command
+    from alembic.config import Config
+
+    _legacy_db(tmp_path)
+    monkeypatch.delenv("ALIASFOX_SECRET_KEY", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    cfg = Config()  # no connection attribute: the CLI path
+    cfg.set_main_option("script_location", str(Path(aliasfox.__file__).parent / "migrations"))
+    command.upgrade(cfg, "head")
+    engine = _engine(tmp_path)
+    assert {"auth_subject", "wrapped_key", "session_epoch"} <= _cols(engine, "users")
+    assert "email" not in _cols(engine, "users")
+    with engine.connect() as c:
+        assert c.execute(text("select auth_subject from users where id=1")).scalar() == "single"
+        assert c.execute(text("select version_num from alembic_version")).scalar() == "0002"

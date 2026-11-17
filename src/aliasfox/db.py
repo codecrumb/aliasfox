@@ -65,7 +65,7 @@ def _alembic_config(connection) -> Config:
     return cfg
 
 
-def _adopt_legacy_schema(conn) -> None:
+def adopt_legacy_schema(conn) -> None:
     """Bring a pre-Alembic database to the 0001 shape, then stamp it."""
     insp = inspect(conn)
     if "users" not in insp.get_table_names() or "alembic_version" in insp.get_table_names():
@@ -82,12 +82,14 @@ def _adopt_legacy_schema(conn) -> None:
                 "blob BYTEA NOT NULL, updated_at TIMESTAMPTZ NOT NULL)"
             )
         )
-    command.stamp(_alembic_config(conn), "0001")
+    # Raw stamp: this also runs from inside env.py, where command.stamp would recurse.
+    conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
+    conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0001')"))
 
 
 def init_db(engine: Engine) -> None:
     with engine.begin() as conn:
-        _adopt_legacy_schema(conn)
+        adopt_legacy_schema(conn)
         command.upgrade(_alembic_config(conn), "head")
     with Session(engine) as s, s.begin():
         if s.get(User, DEFAULT_USER_ID) is None:

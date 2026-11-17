@@ -16,7 +16,8 @@ def upgrade() -> None:
     with op.batch_alter_table("users") as batch:
         batch.add_column(sa.Column("auth_subject", sa.String(), nullable=True))
         batch.add_column(sa.Column("wrapped_key", sa.LargeBinary(), nullable=True))
-    # Pre-existing rows are the single-mode owner.
+    # Pre-existing rows are the single-mode owner; assumes at most one such row
+    # (the unique constraint below would fail otherwise).
     op.execute("UPDATE users SET auth_subject = 'single' WHERE auth_subject IS NULL")
     with op.batch_alter_table("users") as batch:
         batch.alter_column("auth_subject", existing_type=sa.String(), nullable=False)
