@@ -92,3 +92,17 @@ def test_thread_safe_never_exceeds_max():
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert results.count(True) == 50
+
+
+def test_sweep_prunes_every_expired_key_without_touching_them():
+    clock = Clock()
+    rl = RateLimiter(5, 60, clock=clock)
+    rl.hit("198.51.100.1")
+    clock.t += 30
+    rl.hit("198.51.100.2")
+    clock.t += 31  # the first key's window has ended, the second's has not
+    rl.sweep()
+    assert set(rl._events) == {"198.51.100.2"}
+    clock.t += 30
+    rl.sweep()
+    assert rl._events == {}

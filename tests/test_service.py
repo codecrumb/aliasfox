@@ -423,3 +423,15 @@ async def test_unreadable_session_raises_session_unreadable(store, tracker, cloc
     # a reconnect repairs it
     await svc.replace_session(1, _state())
     assert await svc.is_connected(1) is True
+
+
+async def test_evict_expired_drops_only_entries_past_ttl(svc, clock):
+    await svc.list_aliases(1)
+    clock.t += 30
+    await svc.list_aliases(2)
+    clock.t += 31  # user 1's list is 61 s old, user 2's 31 s
+    assert svc.evict_expired() == 1
+    assert 1 not in svc._cache and 2 in svc._cache
+    clock.t += 30
+    assert svc.evict_expired() == 1
+    assert svc._cache == {}

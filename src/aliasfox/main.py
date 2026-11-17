@@ -31,14 +31,31 @@ log = logging.getLogger(__name__)
 
 SWEEP_INTERVAL_SECONDS = 60
 
+async def sweep_memory(app: FastAPI, flow: LoginFlow) -> None:
+    """One pass of the periodic in-memory cleanup: expired login flows, alias
+    lists past their TTL, and rate-limiter keys (IP addresses) whose window has
+    ended. The privacy policy's "removed from memory within about two minutes"
+    relies on this running every SWEEP_INTERVAL_SECONDS."""
+    try:
+        await run_in_threadpool(flow.sweep)
+    except Exception as exc:
+        log.warning("login flow sweep failed: %s", type(exc).__name__)
+    try:
+        app.state.alias_service.evict_expired()
+    except Exception as exc:
+        log.warning("alias cache sweep failed: %s", type(exc).__name__)
+    for limiter in getattr(app.state, "limiters", ()):
+        try:
+            limiter.sweep()
+        except Exception as exc:
+            log.warning("rate limiter sweep failed: %s", type(exc).__name__)
+
+
 def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlow):
-    async def sweep_loop() -> None:
+    async def sweep_loop(app: FastAPI) -> None:
         while True:
             await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
-            try:
-                await run_in_threadpool(flow.sweep)
-            except Exception as exc:
-                log.warning("login flow sweep failed: %s", type(exc).__name__)
+            await sweep_memory(app, flow)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -52,7 +69,7 @@ def make_lifespan(settings: Settings, store: SessionStore | None, flow: LoginFlo
                 await run_in_threadpool(seed_from_env, settings, store)
             except Exception as exc:  # never crash startup; never log cookie text
                 log.warning("ICLOUD_COOKIE seed failed: %s", type(exc).__name__)
-        task = asyncio.create_task(sweep_loop())
+        task = asyncio.create_task(sweep_loop(app))
         try:
             yield
         finally:
@@ -95,6 +112,7 @@ def create_app(
         openapi_url=None,
         redirect_slashes=False,  # no scheme-downgrading redirects
     )
+    app.state.alias_service = service  # logout and the lifespan sweep drop its cache
     install_auth(app, settings, epochs, password_login=not multi)
     if multi:
         verifier = NeonTokenVerifier(
@@ -106,7 +124,11 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(build_router(service, store, settings, flow, directory=epochs))
+    app.include_router(
+        build_router(
+            service, store, settings, flow, directory=epochs, limiters=app.state.limiters
+        )
+    )
     install_error_handlers(app)
     install_pages(app, settings)  # multi mode only; before the SPA catch-all
     install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api

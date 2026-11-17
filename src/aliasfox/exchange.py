@@ -23,7 +23,7 @@ from aliasfox.auth import (
 )
 from aliasfox.config import Settings
 from aliasfox.neon_jwt import Identity, TokenRejected
-from aliasfox.ratelimit import RateLimiter
+from aliasfox.ratelimit import RateLimiter, track
 from aliasfox.users import UserDirectory
 
 TOKEN_MAX_LENGTH = 4096
@@ -71,7 +71,7 @@ def install_exchange(
     """Register POST /api/auth/exchange. Call after `install_auth` (which owns
     the request guards, including the Origin check that covers this POST)."""
     limiter = limiter or RateLimiter(EXCHANGE_MAX_FAILURES, EXCHANGE_WINDOW_SECONDS)
-    app.state.exchange_limiter = limiter
+    app.state.exchange_limiter = track(app.state, limiter)
 
     # Sync handler: FastAPI runs it in the threadpool, so the verifier (JWKS
     # fetch) and the database calls never block the event loop.

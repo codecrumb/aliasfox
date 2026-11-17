@@ -6,6 +6,15 @@ from collections.abc import Callable
 _SWEEP_THRESHOLD = 1024
 
 
+def track(state, limiter: "RateLimiter") -> "RateLimiter":
+    """Register `limiter` on an app's `state.limiters` so the lifespan sweep
+    reaches it; returns the limiter."""
+    if not hasattr(state, "limiters"):
+        state.limiters = []
+    state.limiters.append(limiter)
+    return limiter
+
+
 class RateLimiter:
     """Sliding-window limiter: at most `max_events` per `window_seconds` per key."""
 
@@ -36,6 +45,15 @@ class RateLimiter:
 
     def _sweep(self, now: float) -> None:
         if len(self._events) > _SWEEP_THRESHOLD:
+            for k in list(self._events):
+                self._prune(k, now)
+
+    def sweep(self) -> None:
+        """Prune every key now: expired events (and the keys, often IP
+        addresses, that only they held) leave memory without waiting for that
+        key to be seen again. Called periodically from the app lifespan."""
+        with self._lock:
+            now = self._clock()
             for k in list(self._events):
                 self._prune(k, now)
 

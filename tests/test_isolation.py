@@ -297,6 +297,18 @@ def test_a_logout_does_not_log_out_b(env, ab):
     assert alias_ids(cb.get("/api/aliases")) == ["acct-b-id-0", "acct-b-id-1"]
 
 
+def test_logout_drops_that_users_alias_cache_only(env, ab):
+    ca, a, cb, b = ab
+    ca.get("/api/aliases")
+    cb.get("/api/aliases")
+    assert {a, b} <= set(env.service._cache)
+    assert ca.post("/api/auth/logout").status_code == 200
+    assert a not in env.service._cache and b in env.service._cache
+    # a stale or missing cookie drops nothing
+    env.anonymous().post("/api/auth/logout")
+    assert b in env.service._cache
+
+
 def test_cache_key_differs_per_user_and_changes_on_logout(env, ab):
     ca, a, cb, b = ab
     ka1, kb1 = cache_key(ca), cache_key(cb)

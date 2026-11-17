@@ -240,3 +240,33 @@ def test_head_requests_supported(tmp_path, monkeypatch):
     c = client(tmp_path, monkeypatch)
     for path in (*PAGES, "/site.css"):
         assert c.head(path).status_code == 200, path
+
+
+def test_placeholders_in_configured_values_are_not_expanded(tmp_path, monkeypatch):
+    c = client(
+        tmp_path, monkeypatch, signups_enabled=True,
+        contact_email="{{SIGNUPS}}@example.com",
+        public_url="https://fox.example/{{CONTACT}}",
+    )
+    html = c.get("/privacy").text
+    assert "mailto:{{SIGNUPS}}@example.com" in html
+    assert 'href="https://fox.example/{{CONTACT}}/privacy"' in html
+    assert html.count('href="/signup"') == 0
+
+
+def test_privacy_memory_and_retention_wording_matches_code(tmp_path, monkeypatch):
+    html = client(tmp_path, monkeypatch).get("/privacy").text
+    for phrase in (
+        "reuses it for up to 60 seconds",
+        "within about two minutes of your last use",
+        "immediately when you log out, disconnect Apple or delete your account",
+        "dropped within about two minutes after its limit window ends",
+        "ten to eleven minutes",
+        "trust token",
+        "is not removed automatically",
+        "removed on request",
+        "sign you in, check the session and manage Hide My Email",
+    ):
+        assert phrase in html, phrase
+    assert "only calls Hide My Email" not in html
+    assert "sign out of it at Apple" not in html

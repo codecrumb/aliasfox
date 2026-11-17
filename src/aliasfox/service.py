@@ -104,6 +104,15 @@ class AliasService:
 
         return await run_in_threadpool(work)
 
+    def evict_expired(self) -> int:
+        """Drop cached alias lists older than the TTL; returns how many. Runs
+        on the event loop (no await), so no coroutine sees a half-done sweep."""
+        now = self._clock()
+        expired = [u for u, (at, _) in self._cache.items() if now - at >= self._ttl]
+        for user_id in expired:
+            self._cache.pop(user_id, None)
+        return len(expired)
+
     async def forget(self, user_id: int) -> None:
         """Drop the user's cached alias list."""
         async with self._lock(user_id):

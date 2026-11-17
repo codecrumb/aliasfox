@@ -6,11 +6,12 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from aliasfox.config import ConfigError, Settings
 from aliasfox.crypto import derive_key, verify_password
 from aliasfox.middleware import scope_is_https
-from aliasfox.ratelimit import RateLimiter
+from aliasfox.ratelimit import RateLimiter, track
 from aliasfox.users import UserDirectory
 
 COOKIE_NAME = "aliasfox_session"
@@ -188,7 +189,9 @@ def install_auth(
     _serializer(settings)  # fail fast: no fallback signing key
     app.state.settings = settings
     app.state.epochs = epochs or MemoryEpochs()
-    app.state.login_limiter = limiter = RateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
+    app.state.login_limiter = limiter = track(
+        app.state, RateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
+    )
     # Process-wide bound on concurrent password verifications. There is
     # deliberately NO global failure lockout: a few attacker IPs could keep the
     # owner out forever. The per-IP limiter plus this bound cap the damage.
@@ -242,13 +245,16 @@ def install_auth(
         app.post("/api/auth/login")(login)
 
     @app.post("/api/auth/logout")
-    def logout(request: Request, response: Response):
+    async def logout(request: Request, response: Response):
         # "Logout = log out everywhere": bumping the epoch invalidates every
         # outstanding cookie of THAT user. Only a valid cookie may bump it, and
         # only for the user it names, so nobody can log anyone else out.
-        validated = _validated_epoch(request, settings)
+        validated = await run_in_threadpool(_validated_epoch, request, settings)
         if validated is not None:
-            request.app.state.epochs.bump(validated[0])
+            await run_in_threadpool(request.app.state.epochs.bump, validated[0])
+            service = getattr(request.app.state, "alias_service", None)
+            if service is not None:
+                await service.forget(validated[0])  # the privacy policy promises this
         response.delete_cookie(
             COOKIE_NAME,
             httponly=True,

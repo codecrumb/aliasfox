@@ -113,7 +113,11 @@ def build_router(
     settings,
     login_flow: LoginFlow | None = None,
     directory: UserDirectory | None = None,
+    *,
+    limiters: list[RateLimiter] | None = None,
 ) -> APIRouter:
+    """`limiters`, when given, receives every RateLimiter made here so the
+    lifespan sweep can prune them."""
     if store is None:
         raise RuntimeError("the connect routes need a SessionStore")
     login_flow = login_flow or LoginFlow()
@@ -126,6 +130,10 @@ def build_router(
     global_key = "global"
     create_limit = RateLimiter(CREATE_PER_MINUTE, 60, clock=lambda: _now())
     last_refresh: dict[int, float] = {}
+    if limiters is not None:
+        limiters.extend(
+            (login_ip, login_global, login_user, verify_ip, cookie_ip, create_limit)
+        )
 
     def key_of(request: Request) -> str:
         return limiter_key(client_ip(

@@ -14,6 +14,7 @@ Every configured value goes through `html.escape(quote=True)`; the only raw
 markup inserted is fixed text from this module."""
 
 import html
+import re
 from importlib import resources
 
 from fastapi import FastAPI, HTTPException, Request
@@ -25,6 +26,7 @@ from aliasfox.web import NO_CACHE
 
 REPO_URL = "https://github.com/codecrumb/aliasfox"
 CSS_CACHE = "public, max-age=3600"
+_PLACEHOLDER = re.compile(r"\{\{(PUBLIC_URL|CONTACT|SIGNUPS)\}\}")
 PAGES = {"/": "landing.html", "/privacy": "privacy.html", "/terms": "terms.html"}
 
 SIGNUPS_OPEN = '<a class="button primary" href="/signup">Sign up</a>'
@@ -52,11 +54,14 @@ def render(template: str, settings: Settings) -> str:
         template = "".join(
             line for line in template.splitlines(keepends=True) if "{{PUBLIC_URL}}" not in line
         )
-    return (
-        template.replace("{{PUBLIC_URL}}", _esc(public_url))
-        .replace("{{CONTACT}}", contact_html(settings.contact_email))
-        .replace("{{SIGNUPS}}", SIGNUPS_OPEN if settings.signups_enabled else SIGNUPS_CLOSED)
-    )
+    values = {
+        "PUBLIC_URL": _esc(public_url),
+        "CONTACT": contact_html(settings.contact_email),
+        "SIGNUPS": SIGNUPS_OPEN if settings.signups_enabled else SIGNUPS_CLOSED,
+    }
+    # One pass: a configured value that itself contains "{{CONTACT}}" etc. is
+    # never expanded again.
+    return _PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
 
 
 def _template(name: str) -> str:

@@ -149,3 +149,35 @@ def test_sweep_expires_idle_flow(tmp_tempdir):
     now[0] = 11
     flow.sweep()
     assert list(tmp_tempdir.glob("aliasfox-login-*")) == []
+
+
+def test_sweep_loop_evicts_alias_cache_and_prunes_every_limiter(monkeypatch, tmp_tempdir):
+    monkeypatch.setattr(main_mod, "SWEEP_INTERVAL_SECONDS", 0.01)
+    evicted, swept = [], []
+
+    class Svc(FakeService):
+        def evict_expired(self):
+            evicted.append(1)
+            return 0
+
+    settings = Settings(secret_key="unit-test-secret-key-0123456789abcdef")
+    app = main_mod.create_app(settings, service=Svc(), store=new_store())
+    # every limiter the app creates (auth, API) is registered for the sweep
+    assert len(app.state.limiters) >= 7
+    for limiter in app.state.limiters:
+        monkeypatch.setattr(limiter, "sweep", lambda limiter=limiter: swept.append(limiter))
+    with TestClient(app):
+        deadline = time.time() + 2
+        while len(evicted) < 2 and time.time() < deadline:
+            time.sleep(0.01)
+    assert len(evicted) >= 2
+    assert set(map(id, swept)) == set(map(id, app.state.limiters))
+
+
+def test_multi_mode_registers_exchange_limiter(tmp_path, monkeypatch):
+    from helpers import FakeNeonVerifier, multi_mode_settings
+
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    monkeypatch.setattr(main_mod, "NeonTokenVerifier", lambda **_: FakeNeonVerifier())
+    app = main_mod.create_app(multi_mode_settings(tmp_path))
+    assert any(l is app.state.exchange_limiter for l in app.state.limiters)

@@ -36,16 +36,16 @@
   <ul>
     <li>an identifier from the sign-in provider (an opaque user id, not your email address);</li>
     <li>a wrapped data key: a random key made for you, itself encrypted with a key that only the server has;</li>
-    <li>one encrypted Apple session (the cookies iCloud gives a signed-in browser), once you connect Apple. Only the latest one is kept;</li>
+    <li>one encrypted Apple session, once you connect Apple: the cookies iCloud gives a signed-in browser, plus the iCloud service address, your Apple account id and, when Apple issues one, a trust token. Only the latest one is kept;</li>
     <li>timestamps (when your account was created and when your Apple session was last saved) and a counter that is increased when you log out, so logging out ends every open session.</li>
   </ul>
 
   <h2 id="not-stored">What AliasFox does not store</h2>
   <ul>
-    <li><strong>Your Apple password is never stored.</strong> It is used once, in server memory, to log in to Apple, and kept only until the login finishes (at most 10 minutes while waiting for your two-factor code). It is not written to the database, to disk or to logs.</li>
-    <li>Your aliases, labels and notes are not stored on the server. To keep the app fast, the server keeps your alias list in memory for up to 60 seconds after it fetches it from Apple; it is never written to the database.</li>
+    <li><strong>Your Apple password is never stored.</strong> It is used once, in server memory, to log in to Apple, and kept only until the login finishes or is abandoned (at most about ten to eleven minutes while waiting for your two-factor code). It is not written to the database, to disk or to logs.</li>
+    <li>Your aliases, labels and notes are not stored on the server. To keep the app fast, the server keeps your alias list in memory after fetching it from Apple and reuses it for up to 60 seconds. It is removed from memory within about two minutes of your last use, immediately when you log out, disconnect Apple or delete your account, and lost when the server restarts. It is never written to the database or to disk.</li>
     <li>Your browser keeps an encrypted copy of your alias list (in IndexedDB) so the app opens quickly. It is cleared when you log out.</li>
-    <li>AliasFox does not write IP addresses, request lines or cookies to its database or its own logs. IP addresses are held in server memory for rate limiting (to slow down password guessing and abuse) and are forgotten when the limit window ends or the server restarts.</li>
+    <li>AliasFox does not write IP addresses, request lines or cookies to its database or its own logs. IP addresses are held in server memory only, for rate limiting (to slow down password guessing and abuse), and are never written to the database or to disk. Each is dropped within about two minutes after its limit window ends, and all are cleared when the server restarts.</li>
   </ul>
 
   <h2 id="apple">Your Apple session and its risks</h2>
@@ -53,7 +53,7 @@
   <ul>
     <li>The server holds the key that decrypts the stored Apple sessions. Your session is encrypted in the database, but if someone obtained both the database and the server secret, they could decrypt every stored session, including yours. A leak of the database alone does not expose them.</li>
     <li>While the server handles one of your requests, your Apple session is decrypted in server memory.</li>
-    <li>An Apple session grants broader iCloud web access than Hide My Email. AliasFox only calls Hide My Email, but whoever holds the session could use it for other iCloud web services until it expires or you sign out of it at Apple.</li>
+    <li>An Apple session grants broader iCloud web access than Hide My Email. AliasFox uses Apple only to sign you in, check the session and manage Hide My Email, but whoever holds the session could use it for other iCloud web services until it expires.</li>
     <li>Apple sees the requests coming from the server's datacenter address, not from your device. Many users share that address, and Apple may slow down, challenge or block it.</li>
     <li>Nothing uses your Apple session while you are away: the server talks to Apple only while handling a request you made.</li>
   </ul>
@@ -71,7 +71,7 @@
   <ul>
     <li><strong>Disconnect Apple:</strong> in the app, open Account and choose Disconnect Apple. This deletes your stored Apple session. Your AliasFox account stays.</li>
     <li><strong>Delete account:</strong> in the app, open Account and choose Delete account. This deletes your stored Apple session, your wrapped data key and your user record from the AliasFox database, and logs you out.</li>
-    <li>Deleting your account may not yet remove your record at the sign-in provider (your email address and password hash at Neon). To have that record removed, ask us using the contact details below. {{CONTACT}}</li>
+    <li>Your record at the sign-in provider (your email address and password hash at Neon) is not removed automatically when you delete your account. Write to the contact address and it will be removed on request. {{CONTACT}}</li>
   </ul>
 
   <h2 id="changes">Changes</h2>
