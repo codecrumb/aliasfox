@@ -63,6 +63,13 @@
   const signedOutScreen = $derived(
     !$appConfig.loaded ? 'loading' : $appConfig.mode !== 'multi' ? 'login' : path === '/signup' ? 'signup' : 'signin'
   );
+  // The sign-in screen lives at /login, not at / (which is the landing page when signed out).
+  $effect(() => {
+    if (sessionState === 'login' && signedOutScreen === 'signin' && location.pathname !== '/login') {
+      history.replaceState(history.state, '', '/login');
+      path = '/login';
+    }
+  });
   const screen = $derived(
     showPalette ? 'ready' : sessionState === 'login' ? signedOutScreen : sessionState
   );

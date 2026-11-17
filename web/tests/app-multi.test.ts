@@ -113,6 +113,15 @@ describe('multi mode signed-out routing', () => {
     signedOut();
     expect(await tl.screen.findByLabelText('Email')).toBeInTheDocument();
     expect(tl.screen.queryByText('Create an account', { selector: 'h2' })).toBeNull();
+    expect(location.pathname).toBe('/login');
+  });
+
+  it('signed out at / (for example after logging out): the address becomes /login', async () => {
+    history.replaceState(null, '', '/');
+    tl.render(App);
+    signedOut();
+    expect(await tl.screen.findByLabelText('Email')).toBeInTheDocument();
+    expect(location.pathname).toBe('/login');
   });
 
   it('links switch screens with pushState, and Back (popstate) returns', async () => {
