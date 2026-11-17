@@ -168,3 +168,46 @@ def test_create_app_multi_mode_creates_no_user(tmp_path, monkeypatch):
     )
     create_app(settings)
     assert _count(make_engine(settings), "select count(*) from users") == 0
+
+
+def test_ensure_single_user_rekeys_after_secret_rotation(engine):
+    from aliasfox.sessions import AppleSessionState, SessionStore
+
+    old = KeyRing(SECRET)
+    UserDirectory(engine, old).ensure_single_user()
+    SessionStore(engine, old).save(DEFAULT_USER_ID, AppleSessionState({"c": "v"}, "https://x"))
+    new = KeyRing("r" * 32)
+    users = UserDirectory(engine, new)
+    assert users.ensure_single_user() == DEFAULT_USER_ID
+    assert new.unwrap(DEFAULT_USER_ID, _wrapped(engine, DEFAULT_USER_ID))
+    store = SessionStore(engine, new)
+    assert store.load(DEFAULT_USER_ID) is None  # unreadable blob was dropped
+    store.save(DEFAULT_USER_ID, AppleSessionState({"c": "w"}, "https://y"))
+    assert store.load(DEFAULT_USER_ID) == AppleSessionState({"c": "w"}, "https://y")
+
+
+def test_ensure_single_user_same_secret_keeps_key_and_session(engine, ring):
+    from aliasfox.sessions import AppleSessionState, SessionStore
+
+    users = UserDirectory(engine, ring)
+    users.ensure_single_user()
+    store = SessionStore(engine, ring)
+    state = AppleSessionState({"c": "v"}, "https://x")
+    store.save(DEFAULT_USER_ID, state)
+    wrapped = _wrapped(engine, DEFAULT_USER_ID)
+    with Session(engine) as s:
+        blob = s.get(AppleSessionRow, DEFAULT_USER_ID).blob
+    users.ensure_single_user()
+    assert _wrapped(engine, DEFAULT_USER_ID) == wrapped
+    with Session(engine) as s:
+        assert s.get(AppleSessionRow, DEFAULT_USER_ID).blob == blob
+    assert store.load(DEFAULT_USER_ID) == state
+
+
+def test_ensure_single_user_rejects_foreign_row_1(engine, ring):
+    with Session(engine) as s, s.begin():
+        s.add(User(id=DEFAULT_USER_ID, auth_subject="someone-else"))
+    with pytest.raises(RuntimeError) as ei:
+        UserDirectory(engine, ring).ensure_single_user()
+    assert "someone-else" not in str(ei.value)
+    assert _wrapped(engine, DEFAULT_USER_ID) is None

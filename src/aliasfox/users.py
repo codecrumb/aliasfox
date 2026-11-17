@@ -6,6 +6,7 @@ from sqlalchemy import Engine, delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from aliasfox.crypto import DecryptionError
 from aliasfox.db import DEFAULT_USER_ID, AppleSessionRow, User
 from aliasfox.keys import KeyRing
 
@@ -57,8 +58,21 @@ class UserDirectory:
                 raise
             return existing
 
+    def _unwraps(self, user_id: int, wrapped: bytes) -> bool:
+        try:
+            self._keyring.unwrap(user_id, wrapped)
+        except DecryptionError:
+            return False
+        return True
+
     def ensure_single_user(self) -> int:
-        """Single mode: user DEFAULT_USER_ID with subject "single" and a wrapped key."""
+        """Single mode: user DEFAULT_USER_ID with subject "single" and a wrapped key.
+
+        If the stored wrapped key does not unwrap under the current secret (the
+        secret was rotated), user 1 is re-keyed and its Apple session row, which
+        no key we hold can read, is deleted in the same transaction. Single mode
+        only: multi mode never calls this.
+        """
         for _ in range(2):
             try:
                 with self._sessions.begin() as s:
@@ -72,6 +86,8 @@ class UserDirectory:
                                 wrapped_key=wrapped,
                             )
                         )
+                    elif user.auth_subject != SINGLE_SUBJECT:
+                        raise RuntimeError("user 1 is not the single-mode user")
                     elif user.wrapped_key is None:
                         _, wrapped = self._keyring.new_wrapped(DEFAULT_USER_ID)
                         # Conditional: a concurrent starter may have keyed it already.
@@ -80,13 +96,36 @@ class UserDirectory:
                             .where(User.id == DEFAULT_USER_ID, User.wrapped_key.is_(None))
                             .values(wrapped_key=wrapped)
                         )
+                    elif not self._unwraps(DEFAULT_USER_ID, user.wrapped_key):
+                        _, wrapped = self._keyring.new_wrapped(DEFAULT_USER_ID)
+                        rekeyed = s.execute(
+                            update(User)
+                            .where(
+                                User.id == DEFAULT_USER_ID,
+                                User.wrapped_key == user.wrapped_key,
+                            )
+                            .values(wrapped_key=wrapped)
+                        )
+                        if rekeyed.rowcount:
+                            s.execute(
+                                delete(AppleSessionRow).where(
+                                    AppleSessionRow.user_id == DEFAULT_USER_ID
+                                )
+                            )
                 return DEFAULT_USER_ID
             except IntegrityError:
                 continue  # another process inserted the row; re-check it
         raise RuntimeError("could not ensure the single-mode user")
 
     def delete(self, user_id: int) -> None:
-        """Remove the user's Apple session and user row (with its wrapped key)."""
+        """Remove the user's Apple session and user row (with its wrapped key).
+
+        Callers must also drop all in-process per-user state for this id: the
+        AliasService cache, generation and lock entries (`AliasService.forget`
+        today clears only the cache) and any pending login flow. On SQLite a
+        deleted highest id can be reused by the next `create`, and a new user
+        must never inherit that state.
+        """
         with self._sessions.begin() as s:
             s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))
             s.execute(delete(User).where(User.id == user_id))

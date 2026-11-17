@@ -237,3 +237,17 @@ def test_truncated_blob_is_session_unreadable(store, engine):
     _put_blob(engine, b"short")
     with pytest.raises(SessionUnreadable):
         store.load(1)
+
+
+def test_blob_aad_alone_binds_blob_to_user(store, users, engine):
+    a = users.create("sub-a")
+    b = users.create("sub-b")
+    # B's own data key, but the AAD of A: only the blob-layer AAD can reject it.
+    b_key = KeyRing(SECRET).unwrap(b, _wrapped(engine, b))
+    plaintext = b'{"cookies": {}, "webservices_url": "x"}'
+    _put_blob(engine, encrypt(b_key, plaintext, aad=str(a).encode()), user_id=b)
+    with pytest.raises(SessionUnreadable):
+        store.load(b)
+    # control: the same plaintext with B's own AAD loads
+    _put_blob(engine, encrypt(b_key, plaintext, aad=str(b).encode()), user_id=b)
+    assert store.load(b) == AppleSessionState({}, "x")
