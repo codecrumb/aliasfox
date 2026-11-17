@@ -153,7 +153,7 @@ before a release:
       shake (colour change only).
 - [ ] A keyboard-only run-through: log in, connect, create, copy, edit, toggle, delete, log out, using
       Tab/Shift+Tab and the shortcuts above, with a visible focus ring everywhere.
-- [ ] Open DevTools on the deployed site: no Content-Security-Policy violations in the Console while doing
+- [ ] Open DevTools on the deployed site: no CSP (Content-Security-Policy) violations in the Console while doing
       the run-through above, and no failed requests.
 - [ ] Narrow layout at 320 px wide: no horizontal scrolling, dialogs and the detail pane stay usable.
 - [ ] Lighthouse accessibility audit on the login, connect and palette screens (this also covers colour
