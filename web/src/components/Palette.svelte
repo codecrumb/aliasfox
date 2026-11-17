@@ -244,7 +244,7 @@
     );
   }
 
-  async function onCreated(a: Alias | null): Promise<void> {
+  async function onCreated(a: Alias | null, copied: 'copied' | 'fallback'): Promise<void> {
     closeDialog();
     if (a === null) {
       // Created, but without a usable result: show it by reloading the list.
@@ -259,8 +259,7 @@
     pendingId = a.anonymous_id;
     const i = results.findIndex((x) => x.anonymous_id === a.anonymous_id);
     if (i >= 0) select(i);
-    const r = await copyText(a.hme);
-    if (r === 'copied') {
+    if (copied === 'copied') {
       toasts.push({ kind: 'ok', text: 'Created and copied' });
     } else {
       toasts.push({ kind: 'ok', text: 'Created' });
@@ -624,7 +623,7 @@
 </section>
 
 {#if dialog?.kind === 'new'}
-  <NewAlias onClose={closeDialog} onCreated={(a) => void onCreated(a)} onReconnect={openReconnect} />
+  <NewAlias onClose={closeDialog} onCreated={(a, copied) => void onCreated(a, copied)} onReconnect={openReconnect} />
 {:else if dialog?.kind === 'edit'}
   <EditDialog alias={dialog.alias} onClose={closeDialog} onReconnect={openReconnect} />
 {:else if dialog?.kind === 'delete'}

@@ -65,7 +65,7 @@ describe('new alias flow', () => {
     expect(store.reserve).toHaveBeenCalledTimes(1);
     expect(store.reserve).toHaveBeenCalledWith({ hme: 'fresh@icloud.com', label: 'Shop', note: 'n1' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await waitFor(() => expect(copy).toHaveBeenCalledWith('fresh@icloud.com'));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith('fresh@icloud.com', expect.any(Promise)));
     await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created and copied' }));
     const sel = screen.getAllByRole('option').find((o) => o.getAttribute('aria-selected') === 'true');
     expect(sel).toHaveAttribute('data-id', 'new-id');
@@ -132,7 +132,10 @@ describe('new alias flow', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     for (let i = 0; i < 3; i++) await fireEvent.keyDown(search(), { key: 'Enter', code: 'Enter', repeat: true });
     expect(store.reserve).toHaveBeenCalledTimes(2);
-    expect(copy).toHaveBeenCalledTimes(1); // the created address only; held Enter does not copy again
+    // one copy per real attempt (held Enter adds none); the failed attempt's promise rejects, so it copies nothing
+    expect(copy).toHaveBeenCalledTimes(2);
+    await expect(copy.mock.calls[0]![1]).rejects.toBeInstanceOf(ApiError);
+    await expect(copy.mock.calls[1]![1]).resolves.toBeDefined();
   });
 
   it('test_alt_n_escape_does_not_reserve', async () => {
@@ -158,6 +161,95 @@ describe('new alias flow', () => {
     await tick();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(store.reserve).not.toHaveBeenCalled();
+  });
+
+  it('label and note can be typed while the address is loading; Enter then creates it once it arrives', async () => {
+    let resolve: (v: string) => void = () => {};
+    store.generate.mockImplementation(() => new Promise<string>((r) => (resolve = r)));
+    render(Palette);
+    await tick();
+    await altN();
+    const dlg = screen.getByRole('dialog', { name: 'New alias' });
+    expect(dlg).toHaveTextContent('Getting a new address…');
+    const label = within(dlg).getByLabelText('Label') as HTMLInputElement;
+    await waitFor(() => expect(label).toHaveFocus());
+    await type(label, 'Shop');
+    await type(within(dlg).getByLabelText(/Note/) as HTMLTextAreaElement, 'n1');
+    await enter(label);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(within(dlg).getByRole('button', { name: /Creating/ })).toBeDisabled();
+    resolve('late@icloud.com');
+    await waitFor(() => expect(store.reserve).toHaveBeenCalledTimes(1));
+    expect(store.reserve).toHaveBeenCalledWith({ hme: 'late@icloud.com', label: 'Shop', note: 'n1' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('typed text survives the address arriving', async () => {
+    let resolve: (v: string) => void = () => {};
+    store.generate.mockImplementation(() => new Promise<string>((r) => (resolve = r)));
+    render(Palette);
+    await tick();
+    await altN();
+    const dlg = screen.getByRole('dialog', { name: 'New alias' });
+    const label = within(dlg).getByLabelText('Label') as HTMLInputElement;
+    await type(label, 'Half typed');
+    resolve('late@icloud.com');
+    await within(dlg).findByText('late@icloud.com');
+    expect((within(dlg).getByLabelText('Label') as HTMLInputElement).value).toBe('Half typed');
+    expect(within(dlg).getByLabelText('Label')).toBe(label);
+  });
+
+  it('Enter with an empty label while loading shows the inline message and queues nothing', async () => {
+    let resolve: (v: string) => void = () => {};
+    store.generate.mockImplementation(() => new Promise<string>((r) => (resolve = r)));
+    render(Palette);
+    await tick();
+    await altN();
+    const dlg = screen.getByRole('dialog', { name: 'New alias' });
+    await enter(within(dlg).getByLabelText('Label'));
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Add a label');
+    resolve('late@icloud.com');
+    await within(dlg).findByText('late@icloud.com');
+    expect(store.reserve).not.toHaveBeenCalled();
+  });
+
+  it('starts copying during the Enter press, before Apple has answered, and reports it once created', async () => {
+    let done: (v: unknown) => void = () => {};
+    store.reserve.mockImplementation(() => new Promise((r) => (done = r)) as never);
+    const { label } = await openReady();
+    await type(label, 'Shop');
+    await enter(label);
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith('fresh@icloud.com', expect.any(Promise));
+    done(alias(777, { anonymous_id: 'made', hme: 'fresh@icloud.com', label: 'Shop' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created and copied' }));
+    expect(copy).toHaveBeenCalledTimes(1);
+  });
+
+  it('when the browser blocks the copy, the manual-copy dialog opens with the address selected', async () => {
+    copy.mockResolvedValue('fallback');
+    const { label } = await openReady();
+    await type(label, 'Shop');
+    await enter(label);
+    const dlg = await screen.findByRole('dialog', { name: 'Copy address' });
+    const field = within(dlg).getByDisplayValue('fresh@icloud.com') as HTMLInputElement;
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created' });
+  });
+
+  it('Cmd/Ctrl+Enter creates from anywhere in the dialog, once', async () => {
+    let done: (v: unknown) => void = () => {};
+    store.reserve.mockImplementation(() => new Promise((r) => (done = r)) as never);
+    const { dlg, label } = await openReady();
+    await type(label, 'Shop');
+    await fireEvent.keyDown(within(dlg).getByRole('button', { name: 'Cancel' }), { key: 'Enter', code: 'Enter', metaKey: true });
+    expect(store.reserve).toHaveBeenCalledTimes(1); // from the button alone
+    await fireEvent.keyDown(label, { key: 'Enter', code: 'Enter', ctrlKey: true });
+    expect(store.reserve).toHaveBeenCalledTimes(1); // still one: busy, and the label does not double-handle it
+    done(alias(777, { anonymous_id: 'made', hme: 'fresh@icloud.com', label: 'Shop' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('empty label shows an inline message and sends no request', async () => {

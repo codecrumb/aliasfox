@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { aliasStore } from '../lib/aliases';
   import { describeError, isSessionError } from '../lib/errors';
-  import { createDeadKeyGuard, isCompositionInput, isMac } from '../lib/keys';
+  import { createDeadKeyGuard, isCompositionInput, isMac, isSubmitChord } from '../lib/keys';
   import { sessionStore } from '../lib/session';
   import type { Alias } from '../lib/types';
   import Modal from './Modal.svelte';
@@ -81,24 +81,26 @@
 
   function onLabelKey(e: KeyboardEvent): void {
     deadKey.key(e);
-    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       if (e.repeat) return; // a held Enter submits once
       void save();
     }
   }
-  function onNoteKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      if (e.repeat) return; // a held Enter submits once
-      void save();
-    }
+  // Cmd/Ctrl+Enter saves from anywhere in the dialog: the fields, the buttons, the dialog itself.
+  function onChord(e: KeyboardEvent): void {
+    if (!isSubmitChord(e)) return;
+    e.preventDefault();
+    if (e.repeat) return; // a held chord submits once
+    void save();
   }
   function onSubmit(e: SubmitEvent): void {
     e.preventDefault();
     void save();
   }
 </script>
+
+<svelte:window onkeydown={onChord} />
 
 <Modal labelledby="{uid}-title" onClose={onClose} persistent>
   <form class="dialog-form" onsubmit={onSubmit} novalidate>
@@ -128,8 +130,8 @@
     </div>
     <div>
       <label for="{uid}-note">Note</label>
-      <textarea id="{uid}-note" bind:value={note} rows="3" maxlength="2000" dir="auto" onkeydown={onNoteKey}></textarea>
-      <p class="field-hint">{mac ? '⌘' : 'Ctrl'} Enter saves from here.</p>
+      <textarea id="{uid}-note" bind:value={note} rows="3" maxlength="2000" dir="auto"></textarea>
+      <p class="field-hint">{mac ? '⌘' : 'Ctrl'} Enter saves from anywhere in this dialog.</p>
     </div>
     <div class="error-row">
       <p class="field-error" id="{uid}-error" role="alert">{error}</p>
