@@ -6,7 +6,7 @@ import time
 from typing import Annotated
 
 from fastapi.exceptions import RequestValidationError
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -21,15 +21,18 @@ from aliasfox.apple.login import (
     TooManyFlows,
     TooManyResends,
 )
-from aliasfox.auth import client_ip, current_user, limiter_key
+from aliasfox.auth import COOKIE_NAME, _cookie_secure, client_ip, current_user, limiter_key
 from aliasfox.crypto import derive_cache_key
 from aliasfox.ratelimit import RateLimiter
 from aliasfox.service import AliasService, NotConnected
 from aliasfox.sessions import SessionStore, SessionUnreadable
+from aliasfox.users import UserDirectory
 
 APPLE_WINDOW_SECONDS = 15 * 60
 LOGIN_PER_IP = 5
 LOGIN_GLOBAL = 15
+LOGIN_PER_USER = 5
+LOGIN_USER_WINDOW_SECONDS = 3600
 VERIFY_PER_IP = 10
 HME_MESSAGE_MAX = 200
 REFRESH_MIN_INTERVAL = 5.0
@@ -109,12 +112,14 @@ def build_router(
     store: SessionStore | None,
     settings,
     login_flow: LoginFlow | None = None,
+    directory: UserDirectory | None = None,
 ) -> APIRouter:
     if store is None:
         raise RuntimeError("the connect routes need a SessionStore")
     login_flow = login_flow or LoginFlow()
     login_ip = RateLimiter(LOGIN_PER_IP, APPLE_WINDOW_SECONDS)
     login_global = RateLimiter(LOGIN_GLOBAL, APPLE_WINDOW_SECONDS)
+    login_user = RateLimiter(LOGIN_PER_USER, LOGIN_USER_WINDOW_SECONDS)
     verify_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     cookie_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     global_key = "global"
@@ -134,6 +139,16 @@ def build_router(
 
     router = APIRouter(prefix="/api")
     User = Annotated[int, Depends(current_user)]
+
+    @router.get("/config")
+    def public_config():
+        multi = settings.aliasfox_mode == "multi"
+        return {
+            "mode": settings.aliasfox_mode,
+            "signups_open": multi and settings.signups_enabled,
+            "neon_auth_url": settings.neon_auth_base_url if multi else None,
+            "contact": settings.contact_email,
+        }
 
     @router.get("/session")
     def session(request: Request, user_id: User):
@@ -226,6 +241,11 @@ def build_router(
         if not login_global.hit(global_key):
             login_ip.release(key)
             return _rate_limited(login_global.retry_after(global_key))
+        user_key = str(user_id)
+        if not login_user.hit(user_key):
+            login_ip.release(key)
+            login_global.release(global_key)
+            return _rate_limited(login_user.retry_after(user_key))
         try:
             result = await run_in_threadpool(
                 login_flow.start,
@@ -237,6 +257,7 @@ def build_router(
         except TooManyFlows:
             login_ip.release(key)  # never reached Apple
             login_global.release(global_key)
+            login_user.release(user_key)
             raise
         if result.status == "ok":
             await service.replace_session(user_id, result.state)
@@ -265,6 +286,28 @@ def build_router(
         await run_in_threadpool(login_flow.cancel_user, user_id)
         await service.disconnect(user_id)
         return {"status": "disconnected"}
+
+    if settings.aliasfox_mode == "multi" and directory is not None:
+        # Multi mode only: in single mode this would delete the owner row.
+
+        @router.delete("/account")
+        async def delete_account(request: Request, response: Response, user_id: User):
+            # Order matters: stop in-flight work and drop in-process state before
+            # the rows go, so nothing can write a session for a deleted user.
+            await run_in_threadpool(login_flow.cancel_user, user_id)
+            await service.disconnect(user_id)
+            last_refresh.pop(user_id, None)
+            create_limit.reset(str(user_id))
+            login_user.reset(str(user_id))
+            await run_in_threadpool(directory.delete, user_id)
+            response.delete_cookie(
+                COOKIE_NAME,
+                httponly=True,
+                samesite="strict",
+                secure=_cookie_secure(request, settings),
+                path="/",
+            )
+            return {"status": "deleted"}
 
     return router
 

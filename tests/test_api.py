@@ -260,7 +260,7 @@ def auth_client(svc):
 
 
 def _api_routes(app):
-    """(method, concrete path) for every /api route except /api/auth/*."""
+    """(method, concrete path) for every /api route except /api/auth/* and /api/config."""
     def walk(routes, prefix=""):
         for route in routes:
             inner = getattr(route, "original_router", None)  # included routers are wrapped
@@ -273,6 +273,8 @@ def _api_routes(app):
     for path, route in walk(app.routes):
         if not path.startswith("/api") or path.startswith("/api/auth/"):
             continue
+        if path == "/api/config":
+            continue  # the one public route (see tests/test_account.py)
         concrete = re.sub(r"\{[^}]+\}", "x", path)
         for method in sorted(getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}):
             found.append((method, concrete))

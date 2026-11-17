@@ -105,7 +105,7 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(build_router(service, store, settings, flow))
+    app.include_router(build_router(service, store, settings, flow, directory=epochs))
     install_error_handlers(app)
     install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
     # add_middleware: last added is outermost.

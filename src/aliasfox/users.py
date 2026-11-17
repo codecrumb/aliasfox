@@ -132,8 +132,10 @@ class UserDirectory:
         """Remove the user's Apple session and user row (with its wrapped key).
 
         Callers must also drop all in-process per-user state for this id: the
-        AliasService cache, generation and lock entries (`AliasService.forget`
-        today clears only the cache) and any pending login flow. On SQLite a
+        AliasService cache, generation and lock entries (`AliasService.disconnect`
+        bumps the generation, deletes the stored session and clears the cache;
+        `AliasService.forget` clears only the cache), the per-user rate-limit
+        entries and any pending login flow. On SQLite a
         deleted highest id can be reused by the next `create`, and a new user
         must never inherit that state.
         """

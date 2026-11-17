@@ -312,8 +312,10 @@ def test_verify_and_cookie_rate_limited_at_10(env, monkeypatch):
     assert env.client.post("/api/connect/cookie", json={"cookie": "BAD"}).status_code == 429
 
 
-def test_global_login_limit(env):
+def test_global_login_limit(env, monkeypatch):
     env.api_cls.fail_login = True
+    # one owner user in single mode: lift the per-user cap so the global one trips
+    monkeypatch.setattr(api_mod, "LOGIN_PER_USER", 100)
     # different IPs via trusted proxy: per-IP never trips, global does at 15
     store, _ = new_store()
     settings = Settings(secret_key=SECRET, trusted_proxy=True)
