@@ -6,6 +6,7 @@ import { sessionStore } from './session';
 // Every message here is fixed text; server text is never shown.
 
 export const SIGNUPS_CLOSED_TEXT = "Sign-ups are closed for now, and this account isn't on the list.";
+export const ACCOUNT_DISABLED_TEXT = 'This account has been suspended.';
 export const TOO_MANY_TEXT = 'Too many attempts, try again in a minute.';
 const VERIFY_TEXT = 'Verify your email to continue.';
 const REJECTED_TEXT = "Sign-in didn't go through. Try again.";
@@ -44,6 +45,7 @@ export function needsVerification(e: unknown): boolean {
 export function signInErrorText(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.detail === 'signups_closed') return SIGNUPS_CLOSED_TEXT;
+    if (e.detail === 'account_disabled') return ACCOUNT_DISABLED_TEXT;
     if (e.status === 429 || LIMITED.has(e.detail)) return TOO_MANY_TEXT;
     if (e.detail === 'email_not_verified') return VERIFY_TEXT;
     if (e.detail === 'invalid_token') return REJECTED_TEXT;

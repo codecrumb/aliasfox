@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     trusted_proxy_hops: int = Field(1, ge=1, validation_alias=_env("TRUSTED_PROXY_HOPS"))
     signups_enabled: bool = Field(False, validation_alias=_env("SIGNUPS_ENABLED"))
     signup_allowlist: str = Field("", validation_alias=_env("SIGNUP_ALLOWLIST"))
+    # Comma-separated Neon Auth user ids (token `sub`) refused at sign-in.
+    subject_denylist: str = Field("", validation_alias=_env("SUBJECT_DENYLIST"))
     neon_auth_base_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_BASE_URL"))
     neon_auth_jwks_url: str | None = Field(None, validation_alias=_env("NEON_AUTH_JWKS_URL"))
     # Expected `iss` of Neon Auth tokens. Default: scheme://host of
@@ -65,6 +67,10 @@ class Settings(BaseSettings):
         return frozenset(
             e for e in (p.strip().lower() for p in self.signup_allowlist.split(",")) if e
         )
+
+    @property
+    def denylist(self) -> frozenset[str]:
+        return frozenset(e for e in (p.strip() for p in self.subject_denylist.split(",")) if e)
 
     @property
     def auth_required(self) -> bool:

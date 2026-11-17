@@ -110,6 +110,14 @@ def test_allowlist_parsing():
     assert make().allowlist == frozenset()
 
 
+def test_subject_denylist_parsing(monkeypatch):
+    s = make(subject_denylist=" user-A , ,user-b,")
+    assert s.denylist == frozenset({"user-A", "user-b"})  # ids keep their case
+    assert make().denylist == frozenset()
+    monkeypatch.setenv("SUBJECT_DENYLIST", "x1,x2")
+    assert Settings().denylist == frozenset({"x1", "x2"})
+
+
 def test_signups_default_off():
     assert make().signups_enabled is False
 

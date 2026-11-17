@@ -92,6 +92,13 @@ def install_exchange(
             identity = verifier.verify(body.token)
         except TokenRejected:
             return _deny(401, "invalid_token")
+        if identity.subject in settings.denylist:
+            # Suspended: never created. An existing user's cookies die here
+            # (cookies carry no subject, so they cannot be refused per request).
+            existing = directory.find_by_subject(identity.subject)
+            if existing is not None:
+                directory.bump(existing)
+            return _deny(403, "account_disabled")
         user_id = directory.find_by_subject(identity.subject)
         if user_id is None:
             refusal = may_sign_up(settings, identity)

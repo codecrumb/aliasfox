@@ -65,6 +65,7 @@ Startup refuses to run unless all required settings are present and valid.
 | `TRUSTED_PROXY=true` | yes | Rate limits need the real client address; set `TRUSTED_PROXY_HOPS` to match your host. |
 | `SIGNUPS_ENABLED` | no | `false` by default: only existing users and the allowlist can sign in. |
 | `SIGNUP_ALLOWLIST` | no | Comma-separated emails always allowed to sign up. |
+| `SUBJECT_DENYLIST` | no | Comma-separated Neon Auth user ids refused at sign-in (suspended accounts; see below). |
 | `PUBLIC_URL` | recommended | Public origin of the deployment; https (http only for localhost). Shown on the legal pages. |
 | `CONTACT_EMAIL` | yes | Contact address shown on the privacy and terms pages: one plain address (startup refuses an empty value, spaces or `<>"'`). Set by the operator; never committed. |
 
@@ -80,6 +81,21 @@ Before going live:
 - Verify `TRUSTED_PROXY_HOPS` on your host (see Deploying to Render for the check).
 - The landing, privacy and terms pages are served in multi mode, and users can delete their account from
   the Account view.
+
+### Suspending a user
+
+1. Find the user's id in Neon Auth: the user list of your project's Auth page in the Neon console
+   shows each user's id (the exact place in the console is unverified). This is the token's `sub`, not
+   the email address.
+2. Add it to `SUBJECT_DENYLIST` (comma-separated) and restart the service to apply it.
+3. From then on, that user's sign-in gets 403 `account_disabled` and no session cookie, and no AliasFox
+   account is created for an id that has none. When a suspended user with an AliasFox account tries to
+   sign in, every session cookie they already hold stops working. Until then a session they already
+   have keeps working until it expires (at most 7 days), because session cookies do not carry the Neon
+   id.
+4. To remove them fully, also delete the user in Neon Auth. Their AliasFox account row and stored Apple
+   session stay in the database (the user can no longer sign in to delete them); remove them there if
+   needed.
 
 ### What is stored
 

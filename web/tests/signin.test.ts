@@ -138,6 +138,15 @@ describe('SignIn', () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it('exchange account_disabled: the suspended message, no server text', async () => {
+    exchange.mockRejectedValue(new ApiError(403, 'account_disabled'));
+    render(SignIn, { onNavigate: vi.fn() });
+    await fillAndSubmit();
+    await waitFor(() => expect(alertText()).toContain('This account has been suspended.'));
+    expect(alertText()).not.toContain('account_disabled');
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it('exchange 429: try again in a minute', async () => {
     exchange.mockRejectedValue(new ApiError(429, 'too_many_attempts', { retryAfter: 60 }));
     render(SignIn, { onNavigate: vi.fn() });

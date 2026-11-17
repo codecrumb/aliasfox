@@ -216,6 +216,36 @@ def test_unverified_allowlisted_email_is_not_admitted(tmp_path):
     assert e.count_users() == 1
 
 
+def test_denylisted_unknown_subject_is_403_and_no_user_created(tmp_path):
+    e = env(tmp_path, {"t": ident("sub-bad")}, signups_enabled=True,
+            subject_denylist="sub-other, sub-bad")
+    c = e.client()
+    r = exchange(c, "t")
+    assert r.status_code == 403 and r.json() == {"detail": "account_disabled"}
+    assert COOKIE_NAME not in c.cookies and "set-cookie" not in r.headers
+    assert e.count_users() == 0
+
+
+def test_denylisted_known_subject_is_403_and_existing_cookies_die(tmp_path):
+    e = env(tmp_path, {"ta": ident("sub-a"), "tb": ident("sub-b")}, signups_enabled=True)
+    a, b = e.client(), e.client()
+    assert exchange(a, "ta").status_code == 200
+    assert exchange(b, "tb").status_code == 200
+    ua, ub = e.users.find_by_subject("sub-a"), e.users.find_by_subject("sub-b")
+    assert a.get("/api/protected").json() == {"uid": ua}
+
+    e.settings.subject_denylist = "sub-a"  # the operator adds A and restarts
+    c = e.client()
+    r = exchange(c, "ta")
+    assert r.status_code == 403 and r.json() == {"detail": "account_disabled"}
+    assert COOKIE_NAME not in c.cookies and "set-cookie" not in r.headers
+    assert a.get("/api/protected").status_code == 401  # A's old cookie no longer works
+    assert e.users.find_by_subject("sub-a") == ua  # the row is kept, only locked out
+    # B is unaffected: the old cookie still works and B can sign in again
+    assert b.get("/api/protected").json() == {"uid": ub}
+    assert exchange(e.client(), "tb").status_code == 200
+
+
 def test_no_email_stored_in_db(tmp_path):
     e = env(tmp_path, {"t": ident("sub-new", email=EMAIL)}, signups_enabled=False,
             signup_allowlist=EMAIL)
