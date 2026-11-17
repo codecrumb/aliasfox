@@ -159,10 +159,13 @@ a:hover {
 .header-link {
   color: var(--text);
   text-decoration: none;
-  padding: 8px 4px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .header-link:hover {
   color: var(--accent);
+  border-color: var(--accent);
 }
 
 main {
@@ -175,6 +178,9 @@ main {
 .hero h1 {
   font-size: 1.875rem;
   max-width: 20ch;
+}
+.hero-art {
+  display: none;
 }
 .lead {
   margin-top: 16px;
@@ -321,6 +327,25 @@ main {
     padding-top: 88px;
     padding-bottom: 80px;
   }
+  .landing .hero {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 48px;
+    align-items: center;
+  }
+  .landing .hero > :not(.hero-art) {
+    grid-column: 1;
+  }
+  .hero-art {
+    display: block;
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    width: 380px;
+    height: auto;
+    margin-right: 48px;
+    filter: drop-shadow(0 24px 40px rgba(247, 112, 25, 0.28));
+    animation: float 6s ease-in-out infinite;
+  }
   .landing .hero h1 {
     font-size: 3.5rem;
     max-width: 18ch;
@@ -340,6 +365,12 @@ main {
     display: grid;
     grid-template-columns: 3fr 2fr;
     gap: 0 64px;
+  }
+}
+
+@keyframes float {
+  50% {
+    transform: translateY(-14px);
   }
 }
 
