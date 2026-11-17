@@ -5,7 +5,7 @@
   import { aliasStore } from '../lib/aliases';
   import { copyText } from '../lib/clipboard';
   import { describeError } from '../lib/errors';
-  import { KEYMAP, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
+  import { KEYMAP, cap, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
   import { query } from '../lib/search';
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
@@ -282,7 +282,10 @@
     if (err !== null) toasts.push({ kind: 'error', text: `Couldn't refresh. ${describeError(new ApiError(0, err))}` });
   }
 
-  const keysFor = (id: KeyId): string[] | undefined => KEYMAP.find((b) => b.id === id)?.keys[0];
+  const keysFor = (id: KeyId): string[] | undefined => {
+    const b = KEYMAP.find((k) => k.id === id);
+    return b && (mac && b.keysMac ? b.keysMac : b.keys)[0]?.map((n) => cap(n, mac));
+  };
 
   const menuActions = $derived.by((): MenuAction[] => {
     const none = selected === null;
@@ -491,7 +494,7 @@
       {/if}
     </div>
     <button type="button" class="primary new" onclick={openNew}>
-      New alias<kbd class="hint-kbd" aria-hidden="true">Alt N</kbd>
+      New alias<kbd class="hint-kbd" aria-hidden="true">{cap('Alt', mac)} N</kbd>
     </button>
     <button type="button" class="ghost more" aria-label="Actions" onclick={() => (dialog = { kind: 'menu' })}>
       <span class="dots" aria-hidden="true"></span><kbd class="hint-kbd" aria-hidden="true">{mac ? '⌘' : 'Ctrl'} K</kbd>
@@ -582,7 +585,7 @@
       {:else if empty}
         <div class="state">
           <span class="mark big" aria-hidden="true"></span>
-          <p class="state-title">No aliases yet. Press Alt+N to create your first one.</p>
+          <p class="state-title">No aliases yet. Press {cap('Alt', mac)}+N to create your first one.</p>
         </div>
       {:else if noResults}
         <div class="state">
@@ -614,7 +617,7 @@
   <footer class="hints" aria-hidden="true">
     <span><kbd>Enter</kbd> copy</span>
     <span><kbd>Shift</kbd><kbd>Enter</kbd> on/off</span>
-    <span><kbd>Alt</kbd><kbd>E</kbd> edit</span>
+    <span><kbd>{cap('Alt', mac)}</kbd><kbd>E</kbd> edit</span>
     <span><kbd>{mac ? '⌘' : 'Ctrl'}</kbd><kbd>K</kbd> actions</span>
     <span><kbd>?</kbd> all shortcuts</span>
   </footer>

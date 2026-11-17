@@ -9,6 +9,7 @@ from aliasfox.apple.login import (
     InvalidCode,
     LoginFlow,
     TooManyFlows,
+    TooManyResends,
 )
 
 PASSWORD = "hunter2-SECRET-pw"
@@ -40,6 +41,8 @@ class FakeService:
     request_error: Exception | None = None
     kind = "trusted_device"
     trust_error: Exception | None = None
+    gate: threading.Event | None = None  # request_2fa_code blocks until set
+    entered: threading.Event | None = None  # set when request_2fa_code is called
 
     def __init__(self, apple_id, password, cookie_directory, china_mainland):
         if self.auth_error:
@@ -61,6 +64,10 @@ class FakeService:
         self.instances.append(self)
 
     def request_2fa_code(self):
+        if self.entered:
+            self.entered.set()
+        if self.gate:
+            assert self.gate.wait(5)
         self.requested = True
         self.request_count += 1
         self.bridge = True  # Apple pushed the code even when the HTTP call then errors
@@ -124,10 +131,10 @@ def test_needs_2fa_then_verify():
     assert res.status == "needs_2fa" and res.state is None
     assert len(res.flow_id) >= 43
     inst = fac.cls.instances[0]
-    assert inst.requested
     assert os.path.isdir(inst.cookie_directory)
     assert oct(os.stat(inst.cookie_directory).st_mode & 0o777) == "0o700"
     st = f.verify(1, res.flow_id, "123456")
+    assert inst.requested
     assert st.webservices_url.startswith("https://p1-maildomainws")
     assert not os.path.exists(inst.cookie_directory)
     with pytest.raises(FlowExpired):
@@ -224,6 +231,7 @@ def test_wrong_code_keeps_flow_until_cap():
     res = f.start(1, APPLE_ID, PASSWORD)
     with pytest.raises(InvalidCode):
         f.verify(1, res.flow_id, "000000")
+    f.resend(1, res.flow_id)  # the flow survives a wrong code; a retry needs a fresh code
     assert f.verify(1, res.flow_id, "123456")
 
 
@@ -239,8 +247,8 @@ def test_hsa2_account_has_both_flags_and_proceeds_to_2fa():
     f, fac = flow(make_factory(requires_2fa=True, requires_2sa=True))
     res = f.start(1, APPLE_ID, PASSWORD)
     assert res.status == "needs_2fa"
-    assert fac.cls.instances[0].requested
     assert f.verify(1, res.flow_id, "123456").dsid == "999"
+    assert fac.cls.instances[0].requested
     assert not os.path.exists(fac.cls.instances[0].cookie_directory)
 
 
@@ -396,25 +404,16 @@ def test_fake_mimics_pyicloud_retry_needs_fresh_request():
     assert svc.validate_2fa_code("123456") is True
 
 
-def test_wrong_code_rerequests_so_correct_retry_succeeds():
+def test_wrong_code_does_not_trigger_a_new_prompt():
     f, fac = flow()
     res = f.start(1, APPLE_ID, PASSWORD)
     inst = fac.cls.instances[0]
     with pytest.raises(InvalidCode):
         f.verify(1, res.flow_id, "000000")
-    assert inst.request_count == 2
-    assert f.verify(1, res.flow_id, "123456").webservices_url.startswith("https://p1-")
+    assert inst.request_count == 1  # only the code request from start()
 
 
-def test_rerequest_failure_after_wrong_code_is_not_fatal():
-    f, fac = flow(make_factory(requires_2fa=True, request_error=RuntimeError("push " + PASSWORD)))
-    res = f.start(1, APPLE_ID, PASSWORD)
-    with pytest.raises(InvalidCode):
-        f.verify(1, res.flow_id, "000000")
-    assert f.verify(1, res.flow_id, "123456")
-
-
-def test_attempt_cap_still_five_by_default_and_no_rerequest_on_last():
+def test_attempt_cap_still_five_by_default_and_never_rerequests():
     f, fac = flow()
     res = f.start(1, APPLE_ID, PASSWORD)
     inst = fac.cls.instances[0]
@@ -423,7 +422,100 @@ def test_attempt_cap_still_five_by_default_and_no_rerequest_on_last():
             f.verify(1, res.flow_id, "000000")
     with pytest.raises(FlowExpired):
         f.verify(1, res.flow_id, "123456")
-    assert inst.request_count == 5  # initial + 4 re-requests; none after the dropping 5th
+    assert inst.request_count == 1
+
+
+# --- resend + background code request ---------------------------------------------------
+
+
+def test_start_returns_before_the_code_request_finishes():
+    gate, entered = threading.Event(), threading.Event()
+    f, fac = flow(make_factory(requires_2fa=True, gate=gate, entered=entered))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    assert res.status == "needs_2fa" and res.flow_id
+    inst = fac.cls.instances[0]
+    assert entered.wait(5)  # the request runs in the background...
+    assert inst.request_count == 0  # ...and has not finished
+    gate.set()
+    assert f.verify(1, res.flow_id, "123456")
+    assert inst.request_count == 1
+
+
+def test_verify_waits_for_the_pending_code_request():
+    gate, entered = threading.Event(), threading.Event()
+    f, _ = flow(make_factory(requires_2fa=True, gate=gate, entered=entered))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    assert entered.wait(5)
+    out: list = []
+
+    def go():
+        try:
+            out.append(f.verify(1, res.flow_id, "123456"))
+        except Exception as exc:  # noqa: BLE001
+            out.append(exc)
+
+    t = threading.Thread(target=go)
+    t.start()
+    t.join(0.3)
+    assert t.is_alive() and out == []  # still waiting for the request
+    gate.set()
+    t.join(5)
+    assert len(out) == 1 and out[0].dsid == "999"  # not InvalidCode: the code was requested first
+
+
+def test_request_failure_in_the_background_is_non_fatal_and_leaks_nothing(caplog):
+    caplog.set_level("DEBUG")
+    f, _ = flow(make_factory(requires_2fa=True, request_error=RuntimeError("push " + PASSWORD)))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    assert f.verify(1, res.flow_id, "123456")
+    assert PASSWORD not in caplog.text
+
+
+def test_resend_requests_a_fresh_code_so_retry_succeeds():
+    f, fac = flow()
+    res = f.start(1, APPLE_ID, PASSWORD)
+    inst = fac.cls.instances[0]
+    with pytest.raises(InvalidCode):
+        f.verify(1, res.flow_id, "000000")
+    f.resend(1, res.flow_id)
+    assert inst.request_count == 2
+    assert f.verify(1, res.flow_id, "123456").webservices_url.startswith("https://p1-")
+
+
+def test_resend_for_unknown_or_foreign_flow_is_expired():
+    f, _ = flow()
+    res = f.start(1, APPLE_ID, PASSWORD)
+    with pytest.raises(FlowExpired):
+        f.resend(1, "nope")
+    with pytest.raises(FlowExpired):
+        f.resend(2, res.flow_id)
+
+
+def test_resend_after_expiry_is_expired():
+    clock = Clock()
+    f, _ = flow(clock=clock, ttl_seconds=10)
+    res = f.start(1, APPLE_ID, PASSWORD)
+    clock.t = 11
+    with pytest.raises(FlowExpired):
+        f.resend(1, res.flow_id)
+
+
+def test_resend_is_capped_per_flow_and_keeps_the_flow():
+    f, fac = flow(max_resends=2)
+    res = f.start(1, APPLE_ID, PASSWORD)
+    f.resend(1, res.flow_id)
+    f.resend(1, res.flow_id)
+    with pytest.raises(TooManyResends):
+        f.resend(1, res.flow_id)
+    assert fac.cls.instances[0].request_count == 3  # start + 2 resends
+    assert f.verify(1, res.flow_id, "123456")  # the flow is still usable
+
+
+def test_resend_failure_is_non_fatal():
+    f, _ = flow(make_factory(requires_2fa=True, request_error=RuntimeError("push " + PASSWORD)))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    f.resend(1, res.flow_id)  # Apple may have pushed it anyway: no exception
+    assert f.verify(1, res.flow_id, "123456")
 
 
 def test_trust_session_failure_still_completes_login():

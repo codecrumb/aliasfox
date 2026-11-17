@@ -51,8 +51,14 @@ class FakeApi:
         self.webservices = {"premiummailsettings": {"url": "https://p1-maildomainws.icloud.com"}}
         self.made.append(self)
 
+    resends = 0
+    codes_requested = 0
+
     def request_2fa_code(self):
-        pass
+        # first call is start()'s own; later ones are resends
+        if self.codes_requested:
+            self.resends += 1
+        self.codes_requested += 1
 
     def validate_2fa_code(self, code):
         return code == CODE
@@ -153,6 +159,27 @@ def test_login_needs_2fa_then_verify_stores_session(env):
     assert st.webservices_url == "https://p1-maildomainws.icloud.com"
     assert st.dsid == "42" and st.extra == {"trust_token": "TT"}
     assert env.svc.replaced == [1]
+
+
+def test_resend_requests_another_code(env):
+    fid = env.client.post("/api/connect/login", json=LOGIN).json()["flow_id"]
+    r = env.client.post("/api/connect/resend", json={"flow_id": fid})
+    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert env.api_cls.made[0].resends == 1
+
+
+def test_resend_unknown_flow_410(env):
+    r = env.client.post("/api/connect/resend", json={"flow_id": "nope"})
+    assert r.status_code == 410 and r.json() == {"detail": "flow_expired"}
+
+
+def test_resend_cap_is_429_and_does_not_end_the_flow(env):
+    fid = env.client.post("/api/connect/login", json=LOGIN).json()["flow_id"]
+    for _ in range(env.flow._max_resends):
+        assert env.client.post("/api/connect/resend", json={"flow_id": fid}).status_code == 200
+    r = env.client.post("/api/connect/resend", json={"flow_id": fid})
+    assert r.status_code == 429 and r.json() == {"detail": "resend_limit"}
+    assert env.client.post("/api/connect/verify", json={"flow_id": fid, "code": CODE}).status_code == 200
 
 
 def test_login_without_2fa_saves_immediately(env):

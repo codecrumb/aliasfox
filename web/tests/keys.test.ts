@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KEYMAP, handleKey, type KeyCtx, type KeyId } from '../src/lib/keys';
+import { KEYMAP, cap, createDeadKeyGuard, handleKey, keysFor, type KeyCtx, type KeyId } from '../src/lib/keys';
 
 function ctx(over: Partial<KeyCtx> = {}): KeyCtx {
   const ids: KeyId[] = KEYMAP.map((b) => b.id);
@@ -211,5 +211,46 @@ describe('KEYMAP / handleKey', () => {
     expect(handleKey(enter, c)).toBe(false);
     expect(c.new).not.toHaveBeenCalled();
     expect(c.copy).not.toHaveBeenCalled();
+  });
+});
+
+describe('platform labels', () => {
+  const binding = (id: KeyId) => KEYMAP.find((b) => b.id === id)!;
+
+  it('names Alt as Option only on a Mac', () => {
+    expect(cap('Alt', true)).toBe('Option');
+    expect(cap('Alt', false)).toBe('Alt');
+    expect(cap('Ctrl', true)).toBe('Ctrl');
+  });
+
+  it('shows one actions shortcut per platform, and Ctrl K as "up" only on a Mac', () => {
+    expect(keysFor(binding('menu'), true)).toEqual([['⌘', 'K']]);
+    expect(keysFor(binding('menu'), false)).toEqual([['Ctrl', 'K']]);
+    expect(keysFor(binding('up'), true)).toEqual([['↑'], ['Ctrl', 'K']]);
+    expect(keysFor(binding('up'), false)).toEqual([['↑']]);
+  });
+});
+
+describe('createDeadKeyGuard', () => {
+  it('gives back the armed value for a while, and not after a real keystroke', () => {
+    const g = createDeadKeyGuard();
+    expect(g.restore()).toBeNull();
+    g.arm('Old');
+    g.key(ev({ key: 'Dead' }));
+    expect(g.restore()).toBe('Old');
+    g.key(ev({ key: 'a' }));
+    expect(g.restore()).toBeNull();
+  });
+
+  it('expires', () => {
+    vi.useFakeTimers();
+    try {
+      const g = createDeadKeyGuard();
+      g.arm('Old');
+      vi.advanceTimersByTime(700);
+      expect(g.restore()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

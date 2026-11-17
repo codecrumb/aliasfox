@@ -37,6 +37,8 @@ export interface KeyBinding {
   id: KeyId;
   /** Display: alternatives, each a list of key caps. */
   keys: string[][];
+  /** Display on a Mac when it differs from `keys`. */
+  keysMac?: string[][];
   label: string;
   combos: Combo[];
   when?: 'searchEmpty' | 'searchNotEmpty' | 'caretAtStart';
@@ -68,7 +70,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'menu',
-    keys: [['Ctrl', 'K'], ['⌘', 'K']],
+    keys: [['Ctrl', 'K']],
+    keysMac: [['⌘', 'K']],
     label: 'All actions',
     combos: [
       { code: 'KeyK', ctrl: true, nonMac: true },
@@ -77,7 +80,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'up',
-    keys: [['↑'], ['Ctrl', 'K']],
+    keys: [['↑']],
+    keysMac: [['↑'], ['Ctrl', 'K']],
     label: 'Previous alias',
     combos: [{ key: 'ArrowUp' }, { code: 'KeyK', ctrl: true, mac: true }],
     note: 'Ctrl K moves up on a Mac, where ⌘ K opens the actions.'
@@ -116,6 +120,50 @@ export function isMac(): boolean {
   const nav = typeof navigator === 'undefined' ? undefined : navigator;
   const p = nav?.platform ?? '';
   return /mac|iphone|ipad|ipod/i.test(p);
+}
+
+/** The key caps to show for a binding on this platform. */
+export function keysFor(b: KeyBinding, mac: boolean): string[][] {
+  return mac && b.keysMac ? b.keysMac : b.keys;
+}
+
+/** One key cap as this platform names it: Alt is Option on a Mac. */
+export function cap(name: string, mac: boolean): string {
+  return mac && name === 'Alt' ? 'Option' : name;
+}
+
+/**
+ * Option+letter on macOS starts a dead key (Option+E is the acute accent). preventDefault doesn't
+ * stop it: the accent is inserted into whatever has focus once the key is resolved, which after a
+ * shortcut that opens a dialog is the dialog's field. A field arms this guard when it takes focus
+ * and calls `restore` from its input/compositionend handlers: within DEAD_KEY_MS it gives back the
+ * value the field had when armed. Any real keystroke disarms it.
+ */
+export const DEAD_KEY_MS = 600;
+
+/** An input event produced by composition (an IME or a dead key), not by typing or pasting. */
+export function isCompositionInput(e: Event): boolean {
+  const i = e as Partial<InputEvent>;
+  return i.isComposing === true || i.inputType === 'insertCompositionText';
+}
+
+export function createDeadKeyGuard() {
+  let armed: { value: string; until: number } | null = null;
+  return {
+    arm(value: string): void {
+      armed = { value, until: performance.now() + DEAD_KEY_MS };
+    },
+    /** Call from keydown. */
+    key(e: KeyboardEvent): void {
+      if (e.key !== 'Dead' && e.key !== 'Process') armed = null;
+    },
+    /** The value to put back, or null when the input was real. */
+    restore(): string | null {
+      if (armed && performance.now() <= armed.until) return armed.value;
+      armed = null;
+      return null;
+    }
+  };
 }
 
 /** Option+letter on macOS: a dead key that WebKit/Chromium may report with keyCode 229. */

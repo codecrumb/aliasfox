@@ -18,6 +18,8 @@
     generic: 'Something went wrong. Try again.',
     loginFailed: "Apple didn't accept those details. Check your Apple ID and password.",
     expired: 'That sign-in took too long. Enter your password again.',
+    resent: 'A new code is on its way.',
+    resendLimit: 'Too many new codes for this sign-in. Go back and sign in again.',
     badCookie: "That cookie didn't work. Copy it again from your browser.",
     tooLong: "That's too long to be a cookie header."
   };
@@ -35,6 +37,7 @@
   let remaining = $state(0);
   let announced = $state(0); // fixed when the limit hits; read once by screen readers
   let codeError = $state(0);
+  let resendDone = $state(false); // the server refused another resend for this sign-in
 
   let cookieOpen = $state(false);
   let cookie = $state('');
@@ -95,6 +98,7 @@
   function go(to: 1 | 2 | 3): void {
     if (to === 3) {
       codeError = 0; // a fresh code screen never inherits an old wrong-code state
+      resendDone = false;
       cookie = ''; // the cookie panel is hidden on this step: never keep unsent cookie text around
     }
     if (to === 1) password = '';
@@ -132,6 +136,11 @@
     const d = e.detail;
     if (d === 'not_authenticated') {
       sessionStore.onApiError(e);
+      return;
+    }
+    if (d === 'resend_limit') {
+      resendDone = true;
+      say('main', MSG.resendLimit);
       return;
     }
     if (LIMITED.has(d)) {
@@ -234,6 +243,28 @@
     if (!alive) return;
     if (ok) await succeed('main');
     else handle(failure, 'main');
+  }
+
+  async function resendCode(): Promise<void> {
+    if (busy || locked || resendDone || flowId === '') return;
+    busy = true;
+    problem = null;
+    done = null;
+    let ok = false;
+    let failure: unknown;
+    try {
+      await api.connectResend({ flow_id: flowId });
+      ok = true;
+    } catch (err) {
+      failure = err;
+    } finally {
+      busy = false;
+    }
+    if (!alive) return;
+    if (ok) {
+      code?.clear();
+      done = { scope: 'main', text: MSG.resent };
+    } else handle(failure, 'main');
   }
 
   async function submitCookie(e: SubmitEvent): Promise<void> {
@@ -346,11 +377,14 @@
         </form>
       {:else}
         <h2>Enter the verification code</h2>
-        <p class="lede">Apple sent a 6-digit code to your trusted devices.</p>
+        <p class="lede">Approve the sign-in on your Apple devices, then enter the 6-digit code they show.</p>
         <CodeInput bind:this={code} onComplete={submitCode} error={codeError} disabled={busy || locked} />
         {@render messages('main')}
         <div class="actions">
           <button type="button" disabled={busy} onclick={() => !busy && go(2)}>Back</button>
+          <button type="button" disabled={busy || locked || resendDone} onclick={() => void resendCode()}>
+            Resend code
+          </button>
         </div>
       {/if}
     </div>

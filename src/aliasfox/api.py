@@ -19,6 +19,7 @@ from aliasfox.apple.login import (
     InvalidCode,
     LoginFlow,
     TooManyFlows,
+    TooManyResends,
 )
 from aliasfox.auth import client_ip, current_user, limiter_key
 from aliasfox.crypto import derive_cache_key
@@ -73,6 +74,10 @@ class AppleLoginBody(BaseModel):
 class VerifyBody(BaseModel):
     flow_id: str = Field(min_length=1, max_length=128)
     code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class ResendBody(BaseModel):
+    flow_id: str = Field(min_length=1, max_length=128)
 
 
 def _rate_limited(retry_after: int) -> JSONResponse:
@@ -247,6 +252,14 @@ def build_router(
         await service.replace_session(user_id, state)
         return {"status": "ok"}
 
+    @router.post("/connect/resend")
+    async def connect_resend(body: ResendBody, request: Request, user_id: User):
+        key = key_of(request)
+        if not verify_ip.hit(key):
+            return _rate_limited(verify_ip.retry_after(key))
+        await run_in_threadpool(login_flow.resend, user_id, body.flow_id)
+        return {"status": "ok"}
+
     @router.delete("/connect")
     async def disconnect(user_id: User):
         await run_in_threadpool(login_flow.cancel_user, user_id)
@@ -301,6 +314,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(FlowExpired)
     async def flow_expired(request: Request, exc: FlowExpired):
         return JSONResponse({"detail": "flow_expired"}, status_code=410)
+
+    @app.exception_handler(TooManyResends)
+    async def too_many_resends(request: Request, exc: TooManyResends):
+        return JSONResponse({"detail": "resend_limit"}, status_code=429)
 
     @app.exception_handler(TooManyFlows)
     async def too_many_flows(request: Request, exc: TooManyFlows):

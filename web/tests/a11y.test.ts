@@ -30,7 +30,7 @@ vi.mock('../src/lib/api', async (orig) => {
   const real = await orig<typeof import('../src/lib/api')>();
   return {
     ...real,
-    api: { disconnect: vi.fn(async () => ({})), connectLogin: vi.fn(), connectVerify: vi.fn(), connectCookie: vi.fn() }
+    api: { disconnect: vi.fn(async () => ({})), connectLogin: vi.fn(), connectVerify: vi.fn(), connectResend: vi.fn(), connectCookie: vi.fn() }
   };
 });
 
@@ -219,14 +219,14 @@ describe('a11y: ConnectApple', () => {
     expect(pwField()).toHaveFocus();
   });
 
-  it('step 3 (code): no violations; six digit boxes then Back, in order', async () => {
+  it('step 3 (code): no violations; six digit boxes, then Back and Resend code, in order', async () => {
     render(ConnectApple);
     await toCode();
     await expectNoViolations();
     const names = tabNames();
-    expect(names.slice(-2)).toEqual(['Back', 'Log out']);
-    expect(names.slice(0, -2)).toHaveLength(6);
-    expect(names.slice(0, -2)).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Digit ${n} of 6`));
+    expect(names.slice(-3)).toEqual(['Back', 'Resend code', 'Log out']);
+    expect(names.slice(0, -3)).toHaveLength(6);
+    expect(names.slice(0, -3)).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Digit ${n} of 6`));
     assertEveryInteractiveReachable();
     assertNoPositiveTabindex();
   });
