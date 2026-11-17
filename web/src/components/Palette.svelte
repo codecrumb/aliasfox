@@ -939,11 +939,8 @@
     overflow-wrap: anywhere;
   }
   .mark.big {
-    width: 18px;
-    height: 18px;
-    background: var(--accent);
-    border-radius: 3px 12px 3px 12px;
-    transform: rotate(45deg);
+    width: 40px;
+    height: 40px;
     margin-bottom: var(--space-2);
   }
 
