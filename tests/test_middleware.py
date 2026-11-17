@@ -222,3 +222,27 @@ def test_compose_pins_host_and_port_and_env_example_is_safe():
     assert "ALIASFOX_ALLOW_UNAUTHENTICATED_NETWORK" in example
     assert "ALIASFOX_PASSWORD_HASH='$argon2id$" in example
     assert "ALIASFOX_SECRET_KEY=\n" in example  # no value committed
+
+
+def test_permissions_policy_and_coop_on_every_response_kind(tmp_path):
+    c = make_client(tmp_path)
+    responses = [
+        c.get("/healthz"),  # success
+        c.get("/api/nope"),  # 404
+        c.post("/api/connect/cookie", content=b"x" * (LIMIT + 1)),  # 413 from the body cap
+    ]
+    for r in responses:
+        assert r.headers["permissions-policy"] == (
+            "camera=(), microphone=(), geolocation=(), clipboard-write=(self)"
+        )
+        assert r.headers["cross-origin-opener-policy"] == "same-origin"
+    assert SECURITY_HEADERS["Permissions-Policy"] == responses[0].headers["permissions-policy"]
+    assert SECURITY_HEADERS["Cross-Origin-Opener-Policy"] == "same-origin"
+
+
+def test_dockerignore_excludes_env_files_everywhere():
+    from pathlib import Path
+
+    lines = (Path(__file__).resolve().parent.parent / ".dockerignore").read_text().split()
+    assert "**/.env*" in lines
+    assert "!.env.example" in lines or "!**/.env.example" in lines

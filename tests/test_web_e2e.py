@@ -222,6 +222,8 @@ def assert_security_headers(r) -> None:
     assert h["x-content-type-options"] == "nosniff"
     assert h["referrer-policy"] == "no-referrer"
     assert h["x-frame-options"] == "DENY"
+    assert h["permissions-policy"] == "camera=(), microphone=(), geolocation=(), clipboard-write=(self)"
+    assert h["cross-origin-opener-policy"] == "same-origin"
 
 
 def test_shell_is_the_built_bundle_with_full_security_headers(client, dist):

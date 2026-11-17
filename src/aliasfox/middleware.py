@@ -19,6 +19,8 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), clipboard-write=(self)",
+    "Cross-Origin-Opener-Policy": "same-origin",
 }
 HSTS = "max-age=31536000"
 
