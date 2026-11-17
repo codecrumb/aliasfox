@@ -4,40 +4,43 @@
 // If the bundle is missing this test builds it (npm ci --ignore-scripts first only when
 // web/node_modules is missing). It skips, with a stated reason, only when there is neither a
 // bundle nor an npm to build one with. When a bundle exists it always runs.
-import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { NoNpmError, ensureBuild } from '../scripts/ensure-build.mjs';
 
 const WEB = resolve(__dirname, '..');
 const DIST = resolve(WEB, '../src/aliasfox/static');
 const INDEX = join(DIST, 'index.html');
+const BUILD_TIMEOUT = 300_000;
 
-function run(args: string[]): void {
-  // The vitest worker sets NODE_ENV=test (and VITEST*), which would make Vite/Svelte emit a DEV
-  // build (unminified runtime, dev-only code paths): build exactly like `npm run build` does.
-  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production' };
-  for (const k of Object.keys(env)) if (k.startsWith('VITEST')) delete env[k];
-  const r = spawnSync('npm', args, { cwd: WEB, encoding: 'utf8', timeout: 280_000, env });
-  if (r.status !== 0) {
-    throw new Error(`npm ${args.join(' ')} failed (${r.status}):\n${r.stdout}\n${r.stderr}`);
-  }
+/**
+ * Finds any `eval` identifier outside comments: direct calls, `(0, eval)(x)`, `window.eval(x)`,
+ * `globalThis.eval`, and aliasing such as `a = eval;`. Longer words (`retrieval`, `evaluate`,
+ * `$eval`) do not match.
+ */
+export function findEval(code: string): string | null {
+  const noComments = code.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[\s;{}])\/\/[^\n]*/g, '$1 ');
+  const m = /(?<![\w$])eval(?![\w$])/.exec(noComments);
+  return m ? noComments.slice(Math.max(0, m.index - 20), m.index + 20) : null;
 }
 
-function ensureBundle(): string | null {
-  if (existsSync(INDEX)) return null;
-  if (spawnSync('npm', ['--version'], { encoding: 'utf8' }).status !== 0) {
-    return `no built bundle at ${INDEX} and npm is not on PATH, so it cannot be built`;
+// Freshness: a bundle older than the sources is rebuilt (scripts/ensure-build.mjs); if a rebuild is
+// needed but npm is unavailable, a STALE bundle fails the run and only a MISSING one skips.
+let skipReason: string | null = null;
+beforeAll(() => {
+  try {
+    ensureBuild();
+  } catch (e) {
+    if (e instanceof NoNpmError && e.state === 'missing') {
+      skipReason = `no built bundle at ${INDEX} and npm is not available to build it`;
+      console.warn(`bundle.test.ts skipped: ${skipReason}`);
+      return;
+    }
+    throw e;
   }
-  if (!existsSync(join(WEB, 'node_modules'))) run(['ci', '--ignore-scripts']);
-  run(['run', 'build']);
-  if (!existsSync(INDEX)) throw new Error('npm run build did not produce index.html');
-  return null;
-}
-
-const skipReason = ensureBundle();
-const suite = skipReason === null ? describe : describe.skip;
-if (skipReason !== null) console.warn(`bundle.test.ts skipped: ${skipReason}`);
+  expect(existsSync(INDEX)).toBe(true);
+}, BUILD_TIMEOUT);
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -49,11 +52,48 @@ function files(dir: string): string[] {
 const read = (p: string): string => readFileSync(p, 'utf8');
 const rel = (p: string): string => p.slice(DIST.length + 1);
 
-suite('built bundle', () => {
-  const all = existsSync(DIST) ? files(DIST) : [];
-  const js = all.filter((f) => f.endsWith('.js'));
-  const css = all.filter((f) => f.endsWith('.css'));
-  const html = read(INDEX);
+describe('findEval (the detector used below)', () => {
+  it.each([
+    'x=eval("1")',
+    'eval (x)',
+    '(0,eval)("x")',
+    '(0, eval)(code)',
+    'window.eval(x)',
+    'globalThis.eval(x)',
+    'self.eval(x)',
+    'var a=eval;a(1)',
+    'f(eval)',
+    '/* ok */ eval(x)',
+    'var a = 1; // note\neval(x)'
+  ])('flags %s', (code) => {
+    expect(findEval(code)).not.toBeNull();
+  });
+
+  it.each(['retrieval(x)', 'evaluate(x)', '$eval(x)', 'my_eval(x)', '/* eval( */ x()', '// eval(x)\ny()', 'var s="a"; /* eval */'])(
+    'ignores %s',
+    (code) => {
+      expect(findEval(code)).toBeNull();
+    }
+  );
+});
+
+describe('built bundle', () => {
+  let all: string[] = [];
+  let js: string[] = [];
+  let css: string[] = [];
+  let html = '';
+  let doc: Document;
+  beforeEach((ctx) => {
+    if (skipReason) ctx.skip(skipReason);
+  });
+  beforeAll(() => {
+    if (skipReason) return;
+    all = files(DIST);
+    js = all.filter((f) => f.endsWith('.js'));
+    css = all.filter((f) => f.endsWith('.css'));
+    html = read(INDEX);
+    doc = new DOMParser().parseFromString(html, 'text/html');
+  });
 
   it('contains a shell, at least one JS file and one CSS file', () => {
     expect(js.length).toBeGreaterThan(0);
@@ -61,8 +101,6 @@ suite('built bundle', () => {
   });
 
   describe('index.html', () => {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-
     it('has only external module scripts (no inline script)', () => {
       const scripts = Array.from(doc.querySelectorAll('script'));
       expect(scripts.length).toBeGreaterThan(0);
@@ -109,10 +147,10 @@ suite('built bundle', () => {
   });
 
   describe('JS', () => {
-    it('has no eval( or new Function', () => {
+    it('has no eval (call, indirect, window.eval, alias) or new Function', () => {
       for (const f of js) {
         const t = read(f);
-        expect(t, rel(f)).not.toMatch(/(?<![\w$.])eval\s*\(/);
+        expect(findEval(t), rel(f)).toBeNull();
         expect(t, rel(f)).not.toMatch(/new\s+Function\b/);
         expect(t, rel(f)).not.toMatch(/(?<![\w$.])Function\s*\(/);
       }

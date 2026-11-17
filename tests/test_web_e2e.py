@@ -43,18 +43,70 @@ ALIAS_KEYS = {
 }
 
 
+ENSURE_BUILD = WEB / "scripts" / "ensure-build.mjs"
+BUILD_INPUTS = ("src", "index.html", "package.json", "vite.config.ts", "svelte.config.js")
+
+
+def _newest_source_mtime(web: Path) -> float:
+    newest = 0.0
+    for name in BUILD_INPUTS:
+        p = web / name
+        files = [p] if p.is_file() else [f for f in p.rglob("*") if f.is_file()]
+        newest = max([newest, *(f.stat().st_mtime for f in files)])
+    return newest
+
+
 @pytest.fixture(scope="session")
 def dist() -> Path:
-    if not (DIST / "index.html").is_file():
-        npm = shutil.which("npm")
-        if npm is None:
-            pytest.skip(f"no built bundle at {DIST} and npm is not on PATH to build it")
-        env = {**os.environ, "NODE_ENV": "production"}
-        if not (WEB / "node_modules").is_dir():
-            subprocess.run([npm, "ci", "--ignore-scripts"], cwd=WEB, env=env, check=True)
-        subprocess.run([npm, "run", "build"], cwd=WEB, env=env, check=True)
+    """The built bundle, guaranteed FRESH (built from the current sources).
+
+    Uses the same rule as web/tests/bundle.test.ts (web/scripts/ensure-build.mjs): rebuild when the
+    bundle is missing or older than the sources. Without node: skip only when there is no bundle at
+    all; an existing bundle is checked with the same mtime rule and a stale one FAILS."""
+    node = shutil.which("node")
+    if node is None:
+        if not (DIST / "index.html").is_file():
+            pytest.skip(f"no built bundle at {DIST} and node is not on PATH to build it")
+        if _newest_source_mtime(WEB) > (DIST / "index.html").stat().st_mtime:
+            pytest.fail("the web bundle is stale and node is not on PATH to rebuild it")
+    else:
+        r = subprocess.run([node, str(ENSURE_BUILD)], cwd=WEB, capture_output=True, text=True, timeout=300)
+        if r.returncode == 5 and not (DIST / "index.html").is_file():
+            pytest.skip(f"no built bundle and npm is not available: {r.stderr.strip()}")
+        assert r.returncode == 0, f"ensure-build failed ({r.returncode}): {r.stdout}\n{r.stderr}"
     assert (DIST / "index.html").is_file()
     return DIST
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH")
+def test_ensure_build_flags_a_stale_bundle(tmp_path):
+    web = tmp_path / "web"
+    (web / "src").mkdir(parents=True)
+    src = web / "src" / "main.ts"
+    src.write_text("x")
+    for name in BUILD_INPUTS[1:]:
+        (web / name).write_text("x")
+    index = tmp_path / "static" / "index.html"
+    index.parent.mkdir()
+    index.write_text("<html>")
+
+    def check() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["node", str(ENSURE_BUILD), "--check", "--web", str(web), "--index", str(index)],
+            capture_output=True,
+            text=True,
+        )
+
+    os.utime(src, (1000, 1000))
+    for name in BUILD_INPUTS[1:]:
+        os.utime(web / name, (1000, 1000))
+    os.utime(index, (2000, 2000))
+    assert check().returncode == 0  # fresh
+    os.utime(src, (3000, 3000))  # a source touched after the build
+    r = check()
+    assert r.returncode == 3 and r.stdout.strip() == "stale"
+    index.unlink()
+    assert check().returncode == 4
 
 
 @pytest.fixture(scope="module")
@@ -197,7 +249,7 @@ def test_hashed_assets_are_immutable_with_correct_types(client, dist):
         assert r.headers["content-type"].split(";")[0] in ctype
         assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
         assert_security_headers(r)
-        assert r.content == (dist / path.lstrip("/")).read_bytes() or r.headers.get("content-encoding")
+        assert r.content == (dist / path.lstrip("/")).read_bytes()
     assert client.get("/assets/missing-abc123.js").status_code == 404
 
 
