@@ -40,3 +40,15 @@ No secret or personal value is reproduced in this report; locations only.
 ## Conclusion
 
 The controller's quick pass is confirmed: single noreply identity, `.env.example` the only env file, no Apple cookie values, and `docs/spike-results.md` is low risk. Nothing here requires a history rewrite. Remaining items: optional trimming of `docs/spike-results.md` and a metadata check of the logo PNG.
+
+## Re-scan 2026-11-17 (after multi-user work)
+
+Result: nothing real found. No history rewrite needed.
+
+Run:
+- gitleaks (`zricethezav/gitleaks:latest` via docker, repo mounted read-only, `detect --log-opts="--all" --redact`): 124 commits scanned, 2 findings, the same two false positives as before (`tests/test_connect_api.py` line 20, commit 83b7365; `tests/test_login.py` line 14, commit a22f244: fake test `PASSWORD` constants).
+- `git grep` over every commit from `git rev-list --all` for `X-APPLE-`, `scnt`, `trust_token`, `postgres(ql)?://`, `npg_`, `@gmail`, `@icloud.com`, private key headers, `sk_live`, `ghp_`, `AKIA`, `srv-`, Neon `ep-` endpoints, `neon.tech`, and `ALIASFOX_SECRET_KEY=` followed by a value. Hits are only test fixtures and this report's own search text: fake `*@icloud.com` addresses, cookie/field names, a fake connection string with the literal password placeholder `DBPASSWORD` (tests/test_config.py line 122), and the `gen-secret` command substitution in README lines 29-31. No real values.
+- 40+ character token-like strings at HEAD (excluding lockfiles and docs): only comment divider lines.
+- Authorship: one identity for author and committer, the GitHub noreply address. Path audit: `.env.example` is still the only `.env*`/key/db path ever committed.
+
+Commit-count gap: `git rev-list --all --count` = 128, `--no-merges` = 125, merges = 3; gitleaks scanned 124. Last time 107 vs 104. Gitleaks scans patches, and merge commits have none (3 merges explain last time's gap of 3). This time the gap is 4: 3 merges plus 1 more that I could not identify (no non-merge commit has an empty diff). The manual greps covered all 128 commits regardless.
