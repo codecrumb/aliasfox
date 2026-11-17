@@ -132,12 +132,12 @@ class UserDirectory:
         """Remove the user's Apple session and user row (with its wrapped key).
 
         Callers must also drop all in-process per-user state for this id: the
-        AliasService cache, generation and lock entries (`AliasService.disconnect`
-        bumps the generation, deletes the stored session and clears the cache;
-        `AliasService.forget` clears only the cache), the per-user rate-limit
-        entries and any pending login flow. On SQLite a
-        deleted highest id can be reused by the next `create`, and a new user
-        must never inherit that state.
+        AliasService cache (`AliasService.disconnect` clears it, bumps the
+        session generation and deletes the stored session), pending login flows
+        and per-user limiter state, and call `AliasService.purge` so connects
+        already in flight fail. Do NOT pop the service's generation entries:
+        they must outlive the user. On SQLite a deleted highest id can be
+        reused by the next `create`, and a new user must never inherit state.
         """
         with self._sessions.begin() as s:
             s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))

@@ -142,7 +142,8 @@ def test_delete_during_inflight_apple_call_does_not_resurrect_session(tmp_path, 
         assert cls.entered.wait(5)
         t2 = threading.Thread(target=lambda: results.update(delete=c.delete("/api/account")))
         t2.start()
-        t2.join(0.3)  # the delete queues behind the in-flight call
+        t2.join(0.3)
+        assert t2.is_alive()  # the delete queued behind the in-flight call
         cls.gate.set()
         t1.join(5)
         t2.join(5)
@@ -263,3 +264,118 @@ def test_delete_resets_per_user_limiters(tmp_path, monkeypatch):
     assert ca.delete("/api/account").status_code == 200
     cb = sign_in(e, "tb")  # may reuse the deleted id on SQLite
     assert login(cb, 8).status_code == 200
+
+
+# --- connect in flight while the account is deleted and its id reused ---------------
+
+
+import aliasfox.api as api_mod  # noqa: E402
+
+
+def blocking_flow(*, block_init=False, block_validate=False, requires_2fa=False):
+    gate, entered = threading.Event(), threading.Event()
+
+    class Api(FakeApi):
+        made: list = []
+
+        def __init__(self, apple_id, password, directory):
+            if block_init:
+                entered.set()
+                assert gate.wait(5)
+            super().__init__(apple_id, password, directory)
+
+        def validate_2fa_code(self, code):
+            if block_validate:
+                entered.set()
+                assert gate.wait(5)
+            return super().validate_2fa_code(code)
+
+    Api.requires_2fa = requires_2fa
+    return LoginFlow(service_factory=fake_factory(Api)), gate, entered
+
+
+def run(results, key, fn):
+    t = threading.Thread(target=lambda: results.update({key: fn()}))
+    t.start()
+    return t
+
+
+def test_login_inflight_across_delete_and_id_reuse_is_409(tmp_path, monkeypatch):
+    flow, gate, entered = blocking_flow(block_init=True)
+    e = Env(tmp_path, monkeypatch, {"ta": ident("sub-a"), "tb": ident("sub-b")},
+            login_flow=flow, signups_enabled=True)
+    with TestClient(e.app, base_url=BASE) as c:
+        assert exchange(c, "ta").status_code == 200
+        old = uid_of(e, "sub-a")
+        res = {}
+        t = run(res, "login", lambda: login(c, 1))
+        assert entered.wait(5)
+        assert c.delete("/api/account").status_code == 200
+        assert exchange(c, "tb").status_code == 200
+        new = uid_of(e, "sub-b")
+        assert new == old  # SQLite reuses the highest deleted id
+        gate.set()
+        t.join(5)
+        assert res["login"].status_code == 409
+        assert res["login"].json() == {"detail": "account_deleted"}
+        assert e.count("apple_sessions", f"user_id={new}") == 0
+
+
+def test_verify_inflight_across_delete_is_409(tmp_path, monkeypatch):
+    flow, gate, entered = blocking_flow(block_validate=True, requires_2fa=True)
+    e = Env(tmp_path, monkeypatch, {"ta": ident("sub-a")}, login_flow=flow,
+            signups_enabled=True)
+    with TestClient(e.app, base_url=BASE) as c:
+        assert exchange(c, "ta").status_code == 200
+        uid = uid_of(e, "sub-a")
+        fid = login(c, 1).json()["flow_id"]
+        res = {}
+        t = run(res, "verify", lambda: c.post(
+            "/api/connect/verify", json={"flow_id": fid, "code": "123456"}))
+        assert entered.wait(5)
+        td = run(res, "delete", lambda: c.delete("/api/account"))
+        td.join(0.3)  # cancel_user waits for the in-flight verify, after purge ran
+        gate.set()
+        t.join(5)
+        td.join(5)
+        assert res["verify"].status_code == 409
+        assert res["verify"].json() == {"detail": "account_deleted"}
+        assert e.count("apple_sessions", f"user_id={uid}") == 0
+
+
+def test_cookie_inflight_across_delete_and_id_reuse_is_409(tmp_path, monkeypatch):
+    gate, entered = threading.Event(), threading.Event()
+
+    def slow_connect(text, **kw):
+        entered.set()
+        assert gate.wait(5)
+        return AppleSessionState({"c": "v"}, "https://p1.icloud.com", "7")
+
+    monkeypatch.setattr(api_mod, "connect_with_cookie", slow_connect)
+    e = Env(tmp_path, monkeypatch, {"ta": ident("sub-a"), "tb": ident("sub-b")},
+            signups_enabled=True)
+    with TestClient(e.app, base_url=BASE) as c:
+        assert exchange(c, "ta").status_code == 200
+        old = uid_of(e, "sub-a")
+        res = {}
+        t = run(res, "cookie", lambda: c.post("/api/connect/cookie", json={"cookie": "x=y"}))
+        assert entered.wait(5)
+        assert c.delete("/api/account").status_code == 200
+        assert exchange(c, "tb").status_code == 200
+        assert uid_of(e, "sub-b") == old
+        gate.set()
+        t.join(5)
+        assert res["cookie"].status_code == 409
+        assert res["cookie"].json() == {"detail": "account_deleted"}
+        assert e.count("apple_sessions", f"user_id={old}") == 0
+
+
+def test_disconnect_then_reconnect_still_works(tmp_path, monkeypatch):
+    e = login_env(tmp_path, monkeypatch)
+    c = sign_in(e, "ta")
+    uid = uid_of(e, "sub-a")
+    assert login(c, 1).status_code == 200
+    assert c.delete("/api/connect").status_code == 200
+    assert e.count("apple_sessions", f"user_id={uid}") == 0
+    assert login(c, 2).status_code == 200
+    assert e.count("apple_sessions", f"user_id={uid}") == 1

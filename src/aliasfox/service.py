@@ -24,6 +24,10 @@ class NotConnected(Exception):
     """The user has no stored Apple session."""
 
 
+class AccountDeleted(Exception):
+    """The user's account was deleted after the caller captured its account generation."""
+
+
 class AliasService:
     def __init__(
         self,
@@ -43,6 +47,10 @@ class AliasService:
         # write its rotated cookies over a newer session (or resurrect a deleted
         # one); the check and the write share _write_lock so they are atomic.
         self._gen: dict[int, int] = {}
+        # Bumped only by purge (account deletion), never by disconnect: a connect
+        # that began before the account was deleted must not store its Apple
+        # session under a new user that reuses the id. Entries are never popped.
+        self._account_gen: dict[int, int] = {}
         self._write_lock = threading.Lock()
 
     def _lock(self, user_id: int) -> asyncio.Lock:
@@ -101,11 +109,34 @@ class AliasService:
         async with self._lock(user_id):
             self._cache.pop(user_id, None)
 
-    async def replace_session(self, user_id: int, state: AppleSessionState) -> None:
-        """Store a freshly connected session (the only writer besides rotation)."""
+    def account_generation(self, user_id: int) -> int:
+        """Capture before calling Apple; pass to replace_session as expected_account_gen."""
+        return self._account_gen.get(user_id, 0)
+
+    async def purge(self, user_id: int) -> None:
+        """Account deletion: invalidate every connect that captured an earlier
+        account generation. Call before disconnect and UserDirectory.delete."""
+        with self._write_lock:
+            self._account_gen[user_id] = self._account_gen.get(user_id, 0) + 1
+
+    async def replace_session(
+        self,
+        user_id: int,
+        state: AppleSessionState,
+        *,
+        expected_account_gen: int | None = None,
+    ) -> None:
+        """Store a freshly connected session (the only writer besides rotation).
+
+        Raises AccountDeleted if `expected_account_gen` no longer matches."""
 
         def write() -> None:
             with self._write_lock:
+                if (
+                    expected_account_gen is not None
+                    and self._account_gen.get(user_id, 0) != expected_account_gen
+                ):
+                    raise AccountDeleted(user_id)
                 self._gen[user_id] = self._gen.get(user_id, 0) + 1
                 self._store.save(user_id, state)
 

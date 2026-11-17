@@ -80,7 +80,13 @@ class FakeService:
         self.replaced = []
         self.disconnected = []
 
-    async def replace_session(self, user_id, state):
+    def account_generation(self, user_id):
+        return 0
+
+    async def purge(self, user_id):
+        pass
+
+    async def replace_session(self, user_id, state, *, expected_account_gen=None):
         self.replaced.append(user_id)
         self.store.save(user_id, state)
 
@@ -312,10 +318,8 @@ def test_verify_and_cookie_rate_limited_at_10(env, monkeypatch):
     assert env.client.post("/api/connect/cookie", json={"cookie": "BAD"}).status_code == 429
 
 
-def test_global_login_limit(env, monkeypatch):
+def test_global_login_limit(env):
     env.api_cls.fail_login = True
-    # one owner user in single mode: lift the per-user cap so the global one trips
-    monkeypatch.setattr(api_mod, "LOGIN_PER_USER", 100)
     # different IPs via trusted proxy: per-IP never trips, global does at 15
     store, _ = new_store()
     settings = Settings(secret_key=SECRET, trusted_proxy=True)
@@ -388,3 +392,17 @@ def test_cookie_network_error_is_502_apple_unreachable(env, monkeypatch):
 def test_cookie_actually_invalid_stays_400(env, monkeypatch):
     monkeypatch.setattr(api_mod, "connect_with_cookie", fake_connect)
     assert env.client.post("/api/connect/cookie", json={"cookie": "BAD-x"}).status_code == 400
+
+
+def test_single_mode_has_no_per_user_login_cap(env):
+    env.api_cls.requires_2fa = False
+    settings = Settings(secret_key=SECRET, trusted_proxy=True)
+    c = TestClient(
+        create_app(settings, service=env.svc, store=env.store, login_flow=env.flow),
+        base_url="http://localhost",
+    )
+    codes = [
+        c.post("/api/connect/login", json=LOGIN, headers={"x-forwarded-for": f"10.0.0.{i}"}).status_code
+        for i in range(8)  # more than the multi-mode per-user cap of 5
+    ]
+    assert codes == [200] * 8

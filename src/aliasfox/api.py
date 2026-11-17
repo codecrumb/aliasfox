@@ -24,7 +24,7 @@ from aliasfox.apple.login import (
 from aliasfox.auth import COOKIE_NAME, _cookie_secure, client_ip, current_user, limiter_key
 from aliasfox.crypto import derive_cache_key
 from aliasfox.ratelimit import RateLimiter
-from aliasfox.service import AliasService, NotConnected
+from aliasfox.service import AccountDeleted, AliasService, NotConnected
 from aliasfox.sessions import SessionStore, SessionUnreadable
 from aliasfox.users import UserDirectory
 
@@ -120,6 +120,7 @@ def build_router(
     login_ip = RateLimiter(LOGIN_PER_IP, APPLE_WINDOW_SECONDS)
     login_global = RateLimiter(LOGIN_GLOBAL, APPLE_WINDOW_SECONDS)
     login_user = RateLimiter(LOGIN_PER_USER, LOGIN_USER_WINDOW_SECONDS)
+    per_user_cap = settings.aliasfox_mode == "multi"  # single mode: one fixed user, unchanged
     verify_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     cookie_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     global_key = "global"
@@ -224,13 +225,14 @@ def build_router(
         key = key_of(request)
         if not cookie_ip.hit(key):
             return _rate_limited(cookie_ip.retry_after(key))
+        account_gen = service.account_generation(user_id)
         try:
             state = await run_in_threadpool(connect_with_cookie, body.cookie)
         except InvalidCookie as exc:
             return JSONResponse(
                 {"detail": "invalid_cookie", "message": str(exc)}, status_code=400
             )
-        await service.replace_session(user_id, state)
+        await service.replace_session(user_id, state, expected_account_gen=account_gen)
         return {"status": "ok"}
 
     @router.post("/connect/login")
@@ -242,10 +244,11 @@ def build_router(
             login_ip.release(key)
             return _rate_limited(login_global.retry_after(global_key))
         user_key = str(user_id)
-        if not login_user.hit(user_key):
+        if per_user_cap and not login_user.hit(user_key):
             login_ip.release(key)
             login_global.release(global_key)
             return _rate_limited(login_user.retry_after(user_key))
+        account_gen = service.account_generation(user_id)
         try:
             result = await run_in_threadpool(
                 login_flow.start,
@@ -257,10 +260,13 @@ def build_router(
         except TooManyFlows:
             login_ip.release(key)  # never reached Apple
             login_global.release(global_key)
-            login_user.release(user_key)
+            if per_user_cap:
+                login_user.release(user_key)
             raise
         if result.status == "ok":
-            await service.replace_session(user_id, result.state)
+            await service.replace_session(
+                user_id, result.state, expected_account_gen=account_gen
+            )
             return {"status": "ok"}
         return {"status": "needs_2fa", "flow_id": result.flow_id}
 
@@ -269,8 +275,9 @@ def build_router(
         key = key_of(request)
         if not verify_ip.hit(key):
             return _rate_limited(verify_ip.retry_after(key))
+        account_gen = service.account_generation(user_id)
         state = await run_in_threadpool(login_flow.verify, user_id, body.flow_id, body.code)
-        await service.replace_session(user_id, state)
+        await service.replace_session(user_id, state, expected_account_gen=account_gen)
         return {"status": "ok"}
 
     @router.post("/connect/resend")
@@ -294,6 +301,7 @@ def build_router(
         async def delete_account(request: Request, response: Response, user_id: User):
             # Order matters: stop in-flight work and drop in-process state before
             # the rows go, so nothing can write a session for a deleted user.
+            await service.purge(user_id)  # first: connects already in flight now fail
             await run_in_threadpool(login_flow.cancel_user, user_id)
             await service.disconnect(user_id)
             last_refresh.pop(user_id, None)
@@ -330,6 +338,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppleUnreachable)
     async def apple_unreachable(request: Request, exc: AppleUnreachable):
         return JSONResponse({"detail": "apple_unreachable"}, status_code=502)
+
+    @app.exception_handler(AccountDeleted)
+    async def account_deleted(request: Request, exc: AccountDeleted):
+        return JSONResponse({"detail": "account_deleted"}, status_code=409)
 
     @app.exception_handler(NotConnected)
     async def not_connected(request: Request, exc: NotConnected):
