@@ -284,6 +284,20 @@ describe('banners', () => {
   });
 });
 
+describe('cookie text and the code step', () => {
+  it('unsent cookie text is cleared when entering the code step', async () => {
+    render(ConnectApple);
+    const ta = await openCookie();
+    await fireEvent.input(ta, { target: { value: 'secret=cookie-value' } });
+    expect(ta.value).toBe('secret=cookie-value');
+    await toCode();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' })); // password step
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' })); // apple id step
+    const again = screen.getByLabelText(/cookie/i, { selector: 'textarea' }) as HTMLTextAreaElement;
+    expect(again.value).toBe('');
+  });
+});
+
 describe('cookie panel', () => {
   it('is collapsed with aria-expanded and shows the warning when opened', async () => {
     render(ConnectApple);

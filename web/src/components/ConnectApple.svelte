@@ -93,7 +93,10 @@
   });
 
   function go(to: 1 | 2 | 3): void {
-    if (to === 3) codeError = 0; // a fresh code screen never inherits an old wrong-code state
+    if (to === 3) {
+      codeError = 0; // a fresh code screen never inherits an old wrong-code state
+      cookie = ''; // the cookie panel is hidden on this step: never keep unsent cookie text around
+    }
     if (to === 1) password = '';
     direction = to > step ? 'forward' : 'back';
     step = to;

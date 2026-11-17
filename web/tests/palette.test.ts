@@ -790,7 +790,7 @@ describe('fix round 1', () => {
     const dlg = dialog('Delete this address?');
     await key(dlg, { key: 'Escape', code: 'Escape' });
     await key(search(), { key: '?', code: 'Slash', shiftKey: true });
-    expect(dialog('Keyboard shortcuts')).toHaveTextContent('Delete alias (when the search box is empty)');
+    expect(dialog('Keyboard shortcuts')).toHaveTextContent('Delete alias — when the search box is empty or the caret is at the start');
   });
 
   it('macOS dead key: Option+N with keyCode 229 opens the dialog and leaves the search value alone', async () => {
@@ -807,6 +807,29 @@ describe('fix round 1', () => {
     await fireEvent.compositionEnd(search());
     await tick();
     expect(search().value).toBe('ab');
+  });
+
+  it('Alt+E with nothing selected opens nothing and still undoes a slipped dead-key character', async () => {
+    setList([]);
+    render(Palette);
+    await tick();
+    const notCancelled = await key(search(), { key: 'Dead', code: 'KeyE', altKey: true, keyCode: 229 });
+    expect(notCancelled).toBe(false); // handled (default prevented)
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await fireEvent.input(search(), { target: { value: '´' } });
+    await tick();
+    expect(search().value).toBe('');
+  });
+
+  it('Alt+N while reconnecting opens only the reconnect overlay and undoes a slipped dead-key character', async () => {
+    setList(many(2));
+    session.__set({ state: 'reconnect', reason: 'session_expired' });
+    render(Palette);
+    await tick();
+    await key(search(), { key: 'Dead', code: 'KeyN', altKey: true, keyCode: 229 });
+    await fireEvent.input(search(), { target: { value: '˜' } });
+    await tick();
+    expect(search().value).toBe('');
   });
 
   it('real IME composition still ignores shortcuts', async () => {

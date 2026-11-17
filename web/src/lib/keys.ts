@@ -61,7 +61,7 @@ export const KEYMAP: readonly KeyBinding[] = [
   {
     id: 'delete',
     keys: [['Alt', 'Backspace']],
-    label: 'Delete alias (when the search box is empty)',
+    label: 'Delete alias — when the search box is empty or the caret is at the start',
     combos: [{ code: 'Backspace', alt: true }],
     // In a non-empty search Alt+Backspace is the platform's delete-word keystroke.
     when: 'caretAtStart'

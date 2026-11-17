@@ -187,7 +187,7 @@ describe('KEYMAP / handleKey', () => {
     const c3 = ctx({ searchEmpty: true, caretAtStart: false });
     expect(handleKey(ev({ key: 'Backspace', code: 'Backspace', altKey: true }), c3)).toBe(true);
     expect(c3.delete).toHaveBeenCalledTimes(1);
-    expect(KEYMAP.find((b) => b.id === 'delete')?.label).toBe('Delete alias (when the search box is empty)');
+    expect(KEYMAP.find((b) => b.id === 'delete')?.label).toBe('Delete alias — when the search box is empty or the caret is at the start');
   });
 
   it('macOS dead keys: Option+N reported with keyCode 229 still runs the combo by code and prevents the default', () => {

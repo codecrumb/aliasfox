@@ -77,7 +77,15 @@ function whenIdle(): Promise<void> {
 const UNEXPECTED = 'unexpected_response';
 
 function setList(list: Alias[], extra: Partial<AliasState> = {}): void {
-  store.update((s) => ({ ...s, ...extra, list, index: buildIndex(list) }));
+  store.update((s) => ({
+    ...s,
+    // A list that goes from empty to non-empty has plainly loaded: a stale load error must not
+    // come back later (e.g. create, then delete, with no reload in between).
+    ...(s.list.length === 0 && list.length > 0 ? { loadError: null } : {}),
+    ...extra,
+    list,
+    index: buildIndex(list)
+  }));
 }
 
 function patchState(p: Partial<AliasState>): void {
@@ -240,7 +248,7 @@ async function runReserve(g: number, b: { hme: string; label: string; note: stri
     if (!validAlias(created)) {
       throw new ApiError(0, UNEXPECTED);
     }
-    setList([created, ...listNow()], { error: null });
+    setList([created, ...listNow()], { error: null, loadError: null });
     await persist(g);
     return created;
   } catch (e) {
@@ -287,6 +295,7 @@ async function optimistic(
   } finally {
     mutationEnd(g);
   }
+  if (g === gen) patchState({ loadError: null }); // a successful mutation proves the API works
   await persist(g);
 }
 

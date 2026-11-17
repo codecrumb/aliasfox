@@ -571,6 +571,39 @@ describe('review fixes', () => {
     expect(get(m.aliasStore).loadError).toBeNull();
   });
 
+  it('a stale loadError is cleared when the list goes from empty to non-empty, so create-then-delete cannot resurrect it', async () => {
+    h.api.listAliases.mockRejectedValueOnce(new m.ApiError(502, 'apple_unreachable'));
+    await m.aliasStore.init();
+    expect(get(m.aliasStore).loadError).toBe('apple_unreachable');
+    expect(get(m.aliasStore).list).toEqual([]);
+    h.api.reserve.mockResolvedValueOnce(mk(7));
+    await m.aliasStore.reserve({ hme: 'a7@icloud.com', label: 'x', note: '' });
+    expect(get(m.aliasStore).loadError).toBeNull();
+    h.api.remove.mockResolvedValueOnce({ ok: true });
+    await m.aliasStore.remove('id7');
+    expect(get(m.aliasStore).list).toEqual([]);
+    expect(get(m.aliasStore).loadError).toBeNull();
+  });
+
+  it('a successful mutation clears loadError even when the list stays non-empty', async () => {
+    await loaded([mk(1), mk(2)]);
+    h.api.listAliases.mockRejectedValueOnce(new m.ApiError(502, 'apple_unreachable'));
+    await m.aliasStore.refresh();
+    expect(get(m.aliasStore).loadError).toBe('apple_unreachable');
+    h.api.setActive.mockResolvedValueOnce({ ok: true });
+    await m.aliasStore.setActive('id1', false);
+    expect(get(m.aliasStore).loadError).toBeNull();
+  });
+
+  it('a failed mutation keeps an existing loadError', async () => {
+    await loaded([mk(1)]);
+    h.api.listAliases.mockRejectedValueOnce(new m.ApiError(502, 'apple_unreachable'));
+    await m.aliasStore.refresh();
+    h.api.setActive.mockRejectedValueOnce(new m.ApiError(502, 'apple_error'));
+    await expect(m.aliasStore.setActive('id1', false)).rejects.toBeTruthy();
+    expect(get(m.aliasStore).loadError).toBe('apple_unreachable');
+  });
+
   it('a reserve that settles after clear() resolves null instead of an unvalidated value', async () => {
     await loaded([mk(1)]);
     const d = deferred<unknown>();
