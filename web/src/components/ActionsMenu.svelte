@@ -95,9 +95,10 @@
   });
 </script>
 
-<Modal labelledby="{uid}-title" onClose={onClose} size="md">
+<Modal labelledby="{uid}-title" onClose={onClose} size="bar">
   <h2 class="visually-hidden" id="{uid}-title">Actions</h2>
   <div class="search">
+    <svg class="glass" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
     <input
       bind:this={input}
       bind:value={text}
@@ -112,6 +113,7 @@
       spellcheck="false"
       onkeydown={onKey}
     />
+    <kbd class="esc" aria-hidden="true">esc</kbd>
   </div>
   <div class="list" id="{uid}-list" role="listbox" aria-label="Actions" bind:this={list}>
     {#each shown as a, i (a.id)}
@@ -138,26 +140,59 @@
       <p class="empty">No matching actions</p>
     {/each}
   </div>
+  <div class="foot" aria-hidden="true">
+    <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+    <span><kbd>↵</kbd> run</span>
+  </div>
 </Modal>
 
 <style>
   .search {
-    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) var(--space-3);
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-2);
+  }
+  .glass,
+  .esc {
+    position: absolute;
+    pointer-events: none;
+    color: var(--muted);
+  }
+  .glass {
+    left: var(--space-4);
+  }
+  .esc {
+    right: var(--space-3);
   }
   .search input {
-    min-height: 48px;
+    width: 100%;
+    min-height: 56px;
+    padding-inline: calc(var(--space-4) + 30px) 4rem;
     border-color: transparent;
+    border-radius: 12px;
     background: var(--surface);
-    font-size: 1rem;
+    font-size: 1.0625rem;
   }
   .search input:focus-visible {
     outline: none;
     border-color: var(--field-border);
   }
   .list {
-    max-height: min(26rem, 60vh);
+    max-height: min(24rem, 52vh);
     overflow-y: auto;
-    margin: 0 calc(var(--space-2) * -1) calc(var(--space-2) * -1);
+  }
+  .foot {
+    display: flex;
+    gap: var(--space-4);
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-1);
+    border-top: 1px solid var(--surface);
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .foot kbd {
+    margin-right: 3px;
   }
   .item {
     display: flex;
@@ -206,6 +241,8 @@
     color: var(--muted);
   }
   @media (hover: none) {
+    .foot,
+    .esc,
     .keys {
       display: none;
     }

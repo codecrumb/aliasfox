@@ -35,7 +35,7 @@
     persistent?: boolean;
     /** Esc closes (default). */
     escape?: boolean;
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'sm' | 'md' | 'lg' | 'bar';
     children: Snippet;
   }
   let { label, labelledby, describedby, onClose, persistent = false, escape = true, size = 'md', children }: Props =
@@ -127,7 +127,7 @@
   });
 </script>
 
-<div class="modal-layer" bind:this={layer}>
+<div class="modal-layer {size}" bind:this={layer}>
   <div class="backdrop" aria-hidden="true"></div>
   <div
     class="panel {size}"
@@ -156,6 +156,10 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .modal-layer.bar {
+    align-items: center;
+    padding-block: var(--space-6);
+  }
   .backdrop {
     position: fixed;
     inset: 0;
@@ -178,6 +182,14 @@
   .panel.lg {
     max-width: 36rem;
   }
+  .panel.bar {
+    max-width: min(48rem, 100%);
+    padding: var(--space-2);
+    border-radius: 18px;
+    box-shadow: var(--shadow-2), 0 0 0 1px var(--surface);
+    /* Sits a touch above true center, like a browser address bar. */
+    transform: translateY(-6vh);
+  }
   .panel:focus {
     outline: none;
   }
@@ -192,11 +204,13 @@
   @keyframes modal-in {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.985);
+      translate: 0 -6px;
+      scale: 0.985;
     }
     to {
       opacity: 1;
-      transform: none;
+      translate: none;
+      scale: none;
     }
   }
   @media (prefers-reduced-motion: reduce) {
