@@ -2,6 +2,8 @@
   export interface MenuAction {
     id: string;
     label: string;
+    /** Extra search terms (synonyms); matched but never shown. */
+    aliases?: string[];
     keys?: string[];
     disabled?: boolean;
     current?: boolean;
@@ -30,7 +32,7 @@
   const shown = $derived.by(() => {
     const terms = text.toLowerCase().trim().split(/\s+/).filter(Boolean);
     return actions.filter((a) => {
-      const l = a.label.toLowerCase();
+      const l = [a.label, ...(a.aliases ?? [])].join(' ').toLowerCase();
       return terms.every((t) => l.includes(t));
     });
   });

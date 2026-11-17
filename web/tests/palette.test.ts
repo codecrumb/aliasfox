@@ -302,6 +302,18 @@ describe('palette list', () => {
     expect(within(group).getByRole('button', { name: 'Active' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('finds "Log out" by its synonym "sign out" without showing it', async () => {
+    setList(many(3));
+    await render(Palette);
+    await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+    const menu = dialog('Actions');
+    await type(within(menu).getByRole('combobox', { name: 'Filter actions' }) as HTMLInputElement, 'sign out');
+    const found = within(menu).getAllByRole('option');
+    expect(found).toHaveLength(1);
+    expect(found[0]).toHaveTextContent('Log out');
+    expect(found[0]).not.toHaveTextContent(/sign out/i);
+  });
+
   it('selection is preserved across a refresh by anonymous_id', async () => {
     setList(many(10));
     render(Palette);

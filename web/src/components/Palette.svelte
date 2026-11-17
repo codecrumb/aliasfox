@@ -504,7 +504,7 @@
       { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help') },
       ...($sessionStore.mode === 'multi' ? [{ id: 'account', label: 'Account' }] : []),
       { id: 'disconnect', label: 'Disconnect Apple account', danger: true },
-      { id: 'logout', label: 'Log out' }
+      { id: 'logout', label: 'Log out', aliases: ['Sign out', 'Logout', 'Signout'] }
     ];
   });
 
