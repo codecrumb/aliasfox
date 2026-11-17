@@ -225,7 +225,7 @@ class MultiUserEnv:
     """create_app in multi mode over a real SQLite file. Only the Neon verifier,
     Apple's HME service and pyicloud are faked."""
 
-    def __init__(self, tmp_path, monkeypatch, subjects, *, dist_dir=None):
+    def __init__(self, tmp_path, monkeypatch, subjects, *, dist_dir=None, secret=MULTI_SECRET):
         import aliasfox.api as api_mod
         import aliasfox.main as main_mod
         from aliasfox.apple.login import LoginFlow
@@ -237,9 +237,9 @@ class MultiUserEnv:
         monkeypatch.setattr(main_mod, "NeonTokenVerifier", lambda **_: self.verifier)
         # The cookie text names the Apple account it connects.
         monkeypatch.setattr(api_mod, "connect_with_cookie", lambda text, **_: apple_state(text))
-        self.settings = multi_mode_settings(tmp_path, signups_enabled=True)
+        self.settings = multi_mode_settings(tmp_path, signups_enabled=True, secret_key=secret)
         self.engine = make_engine(self.settings)
-        self.store = SessionStore(self.engine, KeyRing(MULTI_SECRET))
+        self.store = SessionStore(self.engine, KeyRing(secret))
         self.world = FakeAppleWorld()
         self.login_apis: list[FakeLoginApi] = []
         self.flow = LoginFlow(service_factory=fake_login_factory(self.login_apis))

@@ -136,7 +136,8 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
   errors use the same shape.
 - 409 `not_connected` / `session_unreadable` mean reconnect. `/api/status` reports
   `connected:false` (with `reason:"session_unreadable"` when the stored session cannot be read, for
-  example after the secret key changed).
+  example after the secret key changed). Reconnecting works after a secret change: the user gets a new
+  data key and the unreadable session is deleted.
 - 502 `apple_unreachable`: Apple could not be reached while checking a pasted cookie (the cookie
   itself is not blamed, unlike 400 `invalid_cookie`).
 - 429 `rate_limited`: per-user limits on `?refresh=true` (at most one real refresh per 5 seconds, sooner
@@ -233,8 +234,9 @@ before a release:
 
 ## Security model
 
-- Stored: only the Apple session blob (cookies and trust token), encrypted with AES-256-GCM using
-  a key derived from `ALIASFOX_SECRET_KEY`. The Apple password is never stored. Aliases are never
+- Stored: only the Apple session blob (cookies and trust token), encrypted with AES-256-GCM under a
+  random per-user data key, which is itself stored wrapped (AES-256-GCM) under a key derived from
+  `ALIASFOX_SECRET_KEY`. The Apple password is never stored. Aliases are never
   persisted server-side; they are fetched from Apple and cached in memory for 60 seconds.
 - Secrets (cookies, passwords, tokens, 2FA codes) are not logged; failures log only exception
   class names. Access logging is off. Validation errors do not echo input.
@@ -246,7 +248,10 @@ before a release:
   HSTS is added when the request arrived over https (directly or via a trusted proxy).
 - AliasFox session cookies are signed and carry a session epoch; logging out bumps it, which revokes
   every outstanding cookie ("log out everywhere"). Rotating `ALIASFOX_SECRET_KEY` also invalidates
-  them (and makes stored Apple sessions unreadable, so you reconnect).
+  them and makes every stored Apple session unreadable. Each user then signs in again and reconnects
+  Apple: in single mode the owner's data key is replaced at startup; in multi mode a user's data key is
+  replaced, and their unreadable session deleted, when they reconnect. Until then the rows of users who
+  have not reconnected stay in the database, unreadable.
 
 ## Deployment notes
 

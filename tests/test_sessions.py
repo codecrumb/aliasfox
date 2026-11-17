@@ -251,3 +251,29 @@ def test_blob_aad_alone_binds_blob_to_user(store, users, engine):
     # control: the same plaintext with B's own AAD loads
     _put_blob(engine, encrypt(b_key, plaintext, aad=str(b).encode()), user_id=b)
     assert store.load(b) == AppleSessionState({}, "x")
+
+
+# --- rekey (final review F1) ------------------------------------------------------------
+
+
+def test_rekey_replaces_key_and_drops_unreadable_session(store, users, engine):
+    store.save(1, _state())
+    rotated = KeyRing("r" * 32)
+    other = SessionStore(engine, rotated)
+    with pytest.raises(SessionUnreadable):
+        other.save(1, _state("new"))  # save stays strict
+    other.rekey(1)
+    assert _blob(engine, 1) is None
+    assert rotated.unwrap(1, _wrapped(engine, 1))
+    other.save(1, _state("new"))
+    assert other.load(1).cookies == {"X-APPLE-WEBAUTH-TOKEN": "new"}
+
+
+def test_rekey_unknown_user_raises_and_changes_nothing(store, engine):
+    store.save(1, _state())
+    blob, wrapped = _blob(engine, 1), _wrapped(engine, 1)
+    with pytest.raises(SessionUnreadable):
+        store.rekey(999)
+    with Session(engine) as s:
+        assert s.get(User, 999) is None
+    assert (_blob(engine, 1), _wrapped(engine, 1)) == (blob, wrapped)

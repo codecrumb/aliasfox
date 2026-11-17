@@ -1,7 +1,7 @@
 import json
 from dataclasses import asdict, dataclass, field
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from aliasfox.crypto import DecryptionError, decrypt, encrypt
@@ -73,6 +73,18 @@ class SessionStore:
             return AppleSessionState(**data)
         except (DecryptionError, ValueError, TypeError, KeyError):
             raise SessionUnreadable() from None
+
+    def rekey(self, user_id: int) -> None:
+        """Give an EXISTING user a new data key and delete their Apple session
+        (which no key we hold can read any more), in one transaction. Raises
+        SessionUnreadable, changing nothing, if the user does not exist."""
+        with self._sessions.begin() as s:
+            _, wrapped = self._keyring.new_wrapped(user_id)
+            if not s.execute(
+                update(User).where(User.id == user_id).values(wrapped_key=wrapped)
+            ).rowcount:
+                raise SessionUnreadable()
+            s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))
 
     def delete(self, user_id: int) -> None:
         with self._sessions.begin() as s:

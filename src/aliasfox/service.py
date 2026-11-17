@@ -15,7 +15,7 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from aliasfox.apple.hme import Alias, HmeClient
-from aliasfox.sessions import AppleSessionState, SessionStore
+from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
 log = logging.getLogger(__name__)
 
@@ -137,7 +137,9 @@ class AliasService:
     ) -> None:
         """Store a freshly connected session (the only writer besides rotation).
 
-        Raises AccountDeleted if `expected_account_gen` no longer matches."""
+        If the user's stored data key cannot be unwrapped (secret rotated), the
+        user is re-keyed first. Raises AccountDeleted if `expected_account_gen`
+        no longer matches, SessionUnreadable if the user does not exist."""
 
         def write() -> None:
             with self._write_lock:
@@ -147,7 +149,15 @@ class AliasService:
                 ):
                     raise AccountDeleted(user_id)
                 self._gen[user_id] = self._gen.get(user_id, 0) + 1
-                self._store.save(user_id, state)
+                try:
+                    self._store.save(user_id, state)
+                except SessionUnreadable as exc:
+                    # The user's data key no longer unwraps (ALIASFOX_SECRET_KEY
+                    # changed): re-key and drop the unreadable session, then save
+                    # once more. rekey raises for a user that no longer exists.
+                    log.warning("unreadable data key on save, re-keying: %s", type(exc).__name__)
+                    self._store.rekey(user_id)
+                    self._store.save(user_id, state)
 
         async with self._lock(user_id):
             await run_in_threadpool(write)

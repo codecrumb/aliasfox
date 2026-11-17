@@ -435,3 +435,66 @@ async def test_evict_expired_drops_only_entries_past_ttl(svc, clock):
     clock.t += 30
     assert svc.evict_expired() == 1
     assert svc._cache == {}
+
+
+# --- replace_session after a secret rotation (final review F1) -----------------------------
+
+
+def _engine():
+    eng = create_engine(
+        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
+    init_db(eng)
+    return eng
+
+
+async def test_replace_session_rekeys_existing_user_after_secret_rotation(caplog):
+    from aliasfox.keys import KeyRing
+    from aliasfox.sessions import SessionStore
+
+    eng = _engine()
+    old, users = make_store(eng)
+    assert users.create("second") == 2
+    for uid in (1, 2):
+        old.save(uid, _state(owner=str(uid)))
+    rotated = SessionStore(eng, KeyRing("r" * 32))
+    svc = AliasService(rotated, client_factory=FakeClient)
+    with caplog.at_level(logging.DEBUG):
+        await svc.replace_session(1, _state(fresh="cookie-text-1"))
+    assert rotated.load(1).cookies == {"c": "v", "fresh": "cookie-text-1"}
+    assert old.load(2).cookies == {"c": "v", "owner": "2"}  # user 2 untouched
+    assert "cookie-text-1" not in caplog.text
+    assert "SessionUnreadable" in caplog.text
+
+
+async def test_replace_session_for_deleted_user_still_refuses():
+    eng = _engine()
+    store, users = make_store(eng)
+    uid = users.create("gone")
+    users.delete(uid)
+    svc = AliasService(store, client_factory=FakeClient)
+    with pytest.raises(SessionUnreadable):
+        await svc.replace_session(uid, _state())
+    with eng.connect() as c:
+        from sqlalchemy import text
+        assert c.execute(text("select count(*) from users where id=:u"), {"u": uid}).scalar() == 0
+        assert c.execute(
+            text("select count(*) from apple_sessions where user_id=:u"), {"u": uid}
+        ).scalar() == 0
+
+
+async def test_replace_session_rekey_still_honours_account_generation():
+    from aliasfox.keys import KeyRing
+    from aliasfox.service import AccountDeleted
+    from aliasfox.sessions import SessionStore
+
+    eng = _engine()
+    old, _ = make_store(eng)
+    old.save(1, _state(owner="1"))
+    rotated = SessionStore(eng, KeyRing("r" * 32))
+    svc = AliasService(rotated, client_factory=FakeClient)
+    gen = svc.account_generation(1)
+    await svc.purge(1)
+    with pytest.raises(AccountDeleted):
+        await svc.replace_session(1, _state(), expected_account_gen=gen)
+    assert old.load(1).cookies == {"c": "v", "owner": "1"}  # not re-keyed

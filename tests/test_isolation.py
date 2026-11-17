@@ -21,6 +21,7 @@ import aliasfox.main as main_mod
 from aliasfox.auth import COOKIE_NAME
 from aliasfox.config import Settings
 from aliasfox.crypto import derive_cache_key
+from aliasfox.keys import KeyRing
 
 LOGIN = {"password": "apple-pw-SECRET"}
 
@@ -449,3 +450,42 @@ def test_reused_user_id_inherits_nothing_from_deleted_account(env):
     assert alias_ids(cc.get("/api/aliases")) == ["acct-c-id-0", "acct-c-id-1"]
     assert env.store.load(b) is None and cb.get("/api/status").json()["connected"] is False
     assert env.store.load(c).cookies == {"acct": "acct-c"}
+
+
+# --- ALIASFOX_SECRET_KEY rotation in multi mode (final review F1) ------------------------
+
+
+ROTATED_SECRET = "rotated-multi-secret-0123456789abcdefgh"
+
+
+def test_reconnect_after_secret_rotation_rekeys_only_that_user(tmp_path, monkeypatch, caplog):
+    before = MultiUserEnv(tmp_path, monkeypatch, ["a", "b"])
+    ca, a = before.sign_in("a")
+    cb, b = before.sign_in("b")
+    before.connect(ca, "acct-a")
+    before.connect(cb, "acct-b")
+    b_row = before.raw(
+        "select blob, updated_at from apple_sessions where user_id=:u", u=b
+    ).one()
+    b_key = before.wrapped_key(b)
+
+    # Same database file, new secret: every stored session is now unreadable.
+    after = MultiUserEnv(tmp_path, monkeypatch, ["a", "b"], secret=ROTATED_SECRET)
+    ca2, a2 = after.sign_in("a")
+    assert a2 == a
+    assert ca2.get("/api/status").json()["reason"] == "session_unreadable"
+    with caplog.at_level("DEBUG"):
+        after.connect(ca2, "acct-a")  # reconnecting re-keys user A and succeeds
+    assert ca2.get("/api/status").json()["connected"] is True
+    assert alias_ids(ca2.get("/api/aliases")) == ["acct-a-id-0", "acct-a-id-1"]
+    assert after.store.load(a).cookies == {"acct": "acct-a"}
+    KeyRing(ROTATED_SECRET).unwrap(a, after.wrapped_key(a))  # A re-keyed under the new secret
+    # B's rows are not touched (still unreadable under the new secret until B reconnects).
+    assert after.wrapped_key(b) == b_key
+    assert after.raw(
+        "select blob, updated_at from apple_sessions where user_id=:u", u=b
+    ).one() == b_row
+    cb2, _ = after.sign_in("b")
+    assert cb2.get("/api/status").json()["reason"] == "session_unreadable"
+    for record in caplog.records:
+        assert "acct-a" not in record.getMessage()
