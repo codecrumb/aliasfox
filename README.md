@@ -86,17 +86,78 @@ The web app lives in `web/` (Svelte 5 + TypeScript + Vite). Node 22+ is needed.
 cd web
 npm ci               # install the pinned dependencies
 npm run dev          # dev server; proxies /api and /healthz to http://127.0.0.1:8080
-npm run build        # writes src/aliasfox/static (git-ignored), served by the API at /
-npm test             # vitest (jsdom)
+npm run build        # production build into src/aliasfox/static (git-ignored)
+npm test             # vitest (jsdom): unit, accessibility (axe), contract and built-bundle tests
 npm run lint         # eslint; bans {@html}, innerHTML/outerHTML, eval and friends
 npm run check        # svelte-check (strict TypeScript)
 ```
 
-Run the backend (`python -m aliasfox`) on port 8080 alongside `npm run dev`. The build must stay
-CSP-clean (`script-src 'self'; style-src 'self'`): no inline scripts or styles, no Svelte
-`transition:`/`animate:` directives. The ESLint bans on HTML-injection sinks are defence in depth only;
-the CSP is the real backstop. The Docker image builds the app in a `node:22-slim` stage and
-serves it from `/app/static` (`WEB_DIST_DIR`), so `docker build .` needs no local Node.
+Run the backend (`python -m aliasfox`) on port 8080 alongside `npm run dev`. Before sending a change,
+run all four (`npm run lint && npm run check && npm test && npm run build`) and the backend suite
+(`.venv/bin/pytest -q`).
+
+How the bundle is served: the API process hosts the built files itself (one deployment). `/assets/*`
+are content-hashed and cached forever (`immutable`); `index.html` is `no-cache`; any other path that is
+not `/api/*`, `/healthz` or `/assets/*` falls back to `index.html` so deep links work. If no build
+exists the API still starts and `/` is a normal 404.
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `WEB_OUT_DIR` | `npm run build` | Where Vite writes the bundle. Default `../src/aliasfox/static`. The Docker build sets `/out`. |
+| `WEB_DIST_DIR` | the API at runtime | Where the API reads the bundle from. Default is the package's `static/` directory; the image sets `/app/static`. |
+
+The build must stay CSP-clean (`script-src 'self'; style-src 'self'`): no inline scripts or styles, no
+Svelte `transition:`/`animate:` directives. The ESLint bans on HTML-injection sinks are defence in depth
+only; the CSP is the real backstop, and `web/tests/bundle.test.ts` checks the built output (no `eval`,
+no new `innerHTML`, no source maps, no remote URLs; it builds the bundle first if it is missing).
+`tests/test_web_e2e.py` serves that bundle through the real app with auth on. The Docker image builds the
+app in a `node:22-slim` stage, so `docker build .` needs no local Node.
+
+## Keyboard shortcuts
+
+The search field always has focus: type to filter. This table is kept in sync with `web/src/lib/keys.ts`
+(`KEYMAP`) by `web/tests/readme.test.ts`, which fails if they differ. Press `?` in the app for the same
+list.
+
+| Keys | Action |
+| --- | --- |
+| `Enter` | Copy address |
+| `Shift` + `Enter` | Turn the address on or off |
+| `Alt` + `N` | New alias |
+| `Alt` + `E` | Edit label and note |
+| `Alt` + `Backspace` | Delete alias — when the search box is empty or the caret is at the start |
+| `Ctrl` + `K` or `⌘` + `K` | All actions |
+| `↑` or `Ctrl` + `K` | Previous alias |
+| `↓` or `Ctrl` + `J` | Next alias |
+| `Page Up` | Up one page |
+| `Page Down` | Down one page |
+| `Home` | First alias (empty search) |
+| `End` | Last alias (empty search) |
+| `Esc` | Clear the search |
+| `?` | Keyboard shortcuts (empty search) |
+
+`Ctrl` + `K` moves up on a Mac, where `⌘` + `K` opens the actions. Held keys act once, except the
+navigation keys.
+
+## Release checklist for the UI
+
+The automated tests run in jsdom, which cannot cover these. Check them by hand in real browsers
+before a release:
+
+- [ ] Option+N (new alias) and Option+E (edit) on macOS in Safari and in Chrome: the dialog opens and no
+      stray character (a dead-key accent such as `˜` or `´`) lands in the search box.
+- [ ] Ctrl+J / Ctrl+K navigation and Ctrl+K actions on Windows (Chrome and Edge); Cmd+K on macOS.
+- [ ] iOS Safari and Android Chrome: the one-time-code autofill fills the six code boxes (and a pasted
+      six-digit code spreads across them).
+- [ ] Reduced-motion: with the OS setting on, the connect steps do not slide and a wrong code does not
+      shake (colour change only).
+- [ ] A keyboard-only run-through: log in, connect, create, copy, edit, toggle, delete, log out, using
+      Tab/Shift+Tab and the shortcuts above, with a visible focus ring everywhere.
+- [ ] Open DevTools on the deployed site: no Content-Security-Policy violations in the Console while doing
+      the run-through above, and no failed requests.
+- [ ] Narrow layout at 320 px wide: no horizontal scrolling, dialogs and the detail pane stay usable.
+- [ ] Lighthouse accessibility audit on the login, connect and palette screens (this also covers colour
+      contrast, which jsdom cannot compute).
 
 ## Security model
 
