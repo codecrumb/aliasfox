@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KEYMAP, cap, createDeadKeyGuard, handleKey, keysFor, type KeyCtx, type KeyId } from '../src/lib/keys';
+import { KEYMAP, altDigit, cap, createDeadKeyGuard, handleKey, keysFor, type KeyCtx, type KeyId } from '../src/lib/keys';
 
 function ctx(over: Partial<KeyCtx> = {}): KeyCtx {
   const ids: KeyId[] = KEYMAP.map((b) => b.id);
@@ -40,7 +40,7 @@ describe('KEYMAP / handleKey', () => {
 
   it('exposes the documented ids', () => {
     expect(KEYMAP.map((b) => b.id).sort()).toEqual(
-      ['clear', 'copy', 'delete', 'down', 'edit', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'toggle', 'up'].sort()
+      ['clear', 'copy', 'delete', 'down', 'edit', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'refresh', 'toggle', 'up'].sort()
     );
   });
 
@@ -252,5 +252,24 @@ describe('createDeadKeyGuard', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Alt+digit jump', () => {
+  it('maps Alt+1..9 to 0..8 and Alt+0 to 9, and ignores other modifiers', () => {
+    expect(altDigit(ev({ key: '¡', code: 'Digit1', altKey: true }))).toBe(0);
+    expect(altDigit(ev({ key: '(', code: 'Digit9', altKey: true }))).toBe(8);
+    expect(altDigit(ev({ key: '°', code: 'Digit0', altKey: true }))).toBe(9);
+    expect(altDigit(ev({ key: '1', code: 'Digit1' }))).toBeNull();
+    expect(altDigit(ev({ key: '1', code: 'Digit1', altKey: true, metaKey: true }))).toBeNull();
+  });
+
+  it('calls jump once per press and swallows a held key', () => {
+    const jump = vi.fn();
+    const c = ctx({ jump });
+    expect(handleKey(ev({ key: '™', code: 'Digit2', altKey: true }), c)).toBe(true);
+    expect(handleKey(ev({ key: '™', code: 'Digit2', altKey: true, repeat: true }), c)).toBe(true);
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(jump).toHaveBeenCalledWith(1);
   });
 });

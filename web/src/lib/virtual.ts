@@ -42,6 +42,11 @@ export function scrollToShow(i: number, scrollTop: number, viewport: number): nu
   return null;
 }
 
+/** The first row that is fully in view (the row the number shortcuts count from). */
+export function firstVisibleRow(scrollTop: number): number {
+  return Math.max(0, Math.ceil((scrollTop - LIST_PADDING) / ROW_HEIGHT));
+}
+
 export function pageSize(viewport: number): number {
   const vh = viewport > 0 ? viewport : FALLBACK_VIEWPORT;
   return Math.max(1, Math.floor(vh / ROW_HEIGHT) - 1);

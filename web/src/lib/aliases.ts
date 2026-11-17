@@ -251,9 +251,11 @@ async function runReserve(g: number, b: { hme: string; label: string; note: stri
     if (!validAlias(created)) {
       throw new ApiError(0, UNEXPECTED);
     }
-    setList([created, ...listNow()], { error: null, loadError: null });
+    // Newest-first sorting puts an alias without a timestamp last; a just-created one is the newest.
+    const stamped: Alias = typeof created.created_ms === 'number' ? created : { ...created, created_ms: Date.now() };
+    setList([stamped, ...listNow()], { error: null, loadError: null });
     await persist(g);
-    return created;
+    return stamped;
   } catch (e) {
     if (g === gen) fail(e);
     throw e;

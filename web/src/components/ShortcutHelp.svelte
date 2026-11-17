@@ -28,6 +28,10 @@
         </dd>
       </div>
     {/each}
+    <div class="item">
+      <dt>Jump to a visible alias (hold {cap('Alt', mac)} to see the numbers)</dt>
+      <dd><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>1</kbd></span><span class="or">…</span><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>0</kbd></span></dd>
+    </div>
   </dl>
   {#each notes as n (n)}
     <p class="field-hint">{n}</p>

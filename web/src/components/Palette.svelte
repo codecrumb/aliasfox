@@ -10,7 +10,7 @@
   import { sessionStore } from '../lib/session';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
-  import { LIST_PADDING, ROW_HEIGHT, pageSize, scrollToShow, windowFor } from '../lib/virtual';
+  import { LIST_PADDING, ROW_HEIGHT, firstVisibleRow, pageSize, scrollToShow, windowFor } from '../lib/virtual';
   import ActionsMenu, { type MenuAction } from './ActionsMenu.svelte';
   import AliasRow from './AliasRow.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -74,6 +74,9 @@
   );
   const win = $derived(windowFor(scrollTop, viewH, results.length));
   const visible = $derived(results.slice(win.start, win.end));
+  // Holding Alt/Option labels the first ten visible rows 1..9,0; Alt+<digit> selects that row.
+  let altHeld = $state(false);
+  const numberBase = $derived(firstVisibleRow(scrollTop));
   const selected = $derived<Alias | null>(results[selIndex] ?? null);
   const activeDescendant = $derived(
     selected && selIndex >= win.start && selIndex < win.end ? optId(selIndex) : undefined
@@ -107,6 +110,10 @@
       announced = t;
     }, ANNOUNCE_MS);
   });
+
+  function numberHint(n: number): string | undefined {
+    return n >= 0 && n < 10 ? String((n + 1) % 10) : undefined;
+  }
 
   function optId(i: number): string {
     return `${uid}-opt-${i}`;
@@ -172,6 +179,10 @@
   function ensureVisible(i: number): void {
     const next = scrollToShow(i, scrollTop, viewH);
     if (next !== null) setScroll(next);
+  }
+
+  function jump(n: number): void {
+    select(numberBase + n);
   }
 
   function select(i: number): void {
@@ -298,7 +309,7 @@
       { id: 'filter-all', label: 'Filter: All', current: filter === 'all' },
       { id: 'filter-active', label: 'Filter: Active', current: filter === 'active' },
       { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive' },
-      { id: 'refresh', label: 'Refresh from Apple' },
+      { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh') },
       { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help') },
       { id: 'disconnect', label: 'Disconnect Apple account', danger: true },
       { id: 'logout', label: 'Log out' }
@@ -351,6 +362,7 @@
       caretAtStart: caretAtStart(),
       blocked: anyOpen,
       mac,
+      jump,
       copy: () => void copyAlias(selected),
       toggle: () => void toggleSelected(),
       new: openNew,
@@ -364,6 +376,7 @@
       pageUp: () => select(selIndex - pageSize(viewH)),
       pageDown: () => select(selIndex + pageSize(viewH)),
       clear: () => (q = ''),
+      refresh: () => void refresh(),
       help: () => (dialog = { kind: 'help' })
     };
   }
@@ -470,7 +483,16 @@
   });
 </script>
 
-<svelte:window onkeydown={onWindowKey} />
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Alt') altHeld = true;
+    onWindowKey(e);
+  }}
+  onkeyup={(e) => {
+    if (e.key === 'Alt') altHeld = false;
+  }}
+  onblur={() => (altHeld = false)}
+/>
 
 <section
   class="palette"
@@ -570,6 +592,7 @@
             index={win.start + k}
             total={results.length}
             selected={win.start + k === selIndex}
+            hint={altHeld ? numberHint(win.start + k - numberBase) : undefined}
           />
         {/each}
         <div class="spacer" aria-hidden="true" style:height="{win.bottom}px"></div>

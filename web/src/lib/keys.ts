@@ -15,6 +15,7 @@ export type KeyId =
   | 'pageUp'
   | 'pageDown'
   | 'clear'
+  | 'refresh'
   | 'help';
 
 export interface Combo {
@@ -92,6 +93,7 @@ export const KEYMAP: readonly KeyBinding[] = [
   { id: 'first', keys: [['Home']], label: 'First alias (empty search)', combos: [{ key: 'Home' }], when: 'searchEmpty' },
   { id: 'last', keys: [['End']], label: 'Last alias (empty search)', combos: [{ key: 'End' }], when: 'searchEmpty' },
   { id: 'clear', keys: [['Esc']], label: 'Clear the search', combos: [{ key: 'Escape' }], when: 'searchNotEmpty' },
+  { id: 'refresh', keys: [['Alt', 'R']], label: 'Refresh from Apple', combos: [{ code: 'KeyR', alt: true }] },
   { id: 'help', keys: [['?']], label: 'Keyboard shortcuts (empty search)', combos: [{ key: '?', anyShift: true }], when: 'searchEmpty' }
 ];
 
@@ -99,6 +101,8 @@ export type KeyCtx = Record<KeyId, () => void> & {
   searchEmpty: boolean;
   /** The search caret is at position 0 with no selection. */
   caretAtStart?: boolean;
+  /** Alt/Option+1..9,0: select the n-th row (0-based) of the visible list. */
+  jump?: (n: number) => void;
   /** A dialog or menu owns the keyboard. */
   blocked: boolean;
   mac: boolean;
@@ -176,12 +180,25 @@ export function isAltLetter(e: KeyboardEvent): boolean {
   return e.altKey && !e.ctrlKey && !e.metaKey && /^Key[A-Z]$/.test(e.code);
 }
 
+/** Alt/Option+1..9 is 0..8 and Alt/Option+0 is 9: the row a number shortcut points at, else null. */
+export function altDigit(e: KeyboardEvent): number | null {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+  const m = /^Digit([0-9])$/.exec(e.code);
+  return m === null ? null : (Number(m[1]) + 9) % 10;
+}
+
 /** Runs the matching action. Returns true (and prevents the default) when it handled the event. */
 export function handleKey(e: KeyboardEvent, ctx: KeyCtx): boolean {
   if (ctx.blocked || e.isComposing === true) return false;
   // keyCode 229 without isComposing: an IME is processing the key (e.g. Safari's Enter that
   // commits a composition). Ignore it, except Option+letter dead keys, matched by event.code.
   if (e.keyCode === 229 && !isAltLetter(e)) return false;
+  const digit = altDigit(e);
+  if (digit !== null && ctx.jump) {
+    e.preventDefault(); // Option+digit types a symbol on a Mac
+    if (!e.repeat) ctx.jump(digit);
+    return true;
+  }
   for (const b of KEYMAP) {
     if (b.when === 'searchEmpty' && !ctx.searchEmpty) continue;
     if (b.when === 'searchNotEmpty' && ctx.searchEmpty) continue;

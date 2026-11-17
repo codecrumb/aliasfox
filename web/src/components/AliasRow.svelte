@@ -27,8 +27,10 @@
     index: number;
     total: number;
     selected: boolean;
+    /** Number shown while Alt/Option is held (the row's Alt+digit shortcut). */
+    hint?: string;
   }
-  let { alias, id, index, total, selected }: Props = $props();
+  let { alias, id, index, total, selected, hint }: Props = $props();
 
   const label = $derived(cap(alias.label).trim());
   const origin = $derived(originLabel(alias.origin));
@@ -47,6 +49,7 @@
   data-index={index}
   data-id={alias.anonymous_id}
 >
+  {#if hint !== undefined}<kbd class="num" aria-hidden="true">{hint}</kbd>{/if}
   <div class="text">
     <span class="label ellipsis" class:empty={label === ''} dir="auto">{label === '' ? 'No label' : label}</span>
     <span class="addr ellipsis">{cap(alias.hme)}</span>
@@ -88,6 +91,18 @@
     width: 3px;
     border-radius: 2px;
     background: var(--accent);
+  }
+  .num {
+    flex: none;
+    min-width: 1.25rem;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-align: center;
   }
   .text {
     flex: 1;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { aliasStore } from '../lib/aliases';
   import { describeError, isSessionError } from '../lib/errors';
   import { createDeadKeyGuard, isCompositionInput, isMac, isSubmitChord } from '../lib/keys';
@@ -26,6 +26,10 @@
   let invalid = $state(false);
   let sessionLost = $state(false);
   let labelInput: HTMLInputElement | undefined = $state();
+  let enabling = $state(false);
+  // Apple doesn't take label/note changes for a turned-off address, so editing waits until it is on.
+  // Read live: turning it on here (or Shift+Enter in the palette) flips this without reopening.
+  const isOn = $derived($aliasStore.list.find((a) => a.anonymous_id === id)?.is_active ?? initial.is_active);
   const mac = isMac();
   // Option+E (the shortcut that opens this dialog) is a dead key on a Mac and would otherwise
   // replace the selected label with an accent.
@@ -54,8 +58,26 @@
     deadKey.arm(label);
   });
 
+  async function turnOn(): Promise<void> {
+    if (enabling) return;
+    enabling = true;
+    error = '';
+    sessionLost = false;
+    try {
+      await aliasStore.setActive(id, true);
+      await tick();
+      labelInput?.focus({ preventScroll: true });
+      labelInput?.select();
+    } catch (e) {
+      sessionLost = isSessionError(e);
+      error = describeError(e, "Couldn't turn it on. Try again.");
+    } finally {
+      enabling = false;
+    }
+  }
+
   async function save(): Promise<void> {
-    if (busy) return;
+    if (busy || !isOn) return;
     const l = label.trim();
     if (l === '') {
       invalid = true;
@@ -108,6 +130,12 @@
       <h2 class="dialog-title" id="{uid}-title">Edit alias</h2>
       <p class="dialog-text mono addr" dir="auto">{hme}</p>
     </div>
+    {#if !isOn}
+      <div class="off-note">
+        <p>This address is off, so its label and note can't be changed. Turn it on to edit, then turn it off again with Shift Enter.</p>
+        <button type="button" onclick={() => void turnOn()} disabled={enabling}>{enabling ? 'Turning on…' : 'Turn on to edit'}</button>
+      </div>
+    {/if}
     <div>
       <label for="{uid}-label">Label</label>
       <input
@@ -115,6 +143,7 @@
         bind:this={labelInput}
         bind:value={label}
         maxlength="200"
+        disabled={!isOn}
         autocomplete="off"
         spellcheck="false"
         aria-invalid={invalid}
@@ -130,7 +159,7 @@
     </div>
     <div>
       <label for="{uid}-note">Note</label>
-      <textarea id="{uid}-note" bind:value={note} rows="3" maxlength="2000" dir="auto"></textarea>
+      <textarea id="{uid}-note" bind:value={note} rows="3" maxlength="2000" dir="auto" disabled={!isOn}></textarea>
       <p class="field-hint">{mac ? '⌘' : 'Ctrl'} Enter saves from anywhere in this dialog.</p>
     </div>
     <div class="error-row">
@@ -141,7 +170,7 @@
     </div>
     <div class="dialog-actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" class="primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="submit" class="primary" disabled={busy || !isOn}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   </form>
 </Modal>
@@ -151,6 +180,21 @@
     margin-top: 0;
   }
   .addr {
+    font-size: 0.875rem;
+  }
+  .off-note {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .off-note p {
+    margin: 0;
+    color: var(--muted);
     font-size: 0.875rem;
   }
 </style>

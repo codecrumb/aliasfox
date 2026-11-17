@@ -134,6 +134,7 @@ list.
 | `Home` | First alias (empty search) |
 | `End` | Last alias (empty search) |
 | `Esc` | Clear the search |
+| `Alt` + `R` | Refresh from Apple |
 | `?` | Keyboard shortcuts (empty search) |
 
 `Ctrl` + `K` moves up on a Mac, where `⌘` + `K` opens the actions. Held keys act once, except the
