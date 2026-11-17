@@ -91,11 +91,21 @@ def test_find_by_subject_unknown_is_none(users):
 def test_bump_only_affects_that_user(users):
     a = users.create("a")
     b = users.create("b")
-    assert users.get(a) == 0
-    assert users.bump(a) == 1
-    assert users.bump(a) == 2
-    assert users.get(a) == 2
-    assert users.get(b) == 0
+    ea, eb = users.get(a), users.get(b)
+    assert users.bump(a) == ea + 1
+    assert users.bump(a) == ea + 2
+    assert users.get(a) == ea + 2
+    assert users.get(b) == eb
+
+
+def test_new_users_start_at_random_epoch(users):
+    # A random start keeps a deleted user's cookie {u: N, e: start} from
+    # matching a new user that reuses id N (SQLite has no AUTOINCREMENT here).
+    epochs = [users.get(users.create(f"s{i}")) for i in range(2)]
+    assert epochs != [0, 0]
+    assert epochs[0] != epochs[1]
+    for e in epochs:
+        assert isinstance(e, int) and 0 < e < 2**31 - 1
 
 
 def test_get_unknown_user_is_none(users):
@@ -108,13 +118,14 @@ def test_delete_removes_session_and_user_and_wrapped_key(users, engine):
     with Session(engine) as s, s.begin():
         s.add(AppleSessionRow(user_id=a, blob=b"x" * 40))
         s.add(AppleSessionRow(user_id=b, blob=b"y" * 40))
+    eb = users.get(b)
     users.delete(a)
     assert users.get(a) is None
     assert users.find_by_subject("a") is None
     assert _count(engine, f"select count(*) from users where id={a}") == 0
     assert _count(engine, f"select count(*) from apple_sessions where user_id={a}") == 0
     # the other user is untouched
-    assert users.get(b) == 0
+    assert users.get(b) == eb
     assert _count(engine, f"select count(*) from apple_sessions where user_id={b}") == 1
     users.delete(a)  # absent: no error
     users.delete(12345)

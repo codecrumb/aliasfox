@@ -2,6 +2,8 @@
 
 Also serves as the epochs store for auth (`get`/`bump`), replacing DbEpochs.
 """
+import secrets
+
 from sqlalchemy import Engine, delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -11,6 +13,15 @@ from aliasfox.db import DEFAULT_USER_ID, AppleSessionRow, User
 from aliasfox.keys import KeyRing
 
 SINGLE_SUBJECT = "single"
+# New users start at a random epoch in [1, 2**30], leaving headroom below the
+# int32 column limit for bumps. On SQLite a deleted highest id can be reused;
+# a random start keeps the deleted user's cookie {u: N, e: start} from
+# matching the new user. Epochs are only compared for equality and bumped by 1.
+_START_EPOCH_RANGE = 2**30
+
+
+def _start_epoch() -> int:
+    return secrets.randbelow(_START_EPOCH_RANGE) + 1
 
 
 class UserDirectory:
@@ -47,7 +58,7 @@ class UserDirectory:
             return existing
         try:
             with self._sessions.begin() as s:
-                user = User(auth_subject=subject)
+                user = User(auth_subject=subject, session_epoch=_start_epoch())
                 s.add(user)
                 s.flush()  # assigns the id the wrapped key is bound to
                 _, user.wrapped_key = self._keyring.new_wrapped(user.id)

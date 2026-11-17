@@ -661,7 +661,7 @@ def test_cookie_for_unknown_user_rejected_even_if_epoch_matches(pw_hash):
 
 
 def test_current_user_returns_cookie_user_id(pw_hash):
-    app = build(pw_hash)
+    app = build(pw_hash, aliasfox_mode="multi")
     app.state.epochs.bump(7)  # MemoryEpochs: user 7 now exists with epoch 1
     c = client(app)
     c.cookies.set("aliasfox_session", serializer().dumps({"u": 7, "e": 1}))
@@ -669,6 +669,16 @@ def test_current_user_returns_cookie_user_id(pw_hash):
     assert c.post("/api/auth/logout").status_code == 200
     assert app.state.epochs.get(7) == 2
     assert app.state.epochs.get(1) == 0  # only the cookie's user is bumped
+
+
+def test_single_mode_rejects_cookie_for_other_existing_user(pw_hash):
+    app = build(pw_hash)
+    app.state.epochs.bump(2)  # user 2 exists with epoch 1
+    c = client(app)
+    c.cookies.set("aliasfox_session", serializer().dumps({"u": 2, "e": 1}))
+    assert c.get("/api/protected").status_code == 401
+    assert c.post("/api/auth/logout").status_code == 200
+    assert app.state.epochs.get(2) == 1  # not a valid session: nothing bumped
 
 
 def test_issue_cookie_is_shared_by_login(pw_hash):

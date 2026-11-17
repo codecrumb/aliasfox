@@ -119,7 +119,7 @@ def test_known_subject_gets_cookie(tmp_path):
     h = r.headers["set-cookie"].lower()
     for flag in ("httponly", "samesite=strict", "path=/", "secure", "max-age=604800"):
         assert flag in h
-    assert cookie_payload(c) == {"u": uid, "e": 0}
+    assert cookie_payload(c) == {"u": uid, "e": e.users.get(uid)}
     assert c.get("/api/protected").json() == {"uid": uid}
     assert e.count_users() == 1
 
@@ -151,7 +151,7 @@ def test_unknown_subject_open_creates_user(tmp_path):
     assert r.status_code == 200
     uid = e.users.find_by_subject("sub-new")
     assert uid is not None
-    assert cookie_payload(c) == {"u": uid, "e": 0}
+    assert cookie_payload(c) == {"u": uid, "e": e.users.get(uid)}
     assert c.get("/api/protected").json() == {"uid": uid}
     assert e.count_users() == 1
     # a second exchange for the same subject reuses the row
@@ -345,9 +345,10 @@ def test_logout_bumps_only_that_user_epoch(tmp_path):
     ua, ub = cookie_payload(a)["u"], cookie_payload(b)["u"]
     assert ua != ub
     stolen_a = a.cookies[COOKIE_NAME]
+    ea, eb = e.users.get(ua), e.users.get(ub)
     assert a.post("/api/auth/logout").status_code == 200
-    assert e.users.get(ua) == 1
-    assert e.users.get(ub) == 0
+    assert e.users.get(ua) == ea + 1
+    assert e.users.get(ub) == eb
     assert b.get("/api/protected").json() == {"uid": ub}
     replay = e.client()
     replay.cookies.set(COOKIE_NAME, stolen_a)
@@ -358,8 +359,9 @@ def test_anonymous_logout_bumps_nobody(tmp_path):
     e = env(tmp_path, {"ta": ident("sub-a")}, signups_enabled=True)
     exchange(e.client(), "ta")
     ua = e.users.find_by_subject("sub-a")
+    before = e.users.get(ua)
     assert e.client().post("/api/auth/logout").status_code == 200
-    assert e.users.get(ua) == 0
+    assert e.users.get(ua) == before
 
 
 def test_login_route_absent_in_multi(tmp_path):
@@ -389,7 +391,8 @@ def test_cookie_epoch_mismatch_is_401(tmp_path):
     c = e.client()
     exchange(c, "ta")
     uid = cookie_payload(c)["u"]
-    for bad in (1, -1, "0", None, True, 0.0):
+    start = e.users.get(uid)
+    for bad in (start + 1, start - 1, -1, str(start), None, True, float(start)):
         f = e.client()
         f.cookies.set(COOKIE_NAME, serializer().dumps({"u": uid, "e": bad}))
         assert f.get("/api/protected").status_code == 401, bad
@@ -416,9 +419,27 @@ def test_cookie_signed_with_other_secret_is_401(tmp_path):
     uid = cookie_payload(c)["u"]
     f = e.client()
     f.cookies.set(
-        COOKIE_NAME, serializer("another-secret-key-0123456789abcdef").dumps({"u": uid, "e": 0})
+        COOKIE_NAME, serializer("another-secret-key-0123456789abcdef").dumps(
+            {"u": uid, "e": e.users.get(uid)}
+        )
     )
     assert f.get("/api/protected").status_code == 401
+
+
+def test_deleted_user_cookie_cannot_open_reused_id(tmp_path):
+    e = env(tmp_path, {"ta": ident("sub-a"), "tb": ident("sub-b")}, signups_enabled=True)
+    e.users.create("sub-first")  # A is not the only row; it is the highest id
+    a = e.client()
+    assert exchange(a, "ta").status_code == 200
+    ua = cookie_payload(a)["u"]
+    assert a.get("/api/protected").json() == {"uid": ua}
+    e.users.delete(ua)
+    b = e.client()
+    assert exchange(b, "tb").status_code == 200
+    ub = cookie_payload(b)["u"]
+    assert ub == ua  # SQLite reuses the deleted highest id: the scenario under test
+    assert a.get("/api/protected").status_code == 401  # A's old cookie opens nothing
+    assert b.get("/api/protected").json() == {"uid": ub}
 
 
 # --- create_app wiring ---------------------------------------------------------------

@@ -97,6 +97,8 @@ def _validated_epoch(request: Request, settings: Settings) -> tuple[int, int] | 
     user_id, epoch = data.get("u"), data.get("e")
     if not _plain_int(user_id) or not _plain_int(epoch):
         return None
+    if settings.aliasfox_mode != "multi" and user_id != USER_ID:
+        return None  # single mode: only the owner's cookie
     current = request.app.state.epochs.get(user_id)
     if current is None or epoch != current:
         return None
