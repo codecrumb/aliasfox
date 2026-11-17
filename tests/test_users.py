@@ -169,14 +169,9 @@ def test_create_app_multi_mode_creates_no_user(tmp_path, monkeypatch):
     from aliasfox.main import create_app
 
     monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
-    settings = Settings(
-        secret_key=SECRET,
-        aliasfox_mode="multi",
-        database_url=f"sqlite:///{tmp_path}/multi.db",
-        neon_auth_base_url="https://auth.example",
-        neon_auth_jwks_url="https://auth.example/jwks",
-        trusted_proxy=True,
-    )
+    from helpers import multi_mode_settings
+
+    settings = multi_mode_settings(tmp_path, secret_key=SECRET)
     create_app(settings)
     assert _count(make_engine(settings), "select count(*) from users") == 0
 

@@ -2,6 +2,7 @@ import pytest
 
 from aliasfox.config import ConfigError, Settings, validate_startup
 from aliasfox.crypto import hash_password
+from helpers import MULTI_CONTACT
 
 KEY = "k" * 32
 HASH = hash_password("pw-for-config-tests")
@@ -76,9 +77,31 @@ def multi(**kw):
         neon_auth_jwks_url="https://auth.example.com/jwks",
         database_url="postgresql://u:p@db/x",
         trusted_proxy=True,
+        contact_email=MULTI_CONTACT,
     )
     base.update(kw)
     return make(**base)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [None, "", "   ", "no-at-sign.example", "a@b@example.com", "a b@example.com",
+     "a@exa\tmple.com", "<a@example.com>", 'a"@example.com', "a'@example.com",
+     '"><script>x</script>'],
+)
+def test_multi_requires_valid_contact_email(bad):
+    with pytest.raises(ConfigError, match="CONTACT_EMAIL") as ei:
+        validate_startup(multi(contact_email=bad))
+    if bad and bad.strip():
+        assert bad.strip() not in str(ei.value)
+
+
+def test_multi_accepts_contact_email_with_surrounding_space_and_no_public_url():
+    validate_startup(multi(contact_email="  ops@example.com  ", public_url=None))
+
+
+def test_single_mode_does_not_require_contact_email():
+    validate_startup(make(contact_email=None))
 
 
 def test_allowlist_parsing():

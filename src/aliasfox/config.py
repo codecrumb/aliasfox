@@ -107,6 +107,16 @@ def _validate_multi(s: Settings) -> None:
     ):
         if not ok:
             raise ConfigError(f"{name} is required when ALIASFOX_MODE=multi")
+    contact = (s.contact_email or "").strip()
+    if (
+        contact.count("@") != 1
+        or any(c.isspace() or c in "<>\"'" for c in contact)
+    ):
+        # Never echo the value.
+        raise ConfigError(
+            "CONTACT_EMAIL is required when ALIASFOX_MODE=multi and must be one plain "
+            "email address (one @, no spaces or <>\"' characters)"
+        )
     if url_origin(s.neon_auth_base_url) is None:
         raise ConfigError(
             "NEON_AUTH_BASE_URL must be a plain http(s) URL with a hostname "

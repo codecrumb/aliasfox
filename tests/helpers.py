@@ -27,6 +27,7 @@ def make_store(engine: Engine, secret: str = TEST_SECRET) -> tuple[SessionStore,
 
 MULTI_SECRET = "multi-user-test-secret-0123456789abcdef"
 MULTI_BASE = "https://aliasfox.test"
+MULTI_CONTACT = "operator@example.com"
 APPLE_WS_URL = "https://p1-maildomainws.icloud.com"
 APPLE_CODE = "123456"
 
@@ -50,6 +51,7 @@ def neon_identity(sub, email="person@example.com", verified=True):
 def multi_mode_settings(tmp_path, **kw):
     kw.setdefault("secret_key", MULTI_SECRET)
     kw.setdefault("database_url", f"sqlite:///{tmp_path}/multi.db")
+    kw.setdefault("contact_email", MULTI_CONTACT)
     return Settings(
         aliasfox_mode="multi",
         data_dir=tmp_path,

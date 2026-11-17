@@ -24,6 +24,7 @@ from aliasfox.exchange import install_exchange
 from aliasfox.keys import KeyRing
 from aliasfox.neon_jwt import Identity, TokenRejected
 from aliasfox.users import UserDirectory
+from helpers import multi_mode_settings
 
 SECRET = "exchange-test-secret-key-0123456789abcdef"
 BASE = "https://aliasfox.test"
@@ -53,14 +54,7 @@ def ident(sub, email=EMAIL, verified=True):
 
 def multi_settings(tmp_path, **kw):
     kw.setdefault("secret_key", SECRET)
-    return Settings(
-        aliasfox_mode="multi",
-        data_dir=tmp_path,
-        neon_auth_base_url="https://auth.example/neondb/auth",
-        neon_auth_jwks_url="https://auth.example/neondb/auth/.well-known/jwks.json",
-        trusted_proxy=True,
-        **kw,
-    )
+    return multi_mode_settings(tmp_path, **kw)
 
 
 class Env:

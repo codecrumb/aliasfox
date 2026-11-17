@@ -2,10 +2,12 @@
 import re
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import aliasfox.main as main_mod
-from aliasfox.config import Settings
+from aliasfox.config import ConfigError, Settings
+from aliasfox.pages import install_pages
 from helpers import MULTI_BASE, FakeNeonVerifier, MultiUserEnv, multi_mode_settings
 
 REPO = "https://github.com/codecrumb/aliasfox"
@@ -27,6 +29,16 @@ def client(tmp_path, monkeypatch, dist_dir=None, **settings_kw) -> TestClient:
     monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
     monkeypatch.setattr(main_mod, "NeonTokenVerifier", lambda **_: FakeNeonVerifier())
     app = main_mod.create_app(multi_mode_settings(tmp_path, **settings_kw), dist_dir=dist_dir)
+    return TestClient(app, base_url=MULTI_BASE)
+
+
+def unvalidated_client(**settings_kw) -> TestClient:
+    """The pages alone, with settings startup validation would refuse (multi mode now
+    requires a plain CONTACT_EMAIL): the rendering stays safe even so."""
+    settings = Settings(aliasfox_mode="multi", secret_key="s" * 32, **settings_kw)
+    app = FastAPI()
+    app.state.settings = settings
+    install_pages(app, settings)
     return TestClient(app, base_url=MULTI_BASE)
 
 
@@ -160,7 +172,9 @@ def test_terms_state_no_warranty_unofficial_not_affiliated_with_apple_no_guarant
 
 def test_contact_email_is_escaped(tmp_path, monkeypatch):
     evil = '"><script>x</script>'
-    c = client(tmp_path, monkeypatch, contact_email=evil)
+    with pytest.raises(ConfigError):  # startup refuses it outright
+        client(tmp_path, monkeypatch, contact_email=evil)
+    c = unvalidated_client(contact_email=evil)
     for path in PAGES:
         html = c.get(path).text
         assert evil not in html
@@ -198,7 +212,9 @@ def test_public_url_unset_omits_absolute_urls(tmp_path, monkeypatch):
 
 
 def test_no_contact_set_falls_back_to_github_issue_text(tmp_path, monkeypatch):
-    c = client(tmp_path, monkeypatch)
+    with pytest.raises(ConfigError):  # multi mode requires CONTACT_EMAIL at startup
+        client(tmp_path, monkeypatch, contact_email=None)
+    c = unvalidated_client(contact_email=None)
     for path in ("/privacy", "/terms"):
         html = c.get(path).text
         assert "mailto:" not in html

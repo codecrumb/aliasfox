@@ -66,7 +66,7 @@ Startup refuses to run unless all required settings are present and valid.
 | `SIGNUPS_ENABLED` | no | `false` by default: only existing users and the allowlist can sign in. |
 | `SIGNUP_ALLOWLIST` | no | Comma-separated emails always allowed to sign up. |
 | `PUBLIC_URL` | recommended | Public origin of the deployment; https (http only for localhost). Shown on the legal pages. |
-| `CONTACT_EMAIL` | recommended | Contact address shown on the privacy and terms pages. Set by the operator; never committed. |
+| `CONTACT_EMAIL` | yes | Contact address shown on the privacy and terms pages: one plain address (startup refuses an empty value, spaces or `<>"'`). Set by the operator; never committed. |
 
 Before going live:
 
