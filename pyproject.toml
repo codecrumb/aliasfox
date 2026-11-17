@@ -37,6 +37,7 @@ aliasfox = [
     "migrations/versions/*.py",
     "page_templates/*.html",
     "page_templates/*.css",
+    "page_templates/*.js",
 ]
 
 [tool.pytest.ini_options]

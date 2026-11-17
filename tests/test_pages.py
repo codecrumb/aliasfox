@@ -68,7 +68,9 @@ def test_landing_has_no_script_tag_and_no_external_urls_except_repo_link(
     for path in PAGES:
         html = c.get(path).text
         lower = html.lower()
-        assert "<script" not in lower, path
+        # the only script is the landing page's same-origin hero tilt
+        assert lower.count("<script") == (path == "/"), path
+        assert "<script" not in lower or '<script src="/hero.js" defer></script>' in lower, path
         assert "<style" not in lower, path
         assert re.search(r"\sstyle\s*=", lower) is None, path
         assert re.search(r"\son[a-z]+\s*=", lower) is None, path  # inline handlers
@@ -178,7 +180,7 @@ def test_contact_email_is_escaped(tmp_path, monkeypatch):
     for path in PAGES:
         html = c.get(path).text
         assert evil not in html
-        assert "<script" not in html.lower()
+        assert "<script>" not in html.lower()  # only the hero's src= script exists
     privacy = c.get("/privacy").text
     assert "&quot;&gt;&lt;script&gt;x&lt;/script&gt;" in privacy
 
@@ -226,7 +228,7 @@ def test_no_contact_set_falls_back_to_github_issue_text(tmp_path, monkeypatch):
 def test_pages_absent_in_single_mode(tmp_path, dist):
     settings = Settings(secret_key="s" * 32, data_dir=tmp_path / "data")
     c = TestClient(main_mod.create_app(settings, dist_dir=dist), base_url="http://localhost")
-    for path in ("/", "/privacy", "/terms", "/site.css"):
+    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js"):
         r = c.get(path)
         assert r.status_code == 200 and r.text == INDEX, path  # SPA fallback, unchanged
     bare = TestClient(
@@ -235,7 +237,7 @@ def test_pages_absent_in_single_mode(tmp_path, dist):
         ),
         base_url="http://localhost",
     )
-    for path in ("/", "/privacy", "/terms", "/site.css"):
+    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js"):
         assert bare.get(path).status_code == 404, path
 
 

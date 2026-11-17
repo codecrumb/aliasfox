@@ -75,6 +75,7 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
         return
     rendered = {path: render(_template(name), settings) for path, name in PAGES.items()}
     css = _template("site.css")
+    hero_js = _template("hero.js")
     html_headers = {"Cache-Control": NO_CACHE}
 
     @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
@@ -93,6 +94,10 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
     @app.api_route("/terms", methods=["GET", "HEAD"], include_in_schema=False)
     def terms():
         return HTMLResponse(rendered["/terms"], headers=html_headers)
+
+    @app.api_route("/hero.js", methods=["GET", "HEAD"], include_in_schema=False)
+    def hero_script():
+        return Response(hero_js, media_type="text/javascript", headers={"Cache-Control": CSS_CACHE})
 
     @app.api_route("/site.css", methods=["GET", "HEAD"], include_in_schema=False)
     def site_css():
