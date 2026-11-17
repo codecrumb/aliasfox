@@ -185,7 +185,8 @@ describe('SignIn', () => {
     cleanup();
     config({ signupsOpen: false });
     render(SignIn, { onNavigate });
-    expect(screen.queryByRole('link', { name: 'Create an account' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Create an account' })).toBeInTheDocument();
+    expect(screen.getByText(/Invited\?/)).toBeInTheDocument();
   });
 
   it('after account deletion: says so, and the pending line names the contact', () => {
@@ -207,12 +208,12 @@ describe('SignIn', () => {
 });
 
 describe('SignUp', () => {
-  it('closed: a plain message and a link to log in, no form', async () => {
+  it('closed: an invite-only note, the form stays, and a link to log in', async () => {
     config({ signupsOpen: false });
     const onNavigate = vi.fn();
     render(SignUp, { onNavigate });
-    expect(screen.getByText('Sign-ups are closed for now')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Email')).toBeNull();
+    expect(screen.getByText(/invite-only for now/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'Log in' });
     expect(link.getAttribute('href')).toBe('/login');
     await fireEvent.click(link);

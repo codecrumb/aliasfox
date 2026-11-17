@@ -117,10 +117,9 @@
         {submitting ? 'Logging in…' : 'Log in'}
       </button>
     </form>
-    {#if $appConfig.signupsOpen}
-      <p class="auth-alt">
-        New here? <a href="/signup" onclick={(e) => go(e, '/signup')}>Create an account</a>
-      </p>
-    {/if}
+    <p class="auth-alt">
+      {$appConfig.signupsOpen ? 'New here?' : 'Invited?'}
+      <a href="/signup" onclick={(e) => go(e, '/signup')}>Create an account</a>
+    </p>
   {/if}
 </section>

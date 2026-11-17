@@ -59,13 +59,13 @@
 
 <section class="screen login" data-screen="signup" tabindex="-1" aria-label="Create an account">
   <div class="brand"><span class="mark" aria-hidden="true"></span><span>AliasFox</span></div>
-  {#if !$appConfig.signupsOpen}
-    <h2 class="auth-title">Sign-ups are closed for now</h2>
-    <p class="auth-alt">Already have an account? <a href="/login" onclick={(e) => go(e, '/login')}>Log in</a></p>
-  {:else if view === 'code'}
+  {#if view === 'code'}
     <EmailCode email={codeFor} onVerified={() => enterApp(codeFor, codePassword)} onBack={back} />
   {:else}
     <h2 class="auth-title">Create an account</h2>
+    {#if !$appConfig.signupsOpen}
+      <p class="auth-alt">Sign-ups are invite-only for now. Use the email address you were invited with.</p>
+    {/if}
     <form class="auth-form" onsubmit={submit} novalidate>
       <div>
         <label for="signup-email">Email</label>

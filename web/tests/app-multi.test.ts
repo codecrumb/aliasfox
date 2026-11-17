@@ -98,13 +98,13 @@ describe('multi mode signed-out routing', () => {
     expect(tl.screen.getByRole('heading', { level: 1 })).toHaveTextContent('Create an AliasFox account');
   });
 
-  it('/signup with sign-ups closed shows the closed message', async () => {
+  it('/signup with sign-ups closed still shows the form, with an invite-only note', async () => {
     configReply = () => json({ ...MULTI, signups_open: false });
     history.replaceState(null, '', '/signup');
     tl.render(App);
     signedOut();
-    expect(await tl.screen.findByText('Sign-ups are closed for now')).toBeInTheDocument();
-    expect(tl.screen.queryByLabelText('Email')).toBeNull();
+    expect(await tl.screen.findByText(/invite-only for now/)).toBeInTheDocument();
+    expect(tl.screen.getByLabelText('Email')).toBeInTheDocument();
   });
 
   it('an unknown path shows SignIn', async () => {
