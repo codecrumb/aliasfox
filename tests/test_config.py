@@ -114,6 +114,16 @@ def test_multi_no_longer_refused_when_configured():
     validate_startup(make(aliasfox_mode="single"))
 
 
+@pytest.mark.parametrize(
+    "bad",
+    ["not a url", "ftp://auth.example.com", "https://u:p@auth.example.com",
+     "https://*.example.com", "https://[::1]", "auth.example.com"],
+)
+def test_multi_requires_usable_csp_origin_for_neon_base_url(bad):
+    with pytest.raises(ConfigError, match="NEON_AUTH_BASE_URL"):
+        validate_startup(multi(neon_auth_base_url=bad))
+
+
 def test_multi_ignores_auth_enabled_and_password_hash():
     validate_startup(multi(auth_enabled=True, password_hash=None))
 

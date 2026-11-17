@@ -8,6 +8,8 @@ from argon2 import extract_parameters
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aliasfox.middleware import url_origin
+
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -105,6 +107,11 @@ def _validate_multi(s: Settings) -> None:
     ):
         if not ok:
             raise ConfigError(f"{name} is required when ALIASFOX_MODE=multi")
+    if url_origin(s.neon_auth_base_url) is None:
+        raise ConfigError(
+            "NEON_AUTH_BASE_URL must be a plain http(s) URL with a hostname "
+            "(no credentials, wildcards or IP literals in brackets)"
+        )
     if not s.trusted_proxy:
         raise ConfigError("TRUSTED_PROXY=true is required when ALIASFOX_MODE=multi")
     raw = os.environ.get("WEB_CONCURRENCY", "1").strip() or "1"
