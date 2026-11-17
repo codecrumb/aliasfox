@@ -28,7 +28,7 @@ beforeEach(() => {
   index = join(root, 'static', 'index.html');
   mkdirSync(join(root, 'static'));
   mkdirSync(join(web, 'node_modules'));
-  for (const f of ['src/main.ts', 'src/lib/deep/x.ts', 'index.html', 'package.json', 'vite.config.ts', 'svelte.config.js']) put(f, 1000);
+  for (const f of ['src/main.ts', 'src/lib/deep/x.ts', 'index.html', 'package.json', 'package-lock.json', 'vite.config.ts', 'svelte.config.js']) put(f, 1000);
   writeFileSync(index, '<html>');
   at(index, 2000);
 });
@@ -44,7 +44,7 @@ describe('bundleState', () => {
     expect(bundleState(web, index)).toBe('missing');
   });
 
-  it.each(['src/main.ts', 'src/lib/deep/x.ts', 'index.html', 'package.json', 'vite.config.ts', 'svelte.config.js'])(
+  it.each(['src/main.ts', 'src/lib/deep/x.ts', 'index.html', 'package.json', 'package-lock.json', 'vite.config.ts', 'svelte.config.js'])(
     'is stale when %s is touched after the bundle',
     (rel) => {
       at(join(web, rel), 3000);

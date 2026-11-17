@@ -14,7 +14,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SOURCES = ['src', 'index.html', 'package.json', 'vite.config.ts', 'svelte.config.js'];
+export const SOURCES = ['src', 'index.html', 'package.json', 'package-lock.json', 'vite.config.ts', 'svelte.config.js'];
 export const EXIT = { FRESH: 0, FAILED: 1, STALE: 3, MISSING: 4, NO_NPM: 5 };
 
 const here = dirname(fileURLToPath(import.meta.url));

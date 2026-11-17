@@ -44,7 +44,7 @@ ALIAS_KEYS = {
 
 
 ENSURE_BUILD = WEB / "scripts" / "ensure-build.mjs"
-BUILD_INPUTS = ("src", "index.html", "package.json", "vite.config.ts", "svelte.config.js")
+BUILD_INPUTS = ("src", "index.html", "package.json", "package-lock.json", "vite.config.ts", "svelte.config.js")
 
 
 def _newest_source_mtime(web: Path) -> float:
