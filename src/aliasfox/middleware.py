@@ -3,6 +3,9 @@ streamed-receive behaviour we depend on)."""
 
 import json
 import logging
+import re
+from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -23,6 +26,33 @@ SECURITY_HEADERS = {
     "Cross-Origin-Opener-Policy": "same-origin",
 }
 HSTS = "max-age=31536000"
+
+_HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
+
+
+def url_origin(url: str | None) -> str | None:
+    """scheme://host[:port] of an http(s) URL, or None when it is not a plain
+    one (no userinfo, wildcard, whitespace or CSP separators reach the header)."""
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme not in ("https", "http") or "@" in parts.netloc or not _HOST_RE.match(host):
+        return None
+    return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
+
+
+def csp_with_connect_origins(origins: Iterable[str]) -> str:
+    """The base CSP with extra origins appended to connect-src."""
+    extra = " ".join(origins)
+    base = SECURITY_HEADERS["Content-Security-Policy"]
+    if not extra:
+        return base
+    return base.replace("connect-src 'self'", f"connect-src 'self' {extra}", 1)
 
 
 def scope_is_https(scope: Scope, trusted_proxy: bool) -> bool:
@@ -58,9 +88,20 @@ class SecurityHeadersMiddleware:
     response, including ones produced by inner middleware, and contains any
     unhandled exception as a fixed 500 so even that response carries them."""
 
-    def __init__(self, app: ASGIApp, *, trusted_proxy: bool = False) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        trusted_proxy: bool = False,
+        connect_origins: Iterable[str] = (),
+    ) -> None:
         self.app = app
         self.trusted_proxy = trusted_proxy
+        origins = [o for o in (url_origin(x) for x in connect_origins) if o is not None]
+        self.headers = {
+            **SECURITY_HEADERS,
+            "Content-Security-Policy": csp_with_connect_origins(origins),
+        }
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -75,7 +116,7 @@ class SecurityHeadersMiddleware:
             if message["type"] == "http.response.start":
                 started = True
                 headers = MutableHeaders(scope=message)
-                for name, value in SECURITY_HEADERS.items():
+                for name, value in self.headers.items():
                     headers[name] = value
                 if api:
                     headers["Cache-Control"] = "no-store"

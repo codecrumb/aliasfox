@@ -246,3 +246,72 @@ def test_dockerignore_excludes_env_files_everywhere():
     lines = (Path(__file__).resolve().parent.parent / ".dockerignore").read_text().split()
     assert "**/.env*" in lines
     assert "!.env.example" in lines or "!**/.env.example" in lines
+
+
+# --- CSP connect-src: the Neon Auth origin in multi mode only ------------------------
+
+SINGLE_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+)
+
+
+def _tiny_app():
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+
+    return Starlette(routes=[Route("/", lambda request: PlainTextResponse("ok"))])
+
+
+def test_security_headers_middleware_connect_origins_keyword():
+    from aliasfox.middleware import SecurityHeadersMiddleware
+
+    app = SecurityHeadersMiddleware(
+        _tiny_app(), trusted_proxy=False, connect_origins=("https://auth.example",)
+    )
+    csp = TestClient(app).get("/").headers["content-security-policy"]
+    assert "connect-src 'self' https://auth.example;" in csp
+    assert csp == SINGLE_CSP.replace("connect-src 'self'", "connect-src 'self' https://auth.example")
+    plain = TestClient(SecurityHeadersMiddleware(_tiny_app(), trusted_proxy=False)).get("/")
+    assert plain.headers["content-security-policy"] == SINGLE_CSP
+
+
+def test_single_mode_csp_unchanged_byte_for_byte(tmp_path):
+    r = make_client(tmp_path).get("/healthz")
+    assert r.headers["content-security-policy"] == SINGLE_CSP
+    assert SECURITY_HEADERS["Content-Security-Policy"] == SINGLE_CSP
+
+
+@pytest.mark.parametrize(
+    ("base_url", "origin"),
+    [
+        ("https://auth.example/neondb/auth", "https://auth.example"),
+        ("https://ep-x.neonauth.eu-central-1.aws.neon.tech:8443/neondb/auth/", "https://ep-x.neonauth.eu-central-1.aws.neon.tech:8443"),
+    ],
+)
+def test_multi_mode_csp_allows_only_the_neon_auth_origin(tmp_path, monkeypatch, base_url, origin):
+    import aliasfox.main as main_mod
+    from helpers import MULTI_BASE, FakeNeonVerifier, multi_mode_settings
+
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    monkeypatch.setattr(main_mod, "NeonTokenVerifier", lambda **_: FakeNeonVerifier())
+    settings = multi_mode_settings(tmp_path).model_copy(update={"neon_auth_base_url": base_url})
+    c = TestClient(main_mod.create_app(settings), base_url=MULTI_BASE)
+    for r in (c.get("/healthz"), c.get("/api/config"), c.get("/api/nope")):
+        csp = r.headers["content-security-policy"]
+        assert csp == SINGLE_CSP.replace("connect-src 'self'", f"connect-src 'self' {origin}")
+        assert "unsafe" not in csp and "*" not in csp
+        assert "/neondb" not in csp
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["", None, "ftp://auth.example", "https://*.example", "https://u:p@auth.example",
+     "https://auth.example; script-src *", "javascript:alert(1)", "https://", "https://a b.example"],
+)
+def test_unusable_connect_origin_is_dropped(bad):
+    from aliasfox.middleware import SecurityHeadersMiddleware
+
+    app = SecurityHeadersMiddleware(_tiny_app(), connect_origins=(bad,))
+    assert TestClient(app).get("/").headers["content-security-policy"] == SINGLE_CSP

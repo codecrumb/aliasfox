@@ -135,5 +135,11 @@ def create_app(
     # add_middleware: last added is outermost.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(BodyLimitMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware, trusted_proxy=settings.trusted_proxy)
+    # Multi mode: the browser talks to Neon Auth directly, so its origin joins connect-src.
+    connect_origins = (settings.neon_auth_base_url,) if multi and settings.neon_auth_base_url else ()
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        trusted_proxy=settings.trusted_proxy,
+        connect_origins=connect_origins,
+    )
     return app
