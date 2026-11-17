@@ -170,12 +170,15 @@ async function runInit(g: number): Promise<void> {
   const hadList = listNow().length > 0;
   patchState({ loading: !hadList, error: null, loadError: null });
   const ck = get(sessionStore).cacheKey;
-  cryptoKey = null;
+  // No fresh key (it was already imported and dropped from the session store): keep the imported
+  // CryptoKey. clear() (logout, not_authenticated) is what discards it.
   if (ck !== null) {
+    cryptoKey = null;
     try {
       const k = await importCacheKey(ck);
       if (g !== gen) return;
       cryptoKey = k;
+      sessionStore.dropCacheKey(); // the base64 string must not linger in a store
     } catch {
       if (g !== gen) return;
       cryptoKey = null; // unusable key: memory-only mode

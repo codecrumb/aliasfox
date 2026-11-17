@@ -41,6 +41,7 @@ vi.mock('../src/lib/session', () => ({
   sessionStore: {
     subscribe: (fn: (v: { cacheKey: string | null }) => void) => sessionState.subscribe(fn),
     onApiError: h.onApiError,
+    dropCacheKey: () => sessionState.update((s) => ({ ...s, cacheKey: null })),
     onLogout: (cb: () => void) => {
       h.onLogout(cb);
       h.logoutCbs.push(cb);

@@ -90,6 +90,18 @@ async function login(password: string): Promise<void> {
   await boot();
 }
 
+// The local wipe shared by logout and a server-side "not authenticated": every registered wipe
+// (alias list, in-memory CryptoKey, IndexedDB cache) runs; one failing callback cannot block the others.
+function wipeLocal(): void {
+  for (const cb of [...logoutCallbacks]) {
+    try {
+      cb();
+    } catch {
+      // continue with the others
+    }
+  }
+}
+
 async function logout(): Promise<void> {
   ++gen; // invalidate any in-flight boot/markReady immediately
   const { authEnabled } = get(store);
@@ -99,15 +111,16 @@ async function logout(): Promise<void> {
     // ignore: local state is wiped regardless
   }
   ++gen;
-  for (const cb of [...logoutCallbacks]) {
-    try {
-      cb();
-    } catch {
-      // one failing wipe must not block the others
-    }
-  }
-  patch({ cacheKey: null, reason: null, errorText: null, state: authEnabled ? 'login' : 'ready' });
+  wipeLocal();
+  // Auth off: go through 'loading' (not ready -> ready) so the palette unmounts and runs init()
+  // again when boot() brings the state back to ready.
+  patch({ cacheKey: null, reason: null, errorText: null, state: authEnabled ? 'login' : 'loading' });
   if (!authEnabled) await boot(); // fresh cacheKey/state; guarded by the generation counter
+}
+
+/** The aliases store imported the key into a non-extractable CryptoKey: drop the base64 copy. */
+function dropCacheKey(): void {
+  patch({ cacheKey: null });
 }
 
 function onLogout(cb: () => void): () => void {
@@ -120,7 +133,9 @@ function onLogout(cb: () => void): () => void {
 function onApiError(e: ApiError): void {
   switch (e.detail) {
     case 'not_authenticated':
-      patch({ state: 'login', cacheKey: null });
+      ++gen; // in-flight boot/markReady results belong to the dead session
+      wipeLocal(); // same wipe as logout, minus the logout request (the server already forgot us)
+      patch({ state: 'login', cacheKey: null, reason: null });
       break;
     case 'not_connected':
       patch({ state: 'connect', reason: null });
@@ -163,6 +178,7 @@ export const sessionStore = {
   boot,
   login,
   logout,
+  dropCacheKey,
   onLogout,
   onApiError,
   markReady
