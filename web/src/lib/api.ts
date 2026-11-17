@@ -117,5 +117,6 @@ export const api = {
     request<ConnectLoginResult>('POST', '/api/connect/login', b),
   connectVerify: (b: { flow_id: string; code: string }) =>
     request<{ status: 'ok' }>('POST', '/api/connect/verify', b),
+  connectResend: (b: { flow_id: string }) => request<{ status: 'ok' }>('POST', '/api/connect/resend', b),
   disconnect: () => request<{ status: string }>('DELETE', '/api/connect')
 };

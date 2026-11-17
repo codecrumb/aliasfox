@@ -9,7 +9,7 @@ vi.mock('../src/lib/api', async (orig) => {
   const real = await orig<typeof import('../src/lib/api')>();
   return {
     ...real,
-    api: { connectLogin: vi.fn(), connectVerify: vi.fn(), connectCookie: vi.fn() }
+    api: { connectLogin: vi.fn(), connectVerify: vi.fn(), connectResend: vi.fn(), connectCookie: vi.fn() }
   };
 });
 vi.mock('../src/lib/session', async () => {
@@ -36,10 +36,11 @@ const store = (sessionMod as unknown as { __store: ReturnType<typeof writable<{ 
 const sess = vi.mocked(sessionMod.sessionStore);
 const login = vi.mocked(api.connectLogin);
 const verify = vi.mocked(api.connectVerify);
+const resend = vi.mocked(api.connectResend);
 const cookieApi = vi.mocked(api.connectCookie);
 
 beforeEach(() => {
-  [login, verify, cookieApi, sess.logout, sess.markReady, sess.onApiError, vi.mocked(toasts.push)].forEach((m) =>
+  [login, verify, resend, cookieApi, sess.logout, sess.markReady, sess.onApiError, vi.mocked(toasts.push)].forEach((m) =>
     m.mockReset()
   );
   sess.markReady.mockResolvedValue(undefined);
@@ -263,6 +264,73 @@ describe('ConnectApple steps', () => {
     render(ConnectApple);
     await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
     expect(sess.logout).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resend code', () => {
+  const resendButton = () => screen.getByRole('button', { name: 'Resend code' }) as HTMLButtonElement;
+
+  it('is only on the code step, and asks the server for another code for this flow', async () => {
+    resend.mockResolvedValue({ status: 'ok' });
+    render(ConnectApple);
+    await toPassword();
+    expect(screen.queryByRole('button', { name: 'Resend code' })).toBeNull();
+    login.mockResolvedValue({ status: 'needs_2fa', flow_id: 'flow-1' });
+    await submitPassword();
+    await screen.findByRole('group', { name: 'Verification code' });
+    await fireEvent.click(resendButton());
+    await waitFor(() => expect(resend).toHaveBeenCalledWith({ flow_id: 'flow-1' }));
+    expect(await screen.findByText('A new code is on its way.')).toBeInTheDocument();
+    expect(login).toHaveBeenCalledTimes(1); // no new sign-in
+  });
+
+  it('is disabled while the request is in flight', async () => {
+    let done: (v: { status: 'ok' }) => void = () => {};
+    resend.mockReturnValue(new Promise((r) => (done = r)));
+    render(ConnectApple);
+    await toCode();
+    await fireEvent.click(resendButton());
+    await waitFor(() => expect(resendButton()).toBeDisabled());
+    await fireEvent.click(resendButton());
+    expect(resend).toHaveBeenCalledTimes(1);
+    done({ status: 'ok' });
+    await waitFor(() => expect(resendButton()).not.toBeDisabled());
+  });
+
+  it('flow_expired goes back to the password step with the expiry message', async () => {
+    resend.mockRejectedValue(new ApiError(410, 'flow_expired'));
+    render(ConnectApple);
+    await toCode();
+    await fireEvent.click(resendButton());
+    await screen.findByLabelText('Password');
+    expect(screen.getByRole('alert')).toHaveTextContent('That sign-in took too long. Enter your password again.');
+  });
+
+  it('resend_limit says so and stops offering resends, without a lockout countdown', async () => {
+    resend.mockRejectedValue(new ApiError(429, 'resend_limit'));
+    render(ConnectApple);
+    await toCode();
+    await fireEvent.click(resendButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent(/too many new codes/i);
+    expect(resendButton()).toBeDisabled();
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    expect(codeBoxes()[0]).not.toBeDisabled();
+  });
+
+  it('a wrong code does not hide or disable Resend', async () => {
+    verify.mockRejectedValueOnce(new ApiError(401, 'invalid_code'));
+    render(ConnectApple);
+    await toCode();
+    await typeCode('111111');
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Verification code' })).toHaveClass('invalid'));
+    expect(resendButton()).not.toBeDisabled();
+  });
+
+  it('the code step no longer claims the code was already sent', async () => {
+    render(ConnectApple);
+    await toCode();
+    expect(screen.queryByText(/Apple sent a 6-digit code/)).toBeNull();
+    expect(screen.getByText(/Approve the sign-in on your Apple devices/)).toBeInTheDocument();
   });
 });
 

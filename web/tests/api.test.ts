@@ -183,6 +183,13 @@ describe('api client', () => {
         '/api/connect/verify',
         { flow_id: 'f1', code: '123456' }
       ],
+      [
+        'resend',
+        () => api.connectResend({ flow_id: 'f1' }),
+        'POST',
+        '/api/connect/resend',
+        { flow_id: 'f1' }
+      ],
       ['disconnect', () => api.disconnect(), 'DELETE', '/api/connect', undefined]
     ];
     for (const [name, fn, method, url, body] of rows) {

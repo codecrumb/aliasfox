@@ -50,6 +50,11 @@ class TooManyFlows(Exception):
         super().__init__("too many pending login flows")
 
 
+class TooManyResends(Exception):
+    def __init__(self) -> None:
+        super().__init__("too many code resends for this login")
+
+
 @dataclass
 class LoginResult:
     status: Literal["ok", "needs_2fa"]
@@ -64,6 +69,7 @@ class _Flow:
     directory: str
     expires: float
     attempts: int = 0
+    resends: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -142,12 +148,14 @@ class LoginFlow:
         ttl_seconds: float = 600,
         max_pending: int = 20,
         max_code_attempts: int = 5,
+        max_resends: int = 3,
     ) -> None:
         self._factory = service_factory
         self._clock = clock
         self._ttl = ttl_seconds
         self._max_pending = max_pending
         self._max_attempts = max_code_attempts
+        self._max_resends = max_resends
         self._lock = threading.Lock()
         self._flows: dict[str, _Flow] = {}
         self._starting = 0  # slots reserved by in-progress start() calls
@@ -228,12 +236,19 @@ class LoginFlow:
                     raise AppleLoginFailed()  # legacy 2SA only: unsupported
                 else:
                     return LoginResult("ok", None, _build_state(api))
-                try:
-                    api.request_2fa_code()
-                except Exception as exc:  # Apple may have pushed the code anyway
-                    log.info("request_2fa_code failed: %s", type(exc).__name__)
                 flow_id = secrets.token_urlsafe(32)
                 flow = _Flow(user_id, api, directory, self._clock() + self._ttl)
+                # The password is already accepted: answer now and request the code in the
+                # background. The flow stays locked until that request ends, so verify, resend,
+                # sweep and cancel all wait for it instead of racing it.
+                flow.lock.acquire()
+                try:
+                    threading.Thread(
+                        target=self._request_code, args=(flow,), daemon=True, name="aliasfox-2fa-request"
+                    ).start()
+                except BaseException:
+                    flow.lock.release()
+                    raise
                 with self._lock:
                     self._flows[flow_id] = flow
                 keep = True
@@ -248,6 +263,38 @@ class LoginFlow:
                 self._starting -= 1
             if not keep and directory is not None:
                 _rmdir(directory)
+
+    @staticmethod
+    def _request_code(flow: _Flow) -> None:
+        """Ask Apple to send the code. Runs with flow.lock held (taken by start()) and releases it."""
+        try:
+            flow.service.request_2fa_code()
+        except Exception as exc:  # Apple may have pushed the code anyway
+            log.info("request_2fa_code failed: %s", type(exc).__name__)
+        finally:
+            flow.lock.release()
+
+    def resend(self, user_id: int, flow_id: str) -> None:
+        """Ask Apple for a fresh code on a pending flow (capped per flow)."""
+        self._sweep()
+        with self._lock:
+            flow = self._flows.get(flow_id)
+        if flow is None or flow.user_id != user_id:
+            raise FlowExpired()
+        with flow.lock:
+            with self._lock:
+                if self._flows.get(flow_id) is not flow:
+                    raise FlowExpired()
+            if flow.expires <= self._clock():
+                self._drop(flow_id, flow)
+                raise FlowExpired()
+            if flow.resends >= self._max_resends:
+                raise TooManyResends()
+            flow.resends += 1
+            try:
+                flow.service.request_2fa_code()
+            except Exception as exc:  # Apple may have pushed it anyway
+                log.info("request_2fa_code failed: %s", type(exc).__name__)
 
     def verify(self, user_id: int, flow_id: str, code: str) -> AppleSessionState:
         self._sweep()
@@ -272,13 +319,9 @@ class LoginFlow:
             if not ok:
                 if flow.attempts >= self._max_attempts:
                     self._drop(flow_id, flow)
-                else:
-                    # pyicloud clears its trusted-device bridge state after every
-                    # validate call: a retry needs a fresh code request.
-                    try:
-                        flow.service.request_2fa_code()
-                    except Exception as exc:  # Apple may have pushed it anyway
-                        log.info("request_2fa_code failed: %s", type(exc).__name__)
+                # No automatic new code here: a second prompt on the user's devices after a
+                # wrong or flaky entry is confusing. pyicloud clears its trusted-device bridge
+                # state after every validate call, so the user asks for a fresh code with resend().
                 raise InvalidCode()
             self._trust(flow.service)
             try:

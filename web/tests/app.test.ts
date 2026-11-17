@@ -31,7 +31,7 @@ vi.mock('../src/lib/aliases', async () => ({ aliasStore: (await import('./fakes'
 vi.mock('../src/lib/clipboard', () => ({ copyText: vi.fn(async () => 'copied') }));
 vi.mock('../src/lib/api', async (orig) => {
   const real = await orig<typeof import('../src/lib/api')>();
-  return { ...real, api: { disconnect: vi.fn(), connectLogin: vi.fn(), connectVerify: vi.fn(), connectCookie: vi.fn() } };
+  return { ...real, api: { disconnect: vi.fn(), connectLogin: vi.fn(), connectVerify: vi.fn(), connectResend: vi.fn(), connectCookie: vi.fn() } };
 });
 
 import * as sessionMod from '../src/lib/session';

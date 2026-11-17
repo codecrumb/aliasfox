@@ -66,6 +66,7 @@ const SAMPLES: Record<string, unknown[]> = {
   connectCookie: ['a=b'],
   connectLogin: [{ apple_id: 'me@icloud.com', password: 'pw' }],
   connectVerify: [{ flow_id: 'f', code: '123456' }],
+  connectResend: [{ flow_id: 'f' }],
   disconnect: []
 };
 
