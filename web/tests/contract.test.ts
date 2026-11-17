@@ -5,42 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { api } from '../src/lib/api';
+import { combine, normalise, scanRoutes, type Route, type Scan } from './routes';
 
 const ROOT = resolve(__dirname, '../..');
 const BACKEND = join(ROOT, 'src/aliasfox');
 const WEB_SRC = resolve(__dirname, '../src');
 const src = (p: string): string => readFileSync(join(BACKEND, p), 'utf8');
 
-/** `/api/aliases/{alias_id}` and `/api/aliases/ID` both normalise to `/api/aliases/{}`. */
-const normalise = (p: string): string => p.replace(/\{[^}]*\}/g, '{}');
-
-interface Route {
-  method: string;
-  path: string;
-  body: string | null;
+function pyFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n);
+    if (statSync(p).isDirectory()) return n === '__pycache__' || n === 'static' ? [] : pyFiles(p);
+    return n.endsWith('.py') ? [p] : [];
+  });
 }
 
-function backendRoutes(): Route[] {
-  const out: Route[] = [];
-  const apiPy = src('api.py');
-  const prefix = /APIRouter\(prefix="([^"]*)"\)/.exec(apiPy)?.[1] ?? '';
-  const re = /@router\.(get|post|put|patch|delete)\("([^"]*)"\)\s*\n\s*(?:async\s+)?def\s+\w+\(([^)]*)\)/g;
-  for (const m of apiPy.matchAll(re)) {
-    out.push({ method: m[1]!.toUpperCase(), path: normalise(prefix + m[2]!), body: /body:\s*(\w+)/.exec(m[3]!)?.[1] ?? null });
-  }
-  for (const file of ['auth.py', 'main.py']) {
-    const text = src(file);
-    for (const m of text.matchAll(/@app\.(get|post|put|patch|delete)\("([^"]*)"\)\s*\n\s*(?:async\s+)?def\s+\w+\(([^)]*)\)/g)) {
-      out.push({ method: m[1]!.toUpperCase(), path: normalise(m[2]!), body: /body:\s*(\w+)/.exec(m[3]!)?.[1] ?? null });
-    }
-    for (const m of text.matchAll(/@app\.api_route\(\s*"([^"]*)"\s*,\s*methods=\[([^\]]*)\]/g)) {
-      for (const meth of m[2]!.match(/"(\w+)"/g) ?? []) {
-        out.push({ method: meth.replace(/"/g, ''), path: normalise(m[1]!), body: null });
-      }
-    }
-  }
-  return out;
+/** Every route decorator in the backend package (all .py files), with a completeness count. */
+function backendScan(): Scan {
+  return combine(pyFiles(BACKEND).map((f) => scanRoutes(readFileSync(f, 'utf8'))));
 }
+const backendRoutes = (): Route[] => backendScan().routes;
 
 /** Pydantic body models in api.py/auth.py: field name -> required? */
 function bodyModels(): Map<string, Map<string, boolean>> {
@@ -133,6 +117,90 @@ describe('contract: Alias type', () => {
     ].sort();
     expect(backendKeys).toEqual(expected);
     expect(tsKeys).toEqual(expected);
+  });
+});
+
+describe('contract: route scraper', () => {
+  it('understands every route decorator in the backend (nothing silently ignored)', () => {
+    const scan = backendScan();
+    expect(scan.unparsed).toEqual([]);
+    expect(scan.parsed).toBe(scan.raw);
+    expect(scan.raw).toBeGreaterThan(15); // the scan sees the real routes
+    expect(scan.routes.length).toBeGreaterThanOrEqual(scan.parsed);
+  });
+
+  const sample = (body: string) => scanRoutes(`router = APIRouter(prefix="/api")\n${body}\n`);
+
+  it('parses single-line, multi-line, keyword-heavy and stacked decorators', () => {
+    const scan = sample(`
+@router.get("/a")
+def a(): ...
+
+@router.post(
+    "/b/{item_id}",
+    response_model=Thing,
+    status_code=201,
+)
+async def b(item_id: str, body: BBody, user: int = Depends(u)): ...
+
+@app.api_route(
+    "/c",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+def c(): ...
+
+@router.put("/d")
+@limiter.limit("5/minute")
+async def d(body: DBody): ...
+
+@router.delete(path="/e")
+def e(): ...
+
+@app.exception_handler(Foo)
+def handler(): ...
+
+@app.middleware("http")
+async def mw(): ...
+
+@app.on_event("startup")
+def start(): ...
+`);
+    expect(scan.unparsed).toEqual([]);
+    expect(scan.raw).toBe(5);
+    expect(scan.parsed).toBe(5);
+    expect(scan.routes).toEqual([
+      { method: 'GET', path: '/api/a', body: null },
+      { method: 'POST', path: '/api/b/{}', body: 'BBody' },
+      { method: 'GET', path: '/c', body: null },
+      { method: 'HEAD', path: '/c', body: null },
+      { method: 'PUT', path: '/api/d', body: 'DBody' },
+      { method: 'DELETE', path: '/api/e', body: null }
+    ]);
+  });
+
+  it('does not count a path or ) inside a string, a comment or the parameter list', () => {
+    const scan = sample(`
+@router.get("/a)b")  # a comment ) with (
+def a(x: str = "(", y: int = 1): ...
+`);
+    expect(scan.unparsed).toEqual([]);
+    expect(scan.routes).toEqual([{ method: 'GET', path: '/api/a)b', body: null }]);
+  });
+
+  it.each([
+    ['a path that is a variable', '@router.get(PATH)\ndef a(): ...'],
+    ['a decorator without an argument list', '@router.get\ndef a(): ...'],
+    ['an unknown route-ish decorator', '@router.websocket("/ws")\nasync def ws(): ...'],
+    ['api_route without a literal methods list', '@app.api_route("/x", methods=METHODS)\ndef x(): ...'],
+    ['unbalanced parentheses', '@router.get("/x"\ndef x(): ...']
+  ])('a deliberately weird decorator (%s) is COUNTED and flagged unparsed', (_n, body) => {
+    const scan = sample(body);
+    expect(scan.raw).toBe(1);
+    expect(scan.unparsed.length).toBe(1);
+    expect(scan.parsed).toBe(0);
+    // The completeness assertion used on the real backend would fail for this sample:
+    expect(scan.unparsed.length === 0 && scan.parsed === scan.raw).toBe(false);
   });
 });
 
