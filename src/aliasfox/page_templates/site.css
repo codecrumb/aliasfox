@@ -293,6 +293,14 @@ main {
   margin: 0 0 6px;
 }
 
+/* Landing is wide; policy pages stay at reading width */
+.landing .wrap {
+  max-width: 76rem;
+}
+.split > section {
+  min-width: 0;
+}
+
 @media (min-width: 640px) {
   h1 {
     font-size: 2rem;
@@ -305,6 +313,33 @@ main {
   }
   .features {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 960px) {
+  .landing main {
+    padding-top: 88px;
+    padding-bottom: 80px;
+  }
+  .landing .hero h1 {
+    font-size: 3.5rem;
+    max-width: 18ch;
+  }
+  .landing .lead {
+    max-width: 44rem;
+    font-size: 1.25rem;
+  }
+  .features {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .features li {
+    padding: 20px;
+  }
+  .split {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 0 64px;
   }
 }
 
