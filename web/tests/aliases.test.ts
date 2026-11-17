@@ -278,6 +278,14 @@ describe('aliasStore actions', () => {
     expect(get(m.aliasStore).index.newestFirst.map((x) => x.anonymous_id)).toEqual(['id9', 'id1']);
   });
 
+  it('a created alias stamped 0 (1970) is treated as having no timestamp', async () => {
+    await loaded([mk(1, { created_ms: 1000 })]);
+    h.api.reserve.mockResolvedValue(mk(9, { hme: 'n@icloud.com', created_ms: 0 }));
+    const a = await m.aliasStore.reserve({ hme: 'n@icloud.com', label: 'L', note: '' });
+    expect(a?.created_ms).toBeGreaterThan(1_000_000_000_000);
+    expect(get(m.aliasStore).index.newestFirst.map((x) => x.anonymous_id)).toEqual(['id9', 'id1']);
+  });
+
   it('test_double_reserve_sends_one_request', async () => {
     await loaded([mk(1)]);
     const d = deferred<Alias>();

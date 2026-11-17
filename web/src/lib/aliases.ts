@@ -252,7 +252,9 @@ async function runReserve(g: number, b: { hme: string; label: string; note: stri
       throw new ApiError(0, UNEXPECTED);
     }
     // Newest-first sorting puts an alias without a timestamp last; a just-created one is the newest.
-    const stamped: Alias = typeof created.created_ms === 'number' ? created : { ...created, created_ms: Date.now() };
+    // Apple can also answer with a zero timestamp (1970), which is no timestamp at all.
+    const stamped: Alias =
+      typeof created.created_ms === 'number' && created.created_ms > 0 ? created : { ...created, created_ms: Date.now() };
     setList([stamped, ...listNow()], { error: null, loadError: null });
     await persist(g);
     return stamped;

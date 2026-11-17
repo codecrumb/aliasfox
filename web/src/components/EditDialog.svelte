@@ -132,8 +132,8 @@
     </div>
     {#if !isOn}
       <div class="off-note">
-        <p>This address is off, so its label and note can't be changed. Turn it on to edit, then turn it off again with Shift Enter.</p>
-        <button type="button" onclick={() => void turnOn()} disabled={enabling}>{enabling ? 'Turning on…' : 'Turn on to edit'}</button>
+        <p>This address is inactive, so its label and note can't be changed. Reactivate it to edit, then deactivate it again with Shift Enter.</p>
+        <button type="button" onclick={() => void turnOn()} disabled={enabling}>{enabling ? 'Reactivating…' : 'Reactivate to edit'}</button>
       </div>
     {/if}
     <div>

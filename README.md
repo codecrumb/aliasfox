@@ -122,7 +122,7 @@ list.
 | Keys | Action |
 | --- | --- |
 | `Enter` | Copy address |
-| `Shift` + `Enter` | Turn the address on or off |
+| `Shift` + `Enter` | Deactivate or reactivate the address |
 | `Alt` + `N` | New alias |
 | `Alt` + `E` | Edit label and note |
 | `Alt` + `Backspace` | Delete alias — when the search box is empty or the caret is at the start |
@@ -137,6 +137,11 @@ list.
 | `Alt` + `R` | Refresh from Apple |
 | `Alt` + `F` | Cycle All, Active and Inactive |
 | `Alt` + `S` | Cycle the sort order |
+| `Alt` + `X` | Select or unselect this alias for a bulk action |
+| `Alt` + `A` | Select every alias in the list (again to unselect) |
+| `Shift` + `↓` | Select this alias and the next one |
+| `Shift` + `↑` | Select this alias and the previous one |
+| `Esc` | Clear the selection (empty search) |
 | `?` | Keyboard shortcuts (empty search) |
 
 `Ctrl` + `K` moves up on a Mac, where `⌘` + `K` opens the actions. Held keys act once, except the

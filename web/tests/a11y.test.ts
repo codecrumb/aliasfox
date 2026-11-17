@@ -301,7 +301,7 @@ describe('a11y: Palette', () => {
       'Inactive',
       'Sort: Newest. Change sort order',
       'Copy address',
-      'Turn off',
+      'Deactivate',
       'Edit',
       'Delete'
     ]);

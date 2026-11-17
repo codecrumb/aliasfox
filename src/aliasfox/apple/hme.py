@@ -175,7 +175,7 @@ def _parse_alias(d: dict) -> Alias:
         forward_to=d.get(F_FORWARD) or "",
         origin=d.get(F_ORIGIN) or "",
         domain=d.get(F_DOMAIN) or "",
-        created_ms=int(created) if isinstance(created, (int, float)) else None,
+        created_ms=int(created) if isinstance(created, (int, float)) and created > 0 else None,
         raw=d,
     )
 

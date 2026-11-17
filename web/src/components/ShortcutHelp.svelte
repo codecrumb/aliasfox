@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { KEYMAP, cap, isMac, keysFor } from '../lib/keys';
+  import { KEYMAP, cap, isMac, keysFor, spoken } from '../lib/keys';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -22,20 +22,20 @@
           {#each keysFor(b, mac) as alt, i (i)}
             {#if i > 0}<span class="or">or</span>{/if}
             <span class="combo">
-              {#each alt as name, j (j)}<kbd>{cap(name, mac)}</kbd>{/each}
+              {#each alt as name, j (j)}<kbd aria-label={spoken(cap(name, mac))}>{cap(name, mac)}</kbd>{/each}
             </span>
           {/each}
         </dd>
       </div>
     {/each}
     <div class="item">
-      <dt>Jump to a visible alias (hold {cap('Alt', mac)} to see the numbers)</dt>
-      <dd><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>1</kbd></span><span class="or">…</span><span class="combo"><kbd>{cap('Alt', mac)}</kbd><kbd>0</kbd></span></dd>
+      <dt>Jump to a visible alias (hold {mac ? 'Option' : 'Alt'} to see the numbers)</dt>
+      <dd><span class="combo"><kbd aria-label={spoken(cap('Alt', mac))}>{cap('Alt', mac)}</kbd><kbd>1</kbd></span><span class="or">…</span><span class="combo"><kbd aria-label={spoken(cap('Alt', mac))}>{cap('Alt', mac)}</kbd><kbd>0</kbd></span></dd>
     </div>
   </dl>
   <h3 class="tips-title">Search tips</h3>
   <ul class="tips">
-    <li><code>is:off</code> or <code>is:active</code> — by status; <code>-is:off</code> excludes</li>
+    <li><code>is:inactive</code> or <code>is:active</code> — by status; <code>-is:inactive</code> excludes (<code>is:off</code> and <code>is:on</code> work too)</li>
     <li><code>label:</code> <code>note:</code> <code>site:</code> <code>app:</code> <code>to:</code> <code>from:safari</code> — one field only; quote a phrase: <code>label:"gift card"</code></li>
     <li><code>sort:oldest</code> <code>sort:label</code> <code>sort:address</code> — order the results</li>
   </ul>

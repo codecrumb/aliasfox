@@ -216,6 +216,73 @@ describe('palette list', () => {
     }
   });
 
+  describe('bulk actions', () => {
+    const rows = () => options();
+    async function markTwo() {
+      setList([alias(1, { is_active: false }), alias(2), alias(3)]);
+      render(Palette);
+      await tick();
+      await key(search(), { key: 'ArrowDown', code: 'ArrowDown', shiftKey: true }); // newest first: marks 3 and 2
+      await tick();
+    }
+
+    it('Shift+Arrow and Alt+X select; the bar counts them; Esc clears', async () => {
+      await markTwo();
+      const bar = screen.getByRole('region', { name: 'Selected aliases' });
+      expect(bar).toHaveTextContent('2 selected');
+      await key(search(), { key: 'x', code: 'KeyX', altKey: true }); // row 2 is current: unselect it
+      expect(bar).toHaveTextContent('1 selected');
+      await key(search(), { key: 'a', code: 'KeyA', altKey: true });
+      expect(bar).toHaveTextContent('3 selected');
+      await key(search(), { key: 'a', code: 'KeyA', altKey: true });
+      expect(screen.queryByRole('region', { name: 'Selected aliases' })).toBeNull();
+      await key(search(), { key: 'x', code: 'KeyX', altKey: true });
+      await key(search(), { key: 'Escape', code: 'Escape' });
+      expect(screen.queryByRole('region', { name: 'Selected aliases' })).toBeNull();
+      expect(rows().length).toBe(3);
+    });
+
+    it('Shift+Enter deactivates every selected active alias, then reports', async () => {
+      store.setActive.mockImplementation(async () => {});
+      await markTwo();
+      await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true });
+      await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Deactivated 2 addresses' }));
+      expect(store.setActive).toHaveBeenCalledTimes(2);
+      expect(store.setActive).toHaveBeenCalledWith('id-3', false);
+      expect(store.setActive).toHaveBeenCalledWith('id-2', false);
+      expect(screen.queryByRole('region', { name: 'Selected aliases' })).toBeNull();
+    });
+
+    it('stops at the first failure and keeps the rest selected', async () => {
+      store.setActive.mockRejectedValueOnce(new ApiError(502, 'apple_error'));
+      await markTwo();
+      await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true });
+      await waitFor(() => expect(push).toHaveBeenCalled());
+      expect(push.mock.calls[0]?.[0]).toMatchObject({ kind: 'error' });
+      expect(String(push.mock.calls[0]?.[0].text)).toContain('Deactivated 0 of 2');
+      expect(store.setActive).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('region', { name: 'Selected aliases' })).toHaveTextContent('2 selected');
+    });
+
+    it('Alt+Backspace asks first, with the count, then deletes them all', async () => {
+      store.remove.mockImplementation(async () => {});
+      await markTwo();
+      await key(search(), { key: 'Backspace', code: 'Backspace', altKey: true });
+      const dlg = dialog('Delete 2 addresses?');
+      expect(store.remove).not.toHaveBeenCalled();
+      await pastGuard();
+      await fireEvent.click(within(dlg).getByRole('button', { name: 'Delete 2' }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Deleted 2 addresses' }));
+      expect(store.remove).toHaveBeenCalledTimes(2);
+    });
+
+    it('Enter copies all selected addresses, one per line', async () => {
+      await markTwo();
+      await key(search(), { key: 'Enter', code: 'Enter' });
+      await waitFor(() => expect(copy).toHaveBeenCalledWith('addr3@icloud.com\naddr2@icloud.com'));
+    });
+  });
+
   it('status filter: segmented control and actions menu', async () => {
     setList([alias(1), alias(2, { is_active: false, label: 'Dormant' }), alias(3)]);
     render(Palette);
@@ -305,9 +372,9 @@ describe('palette keyboard actions', () => {
     await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true });
     expect(store.setActive).toHaveBeenCalledWith('id-2', false);
     await tick();
-    expect(within(options()[0] as HTMLElement).getByText('Off')).toBeInTheDocument();
+    expect(within(options()[0] as HTMLElement).getByText('Inactive')).toBeInTheDocument();
     finish();
-    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Turned off addr2@icloud.com' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Deactivated addr2@icloud.com' }));
   });
 
   it('test_alt_backspace_confirms_before_delete_enter_confirms_esc_cancels', async () => {
@@ -616,7 +683,7 @@ describe('palette states', () => {
     expect(pane).toHaveTextContent(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(Date.UTC(2024, 0, 2))));
     await fireEvent.click(within(pane).getByRole('button', { name: 'Copy address' }));
     await waitFor(() => expect(copy).toHaveBeenCalledWith('addr1@icloud.com'));
-    await fireEvent.click(within(pane).getByRole('button', { name: 'Turn off' }));
+    await fireEvent.click(within(pane).getByRole('button', { name: 'Deactivate' }));
     expect(store.setActive).toHaveBeenCalledWith('id-1', false);
     await fireEvent.click(within(pane).getByRole('button', { name: 'Edit' }));
     expect(dialog('Edit alias')).toBeInTheDocument();
@@ -653,7 +720,7 @@ describe('actions menu and dialogs', () => {
     const active = () => document.getElementById(filter.getAttribute('aria-activedescendant') ?? '');
     expect(active()).toHaveTextContent('Copy address');
     await key(filter, { key: 'ArrowDown', code: 'ArrowDown' });
-    expect(active()).toHaveTextContent(/Turn off/);
+    expect(active()).toHaveTextContent(/Deactivate/);
     await key(filter, { key: 'Escape', code: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(search()).toHaveFocus());

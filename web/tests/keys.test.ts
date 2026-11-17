@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KEYMAP, altDigit, cap, createDeadKeyGuard, handleKey, keysFor, type KeyCtx, type KeyId } from '../src/lib/keys';
+import { KEYMAP, altDigit, cap, createDeadKeyGuard, handleKey, keysFor, spoken, type KeyCtx, type KeyId } from '../src/lib/keys';
 
 function ctx(over: Partial<KeyCtx> = {}): KeyCtx {
   const ids: KeyId[] = KEYMAP.map((b) => b.id);
@@ -21,7 +21,7 @@ describe('KEYMAP / handleKey', () => {
       expect(b.label.length).toBeGreaterThan(0);
       expect(b.keys.length).toBeGreaterThan(0);
       for (const combo of b.combos) {
-        const c = ctx({ searchEmpty: b.when !== 'searchNotEmpty', mac: combo.mac === true });
+        const c = ctx({ searchEmpty: b.when !== 'searchNotEmpty', hasMarks: b.when === 'marksOnly', mac: combo.mac === true });
         const e = ev({
           key: combo.key ?? '',
           code: combo.code ?? '',
@@ -40,7 +40,7 @@ describe('KEYMAP / handleKey', () => {
 
   it('exposes the documented ids', () => {
     expect(KEYMAP.map((b) => b.id).sort()).toEqual(
-      ['clear', 'copy', 'delete', 'down', 'edit', 'filter', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'refresh', 'sort', 'toggle', 'up'].sort()
+      ['clear', 'copy', 'delete', 'down', 'edit', 'filter', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'refresh', 'sort', 'toggle', 'up', 'mark', 'markAll', 'markDown', 'markUp', 'clearMarks'].sort()
     );
   });
 
@@ -217,10 +217,17 @@ describe('KEYMAP / handleKey', () => {
 describe('platform labels', () => {
   const binding = (id: KeyId) => KEYMAP.find((b) => b.id === id)!;
 
-  it('names Alt as Option only on a Mac', () => {
-    expect(cap('Alt', true)).toBe('Option');
+  it('shows Mac symbols only on a Mac, and gives screen readers the spoken name', () => {
+    expect(cap('Alt', true)).toBe('⌥');
+    expect(cap('Shift', true)).toBe('⇧');
+    expect(cap('Ctrl', true)).toBe('⌃');
+    expect(cap('Enter', true)).toBe('↵');
+    expect(cap('K', true)).toBe('K');
     expect(cap('Alt', false)).toBe('Alt');
-    expect(cap('Ctrl', true)).toBe('Ctrl');
+    expect(cap('Ctrl', false)).toBe('Ctrl');
+    expect(spoken('⌥')).toBe('Option');
+    expect(spoken('⌘')).toBe('Command');
+    expect(spoken('K')).toBeUndefined();
   });
 
   it('shows one actions shortcut per platform, and Ctrl K as "up" only on a Mac', () => {

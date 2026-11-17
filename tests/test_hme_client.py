@@ -397,3 +397,10 @@ def test_unencodable_cookie_value_becomes_hme_error():
     with pytest.raises(HmeError) as ei:
         c.list()
     assert "€" not in str(ei.value)
+
+
+def test_zero_create_timestamp_is_no_timestamp():
+    from aliasfox.apple.hme import _parse_alias
+
+    assert _parse_alias({"anonymousId": "x", "createTimestamp": 0}).created_ms is None
+    assert _parse_alias({"anonymousId": "x", "createTimestamp": 1700000000000}).created_ms == 1700000000000

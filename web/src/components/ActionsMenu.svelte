@@ -11,6 +11,7 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { spoken } from '../lib/keys';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -130,7 +131,7 @@
         <span class="label">{a.label}{#if a.current}<span class="visually-hidden"> (current)</span>{/if}</span>
         {#if a.current}<span class="check" aria-hidden="true"></span>{/if}
         {#if a.keys}
-          <span class="keys">{#each a.keys as k, j (j)}<kbd>{k}</kbd>{/each}</span>
+          <span class="keys">{#each a.keys as k, j (j)}<kbd aria-label={spoken(k)}>{k}</kbd>{/each}</span>
         {/if}
       </div>
     {:else}

@@ -14,7 +14,7 @@
   const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
   function created(ms: number | null): string {
-    if (typeof ms !== 'number' || !Number.isFinite(ms)) return '';
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return '';
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? '' : fmt.format(d);
   }
@@ -43,7 +43,7 @@
       {/if}
       <div class="fact">
         <dt>Status</dt>
-        <dd><span class="dot" class:on={alias.is_active} aria-hidden="true"></span>{alias.is_active ? 'Active' : 'Off'}</dd>
+        <dd><span class="dot" class:on={alias.is_active} aria-hidden="true"></span>{alias.is_active ? 'Active' : 'Inactive'}</dd>
       </div>
       {#if alias.forward_to}
         <div class="fact">
@@ -78,7 +78,7 @@
     </dl>
 
     <div class="actions">
-      <button type="button" onclick={onToggle}>{alias.is_active ? 'Turn off' : 'Turn on'}</button>
+      <button type="button" onclick={onToggle}>{alias.is_active ? 'Deactivate' : 'Reactivate'}</button>
       <button type="button" onclick={onEdit}>Edit</button>
       <button type="button" class="ghost delete" onclick={onDelete}>Delete</button>
     </div>

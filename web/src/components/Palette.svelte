@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { get } from 'svelte/store';
   import { ApiError, api } from '../lib/api';
   import { aliasStore } from '../lib/aliases';
@@ -28,6 +29,7 @@
     | { kind: 'new' }
     | { kind: 'edit'; alias: Alias }
     | { kind: 'delete'; alias: Alias }
+    | { kind: 'bulkDelete' }
     | { kind: 'menu' }
     | { kind: 'help' }
     | { kind: 'forward'; current: string }
@@ -91,6 +93,14 @@
     active: searched.filter((a) => a.is_active).length,
     inactive: searched.filter((a) => !a.is_active).length
   });
+  // Bulk selection: ids picked with Alt+X, Alt+A or Shift+arrows. It survives searching and
+  // filtering, so a bulk action can include aliases the current view hides; the bar says how many.
+  const marked = new SvelteSet<string>();
+  let bulkBusy = $state(false);
+  const markedAliases = $derived(marked.size === 0 ? [] : $aliasStore.index.newestFirst.filter((a) => marked.has(a.anonymous_id)));
+  const hiddenMarked = $derived(
+    marked.size === 0 ? 0 : markedAliases.length - results.filter((a) => marked.has(a.anonymous_id)).length
+  );
   const win = $derived(windowFor(scrollTop, viewH, results.length));
   const visible = $derived(results.slice(win.start, win.end));
   // Holding Alt/Option labels the first ten visible rows 1..9,0; Alt+<digit> selects that row.
@@ -180,6 +190,16 @@
     });
   });
 
+  // Forget selected aliases that no longer exist (deleted here, elsewhere, or after a refresh).
+  $effect(() => {
+    const l = list;
+    untrack(() => {
+      if (marked.size === 0) return;
+      const ids = new Set(l.map((a) => a.anonymous_id));
+      for (const id of [...marked]) if (!ids.has(id)) marked.delete(id);
+    });
+  });
+
   // Entering `ready` (first mount, or after a reconnect) loads/refreshes the list once and closes
   // the reconnect overlay. The palette itself stays mounted across ready <-> reconnect.
   let lastState: string | null = null;
@@ -241,6 +261,96 @@
     focusSearch();
   }
 
+  function toggleMark(id: string): void {
+    if (!marked.delete(id)) marked.add(id);
+  }
+  function markSelected(): void {
+    if (selected) toggleMark(selected.anonymous_id);
+  }
+  function markAll(): void {
+    const ids = results.map((a) => a.anonymous_id);
+    const all = ids.length > 0 && ids.every((id) => marked.has(id));
+    for (const id of ids) {
+      if (all) marked.delete(id);
+      else marked.add(id);
+    }
+  }
+  function markMove(step: 1 | -1): void {
+    if (!selected) return;
+    marked.add(selected.anonymous_id);
+    const to = results[selIndex + step];
+    if (to) marked.add(to.anonymous_id);
+    select(selIndex + step);
+  }
+  function clearMarks(): void {
+    marked.clear();
+  }
+
+  const plural = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'address' : 'addresses'}`;
+
+  // Runs `fn` on each target in turn (gently on Apple), unselecting what succeeded. Stops at the
+  // first failure so an outage or expired session doesn't produce a wall of errors.
+  async function runBulk(targets: Alias[], past: string, verb: string, fn: (a: Alias) => Promise<void>): Promise<void> {
+    if (bulkBusy || targets.length === 0) return;
+    bulkBusy = true;
+    let done = 0;
+    let failure: unknown = null;
+    try {
+      for (const a of targets) {
+        try {
+          await fn(a);
+          done++;
+          marked.delete(a.anonymous_id);
+        } catch (e) {
+          failure = e;
+          break;
+        }
+      }
+    } finally {
+      bulkBusy = false;
+    }
+    if (failure === null) toasts.push({ kind: 'ok', text: `${past} ${plural(done)}` });
+    else
+      toasts.push({
+        kind: 'error',
+        text: `${past} ${done} of ${targets.length}. Couldn't ${verb} the rest. ${describeError(failure)}`
+      });
+  }
+
+  function bulkSetActive(active: boolean): void {
+    if (marked.size === 0) return;
+    if (reconnecting) return openReconnect();
+    const targets = markedAliases.filter((a) => a.is_active !== active);
+    if (targets.length === 0) {
+      toasts.push({ kind: 'ok', text: `Already ${active ? 'active' : 'inactive'}` });
+      return;
+    }
+    void runBulk(targets, active ? 'Reactivated' : 'Deactivated', active ? 'reactivate' : 'deactivate', (a) =>
+      aliasStore.setActive(a.anonymous_id, active)
+    );
+  }
+  // Shift+Enter with a selection: deactivate them, unless none is active, then reactivate.
+  function bulkToggle(): void {
+    bulkSetActive(!markedAliases.some((a) => a.is_active));
+  }
+  function openBulkDelete(): void {
+    if (marked.size === 0) return;
+    if (reconnecting) return openReconnect();
+    dialog = { kind: 'bulkDelete' };
+  }
+  function confirmBulkDelete(): void {
+    const targets = markedAliases;
+    closeDialog();
+    void runBulk(targets, 'Deleted', 'delete', (a) => aliasStore.remove(a.anonymous_id));
+  }
+  async function copyMarked(): Promise<void> {
+    const text = markedAliases.map((a) => a.hme).join('\n');
+    if (text === '') return;
+    const r = await copyText(text);
+    if (r === 'copied') toasts.push({ kind: 'ok', text: `Copied ${plural(markedAliases.length)}` });
+    else if (dialog === null) dialog = { kind: 'copy', text };
+  }
+
   function cycleSort(): void {
     const i = SORTS.findIndex((s) => s.id === sortMode);
     setSort(SORTS[(i + 1) % SORTS.length]?.id ?? 'newest');
@@ -280,12 +390,13 @@
     if (!a) return;
     if (reconnecting) return openReconnect();
     const next = !a.is_active;
-    const verb = next ? 'on' : 'off';
+    const verb = next ? 'reactivate' : 'deactivate';
+    const past = next ? 'Reactivated' : 'Deactivated';
     try {
       await aliasStore.setActive(a.anonymous_id, next);
-      toasts.push({ kind: 'ok', text: `Turned ${verb} ${a.hme}` });
+      toasts.push({ kind: 'ok', text: `${past} ${a.hme}` });
     } catch (e) {
-      toasts.push({ kind: 'error', text: `Couldn't turn ${verb} ${a.hme}. ${describeError(e)}` });
+      toasts.push({ kind: 'error', text: `Couldn't ${verb} ${a.hme}. ${describeError(e)}` });
     }
   }
 
@@ -360,12 +471,26 @@
 
   const menuActions = $derived.by((): MenuAction[] => {
     const none = selected === null;
+    const n = marked.size;
+    const bulk: MenuAction[] =
+      n > 0
+        ? [
+            { id: 'bulk-deactivate', label: `Deactivate ${n} selected`, disabled: bulkBusy },
+            { id: 'bulk-reactivate', label: `Reactivate ${n} selected`, disabled: bulkBusy },
+            { id: 'bulk-delete', label: `Delete ${n} selected`, danger: true, disabled: bulkBusy },
+            { id: 'bulk-copy', label: `Copy ${n} selected addresses` },
+            { id: 'bulk-clear', label: 'Clear selection', keys: keysFor('clearMarks') }
+          ]
+        : [];
     return [
+      ...bulk,
       { id: 'copy', label: 'Copy address', keys: keysFor('copy'), disabled: none },
-      { id: 'toggle', label: selected && !selected.is_active ? 'Turn on' : 'Turn off', keys: keysFor('toggle'), disabled: none },
+      { id: 'toggle', label: selected && !selected.is_active ? 'Reactivate' : 'Deactivate', keys: keysFor('toggle'), disabled: none },
       { id: 'new', label: 'New alias', keys: keysFor('new') },
       { id: 'edit', label: 'Edit label and note', keys: keysFor('edit'), disabled: none },
       { id: 'delete', label: 'Delete', keys: keysFor('delete'), disabled: none, danger: true },
+      { id: 'mark', label: 'Select or unselect this alias', keys: keysFor('mark'), disabled: none },
+      { id: 'mark-all', label: 'Select all in the list', keys: keysFor('markAll') },
       { id: 'forward', label: 'Change forward-to address' },
       { id: 'sort-cycle', label: 'Cycle sort order', keys: keysFor('sort') },
       ...SORTS.map((s) => ({ id: `sort-${s.id}`, label: `Sort: ${s.label}`, current: sortMode === s.id })),
@@ -403,6 +528,20 @@
       case 'sort-label':
       case 'sort-address':
         return setSort(id.slice(5) as SortMode);
+      case 'bulk-deactivate':
+        return bulkSetActive(false);
+      case 'bulk-reactivate':
+        return bulkSetActive(true);
+      case 'bulk-delete':
+        return openBulkDelete();
+      case 'bulk-copy':
+        return copyMarked();
+      case 'bulk-clear':
+        return clearMarks();
+      case 'mark':
+        return markSelected();
+      case 'mark-all':
+        return markAll();
       case 'filter-cycle':
         return cycleFilter();
       case 'filter-all':
@@ -433,14 +572,15 @@
     return {
       searchEmpty: q === '',
       caretAtStart: caretAtStart(),
+      hasMarks: marked.size > 0,
       blocked: anyOpen,
       mac,
       jump,
-      copy: () => void copyAlias(selected),
-      toggle: () => void toggleSelected(),
+      copy: () => void (marked.size > 0 ? copyMarked() : copyAlias(selected)),
+      toggle: () => (marked.size > 0 ? bulkToggle() : void toggleSelected()),
       new: openNew,
       edit: openEdit,
-      delete: openDelete,
+      delete: () => (marked.size > 0 ? openBulkDelete() : openDelete()),
       menu: () => (dialog = { kind: 'menu' }),
       up: () => select(selIndex - 1),
       down: () => select(selIndex + 1),
@@ -452,6 +592,11 @@
       refresh: () => void refresh(),
       filter: cycleFilter,
       sort: cycleSort,
+      mark: markSelected,
+      markAll,
+      markDown: () => markMove(1),
+      markUp: () => markMove(-1),
+      clearMarks,
       help: () => (dialog = { kind: 'help' })
     };
   }
@@ -653,6 +798,20 @@
     <p class="visually-hidden" data-testid="result-count" role="status" aria-live="polite">{announced}</p>
   </div>
 
+  {#if marked.size > 0}
+    <div class="bulkbar" role="region" aria-label="Selected aliases">
+      <p class="bulk-count">
+        {marked.size.toLocaleString()} selected{#if hiddenMarked > 0}<span class="muted"> · {hiddenMarked.toLocaleString()} hidden</span>{/if}
+      </p>
+      <div class="bulk-actions">
+        <button type="button" disabled={bulkBusy} onmousedown={(e) => e.preventDefault()} onclick={() => { bulkSetActive(false); focusSearch(); }}>Deactivate</button>
+        <button type="button" disabled={bulkBusy} onmousedown={(e) => e.preventDefault()} onclick={() => { bulkSetActive(true); focusSearch(); }}>Reactivate</button>
+        <button type="button" class="danger" disabled={bulkBusy} onclick={openBulkDelete}>Delete</button>
+        <button type="button" class="ghost" onmousedown={(e) => e.preventDefault()} onclick={() => { clearMarks(); focusSearch(); }}>Clear</button>
+      </div>
+    </div>
+  {/if}
+
   <div class="body">
     <div class="list-wrap">
       <div
@@ -678,6 +837,8 @@
             total={results.length}
             selected={win.start + k === selIndex}
             flash={a.anonymous_id === flashId}
+            marked={marked.has(a.anonymous_id)}
+            markMode={marked.size > 0}
             hint={altHeld ? numberHint(win.start + k - numberBase) : undefined}
           />
         {/each}
@@ -693,7 +854,7 @@
       {:else if empty}
         <div class="state">
           <span class="mark big" aria-hidden="true"></span>
-          <p class="state-title">No aliases yet. Press {cap('Alt', mac)}+N to create your first one.</p>
+          <p class="state-title">No aliases yet. Press {mac ? 'Option' : 'Alt'}+N to create your first one.</p>
         </div>
       {:else if noResults}
         <div class="state">
@@ -723,11 +884,12 @@
   </div>
 
   <footer class="hints" aria-hidden="true">
-    <span><kbd>Enter</kbd> copy</span>
-    <span><kbd>Shift</kbd><kbd>Enter</kbd> on/off</span>
+    <span><kbd>{cap('Enter', mac)}</kbd> copy</span>
+    <span><kbd>{cap('Shift', mac)}</kbd><kbd>{cap('Enter', mac)}</kbd> deactivate</span>
     <span><kbd>{cap('Alt', mac)}</kbd><kbd>E</kbd> edit</span>
     <span><kbd>{cap('Alt', mac)}</kbd><kbd>F</kbd> filter</span>
     <span><kbd>{cap('Alt', mac)}</kbd><kbd>S</kbd> sort</span>
+    <span><kbd>{cap('Alt', mac)}</kbd><kbd>X</kbd> select</span>
     <span><kbd>{mac ? '⌘' : 'Ctrl'}</kbd><kbd>K</kbd> actions</span>
     <span><kbd>?</kbd> all shortcuts</span>
   </footer>
@@ -747,6 +909,17 @@
     danger
     focus="confirm"
     onConfirm={() => confirmDelete(target)}
+    onCancel={closeDialog}
+  />
+{:else if dialog?.kind === 'bulkDelete'}
+  <ConfirmDialog
+    title="Delete {plural(markedAliases.length)}?"
+    text="Mail sent to them will stop reaching you. This can't be undone.{hiddenMarked > 0 ? ` ${hiddenMarked} of them are hidden by the current search or filter.` : ''}"
+    subject={markedAliases.slice(0, 3).map((a) => a.hme).join(', ') + (markedAliases.length > 3 ? ` and ${markedAliases.length - 3} more` : '')}
+    confirmLabel="Delete {markedAliases.length}"
+    danger
+    focus="cancel"
+    onConfirm={confirmBulkDelete}
     onCancel={closeDialog}
   />
 {:else if dialog?.kind === 'menu'}
@@ -962,6 +1135,29 @@
     background: var(--elevated);
     color: var(--text);
     box-shadow: var(--shadow-1);
+  }
+  .bulkbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  }
+  .bulk-count {
+    font-weight: 600;
+  }
+  .bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .bulk-actions button {
+    min-height: 36px;
+    padding: 0 var(--space-4);
   }
   .sort {
     margin-left: auto;

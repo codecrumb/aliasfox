@@ -18,6 +18,11 @@ export type KeyId =
   | 'refresh'
   | 'filter'
   | 'sort'
+  | 'mark'
+  | 'markAll'
+  | 'markDown'
+  | 'markUp'
+  | 'clearMarks'
   | 'help';
 
 export interface Combo {
@@ -44,7 +49,7 @@ export interface KeyBinding {
   keysMac?: string[][];
   label: string;
   combos: Combo[];
-  when?: 'searchEmpty' | 'searchNotEmpty' | 'caretAtStart';
+  when?: 'searchEmpty' | 'searchNotEmpty' | 'caretAtStart' | 'marksOnly';
   note?: string;
 }
 
@@ -60,7 +65,7 @@ export const CONFIRM_GUARD_MS = 250;
 
 export const KEYMAP: readonly KeyBinding[] = [
   { id: 'copy', keys: [['Enter']], label: 'Copy address', combos: [{ key: 'Enter' }] },
-  { id: 'toggle', keys: [['Shift', 'Enter']], label: 'Turn the address on or off', combos: [{ key: 'Enter', shift: true }] },
+  { id: 'toggle', keys: [['Shift', 'Enter']], label: 'Deactivate or reactivate the address', combos: [{ key: 'Enter', shift: true }] },
   { id: 'new', keys: [['Alt', 'N']], label: 'New alias', combos: [{ code: 'KeyN', alt: true }] },
   { id: 'edit', keys: [['Alt', 'E']], label: 'Edit label and note', combos: [{ code: 'KeyE', alt: true }] },
   {
@@ -98,6 +103,17 @@ export const KEYMAP: readonly KeyBinding[] = [
   { id: 'refresh', keys: [['Alt', 'R']], label: 'Refresh from Apple', combos: [{ code: 'KeyR', alt: true }] },
   { id: 'filter', keys: [['Alt', 'F']], label: 'Cycle All, Active and Inactive', combos: [{ code: 'KeyF', alt: true }] },
   { id: 'sort', keys: [['Alt', 'S']], label: 'Cycle the sort order', combos: [{ code: 'KeyS', alt: true }] },
+  { id: 'mark', keys: [['Alt', 'X']], label: 'Select or unselect this alias for a bulk action', combos: [{ code: 'KeyX', alt: true }] },
+  { id: 'markAll', keys: [['Alt', 'A']], label: 'Select every alias in the list (again to unselect)', combos: [{ code: 'KeyA', alt: true }] },
+  { id: 'markDown', keys: [['Shift', '↓']], label: 'Select this alias and the next one', combos: [{ key: 'ArrowDown', shift: true }] },
+  { id: 'markUp', keys: [['Shift', '↑']], label: 'Select this alias and the previous one', combos: [{ key: 'ArrowUp', shift: true }] },
+  {
+    id: 'clearMarks',
+    keys: [['Esc']],
+    label: 'Clear the selection (empty search)',
+    combos: [{ key: 'Escape' }],
+    when: 'marksOnly'
+  },
   { id: 'help', keys: [['?']], label: 'Keyboard shortcuts (empty search)', combos: [{ key: '?', anyShift: true }], when: 'searchEmpty' }
 ];
 
@@ -105,6 +121,8 @@ export type KeyCtx = Record<KeyId, () => void> & {
   searchEmpty: boolean;
   /** The search caret is at position 0 with no selection. */
   caretAtStart?: boolean;
+  /** At least one alias is selected for a bulk action. */
+  hasMarks?: boolean;
   /** Alt/Option+1..9,0: select the n-th row (0-based) of the visible list. */
   jump?: (n: number) => void;
   /** A dialog or menu owns the keyboard. */
@@ -135,9 +153,17 @@ export function keysFor(b: KeyBinding, mac: boolean): string[][] {
   return mac && b.keysMac ? b.keysMac : b.keys;
 }
 
-/** One key cap as this platform names it: Alt is Option on a Mac. */
+const MAC_CAPS: Record<string, string> = { Alt: '⌥', Shift: '⇧', Ctrl: '⌃', Enter: '↵', Backspace: '⌫' };
+const SPOKEN: Record<string, string> = { '⌥': 'Option', '⇧': 'Shift', '⌃': 'Control', '⌘': 'Command', '↵': 'Enter', '⌫': 'Delete' };
+
+/** One key cap as this platform shows it: the Mac symbols (⌥ ⇧ ⌃ ↵ ⌫), or the plain name elsewhere. */
 export function cap(name: string, mac: boolean): string {
-  return mac && name === 'Alt' ? 'Option' : name;
+  return mac ? (MAC_CAPS[name] ?? name) : name;
+}
+
+/** The name a screen reader should say for a key cap (symbols are read badly or not at all). */
+export function spoken(capText: string): string | undefined {
+  return SPOKEN[capText];
 }
 
 /**
@@ -206,6 +232,7 @@ export function handleKey(e: KeyboardEvent, ctx: KeyCtx): boolean {
   for (const b of KEYMAP) {
     if (b.when === 'searchEmpty' && !ctx.searchEmpty) continue;
     if (b.when === 'searchNotEmpty' && ctx.searchEmpty) continue;
+    if (b.when === 'marksOnly' && !(ctx.hasMarks && ctx.searchEmpty)) continue;
     if (b.when === 'caretAtStart' && !ctx.searchEmpty && !ctx.caretAtStart) continue;
     if (b.combos.some((c) => matches(e, c, ctx.mac))) {
       e.preventDefault();

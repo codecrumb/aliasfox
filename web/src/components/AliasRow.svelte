@@ -31,8 +31,12 @@
     hint?: string;
     /** Briefly highlighted after its address was copied. */
     flash?: boolean;
+    /** Selected for a bulk action. */
+    marked?: boolean;
+    /** Some alias is selected, so every row shows its check slot. */
+    markMode?: boolean;
   }
-  let { alias, id, index, total, selected, hint, flash = false }: Props = $props();
+  let { alias, id, index, total, selected, hint, flash = false, marked = false, markMode = false }: Props = $props();
 
   const label = $derived(cap(alias.label).trim());
   const origin = $derived(originLabel(alias.origin));
@@ -44,6 +48,7 @@
   class:selected
   class:off={!alias.is_active}
   class:flash
+  class:marked
   role="option"
   {id}
   aria-selected={selected}
@@ -52,16 +57,17 @@
   data-index={index}
   data-id={alias.anonymous_id}
 >
+  {#if markMode}<span class="check" class:on={marked} aria-hidden="true"></span>{/if}
   {#if hint !== undefined}<kbd class="num" aria-hidden="true">{hint}</kbd>{/if}
   <div class="text">
     <span class="label ellipsis" class:empty={label === ''} dir="auto">{label === '' ? 'No label' : label}</span>
-    <span class="addr ellipsis">{cap(alias.hme)}</span>
+    <span class="addr ellipsis">{cap(alias.hme)}</span>{#if marked}<span class="visually-hidden">, selected for bulk action</span>{/if}
   </div>
   {#if meta}
     <span class="meta ellipsis" dir="auto">{meta}</span>
   {/if}
   <span class="badges">
-    {#if !alias.is_active}<span class="badge off-badge">Off</span>{/if}
+    {#if !alias.is_active}<span class="badge off-badge">Inactive</span>{/if}
     {#if origin}<span class="badge">{origin}</span>{/if}
   </span>
   {#if selected}<kbd class="enter" aria-hidden="true">↵ copy</kbd>{/if}
@@ -101,6 +107,23 @@
   }
   .row {
     transition: background-color var(--dur) var(--ease);
+  }
+  .row.marked {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  }
+  .check {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--field-border);
+    border-radius: 4px;
+  }
+  .check.on {
+    border-color: var(--accent);
+    background:
+      linear-gradient(135deg, transparent 45%, var(--accent-contrast) 45% 55%, transparent 55%) 3px 6px / 5px 5px no-repeat,
+      linear-gradient(45deg, transparent 45%, var(--accent-contrast) 45% 55%, transparent 55%) 6px 3px / 8px 8px no-repeat,
+      var(--accent);
   }
   .enter {
     display: none;
