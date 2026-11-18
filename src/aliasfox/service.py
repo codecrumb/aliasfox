@@ -205,5 +205,8 @@ class AliasService:
     async def delete(self, user_id: int, anonymous_id: str) -> None:
         await self._mutate(user_id, lambda c: c.delete(anonymous_id))
 
+    async def forward_options(self, user_id: int) -> tuple[list[str], str]:
+        return await self._run(user_id, lambda c: c.forward_options())
+
     async def set_forward_to(self, user_id: int, address: str) -> None:
         await self._mutate(user_id, lambda c: c.update_forward_to(address))

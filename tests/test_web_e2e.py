@@ -156,7 +156,13 @@ class FakeApple:
         self.paths.append(path)
         body = json.loads(request.content or b"{}")
         if path == "/v2/hme/list":
-            return self.ok({"hmeEmails": list(self.aliases.values())})
+            return self.ok(
+                {
+                    "hmeEmails": list(self.aliases.values()),
+                    "forwardToEmails": ["me@example.com", "alt@example.com"],
+                    "selectedForwardTo": "me@example.com",
+                }
+            )
         if path == "/v1/hme/generate":
             self.seq += 1
             return self.ok({"hme": f"gen{self.seq}@icloud.com"})
@@ -394,6 +400,10 @@ def test_full_user_journey(client, apple):
     assert {a["anonymous_id"]: a for a in client.get("/api/aliases").json()}[new_id]["is_active"] is True
 
     # forward-to
+    assert client.get("/api/forward-to").json() == {
+        "options": ["me@example.com", "alt@example.com"],
+        "selected": "me@example.com",
+    }
     r = client.put("/api/forward-to", json={"address": "me@example.com"})
     assert r.status_code == 200 and r.json() == {"ok": True}
     assert apple.forward_to == "me@example.com"

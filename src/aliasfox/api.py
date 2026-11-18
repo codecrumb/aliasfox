@@ -209,6 +209,11 @@ def build_router(
         await service.delete(user_id, alias_id)
         return {"ok": True}
 
+    @router.get("/forward-to")
+    async def forward_options(user_id: User):
+        options, selected = await service.forward_options(user_id)
+        return {"options": options, "selected": selected}
+
     @router.put("/forward-to")
     async def forward_to(body: ForwardBody, user_id: User):
         await service.set_forward_to(user_id, body.address)

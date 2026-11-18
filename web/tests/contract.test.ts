@@ -78,6 +78,7 @@ const SAMPLES: Record<string, unknown[]> = {
   patch: ['ID', { label: 'l', note: 'n' }],
   setActive: ['ID', true],
   remove: ['ID'],
+  forwardOptions: [],
   setForwardTo: ['me@example.com'],
   connectCookie: ['a=b'],
   connectLogin: [{ apple_id: 'me@icloud.com', password: 'pw' }],

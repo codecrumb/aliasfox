@@ -376,6 +376,14 @@ def test_list_raw_returns_result_dict_with_top_level_keys():
     assert set(raw) == {"hmeEmails", "selectedForwardTo", "nextPage"}
 
 
+def test_forward_options_reads_list_result():
+    def handler(req):
+        return ok({"hmeEmails": [], "forwardToEmails": ["a@x.com", 3, "b@x.com"], "selectedForwardTo": "b@x.com"})
+
+    c, _ = client_for(handler)
+    assert c.forward_options() == (["a@x.com", "b@x.com"], "b@x.com")
+
+
 @pytest.mark.parametrize("exc", [UnicodeEncodeError("ascii", "x", 0, 1, SECRET), ValueError(SECRET)])
 def test_unicode_and_value_errors_become_hme_error_without_values(exc):
     def boom(req):

@@ -69,6 +69,10 @@ class FakeService:
     async def delete(self, user_id, anonymous_id):
         self._rec("delete", user_id, anonymous_id)
 
+    async def forward_options(self, user_id):
+        self._rec("forward_options", user_id)
+        return ["me@x.com", "b@x.com"], "me@x.com"
+
     async def set_forward_to(self, user_id, address):
         self._rec("forward", user_id, address)
 

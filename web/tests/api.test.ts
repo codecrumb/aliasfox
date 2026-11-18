@@ -167,6 +167,7 @@ describe('api client', () => {
       ['patchNoNote', () => api.patch('id1', { label: 'L' }), 'PATCH', '/api/aliases/id1', { label: 'L' }],
       ['setActive', () => api.setActive('id1', false), 'POST', '/api/aliases/id1/active', { active: false }],
       ['remove', () => api.remove('id1'), 'DELETE', '/api/aliases/id1', undefined],
+      ['forwardOptions', () => api.forwardOptions(), 'GET', '/api/forward-to', undefined],
       ['forward', () => api.setForwardTo('me@x.y'), 'PUT', '/api/forward-to', { address: 'me@x.y' }],
       ['cookie', () => api.connectCookie('c=1'), 'POST', '/api/connect/cookie', { cookie: 'c=1' }],
       [

@@ -305,5 +305,12 @@ class HmeClient:
             self._request("POST", EP_DEACTIVATE, body)
             self._request("POST", EP_DELETE, body)
 
+    def forward_options(self) -> tuple[list[str], str]:
+        """The account's forward-to addresses and the selected one, from the list result."""
+        raw = self.list_raw()
+        options = [e for e in raw.get("forwardToEmails") or [] if isinstance(e, str)]
+        selected = raw.get("selectedForwardTo")
+        return options, selected if isinstance(selected, str) else ""
+
     def update_forward_to(self, address: str) -> None:
         self._request("POST", EP_UPDATE_FORWARD_TO, {F_FORWARD: address})

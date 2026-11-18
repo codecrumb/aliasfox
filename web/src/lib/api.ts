@@ -116,6 +116,7 @@ export const api = {
   setActive: (id: string, active: boolean) =>
     request<{ ok: boolean }>('POST', `/api/aliases/${seg(id)}/active`, { active }),
   remove: (id: string) => request<{ ok: boolean }>('DELETE', `/api/aliases/${seg(id)}`),
+  forwardOptions: () => request<{ options: string[]; selected: string }>('GET', '/api/forward-to'),
   setForwardTo: (address: string) => request<{ ok: boolean }>('PUT', '/api/forward-to', { address }),
   connectCookie: (cookie: string) => request<{ status: 'ok' }>('POST', '/api/connect/cookie', { cookie }),
   connectLogin: (b: { apple_id: string; password: string; china?: boolean }) =>
