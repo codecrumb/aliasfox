@@ -7,7 +7,7 @@ COPY web/ ./
 RUN WEB_OUT_DIR=/out npm run build
 
 FROM python:3.13-slim AS builder
-ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libffi-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -15,7 +15,8 @@ WORKDIR /build
 RUN python -m venv /opt/venv
 COPY pyproject.toml ./
 COPY src ./src
-RUN /opt/venv/bin/pip install .
+# The cache mount lives only in BuildKit's cache, never in the image.
+RUN --mount=type=cache,target=/root/.cache/pip /opt/venv/bin/pip install .
 
 FROM python:3.13-slim
 ENV PATH=/opt/venv/bin:$PATH \
