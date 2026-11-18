@@ -331,6 +331,10 @@ main {
   margin: 0 0 6px;
 }
 
+/* the oversized 3D canvas may poke past the viewport edge */
+.landing {
+  overflow-x: clip;
+}
 /* Landing is wide; policy pages stay at reading width */
 .landing .wrap {
   max-width: 76rem;
@@ -385,9 +389,10 @@ main {
   }
   .hero-art canvas {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    inset: -35%;
+    width: 170%;
+    height: 170%;
+    pointer-events: none;
     opacity: 0;
     transform: scale(0.6);
   }

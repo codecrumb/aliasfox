@@ -12,6 +12,7 @@ export function mount(el) {
   if (!d) return false;
   const renderer = new WebGLRenderer({ alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const canvas = renderer.domElement;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" fill="#000" d="${d}"/></svg>`;
   const shapes = new SVGLoader().parse(svg).paths.flatMap((p) => SVGLoader.createShapes(p));
@@ -34,11 +35,14 @@ export function mount(el) {
 
   const size = new Box3().setFromObject(pivot).getSize(new Vector3());
   const camera = new PerspectiveCamera(30, 1, 10, 5000);
+  // The canvas is PAD times the fox's box (see site.css) so a spinning ear is never clipped;
+  // pulling the camera back by PAD keeps the fox the same size on screen.
+  const PAD = 1.7;
   const fit = () => {
-    const w = el.clientWidth, h = el.clientHeight;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    camera.position.z = (Math.max(size.x / camera.aspect, size.y) / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.02;
+    camera.position.z = (Math.max(size.x / camera.aspect, size.y) / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.02 * PAD;
     camera.updateProjectionMatrix();
   };
   fit();
@@ -46,13 +50,12 @@ export function mount(el) {
 
   // drag to spin, release to fling; springs back toward the front when idle
   let yaw = 0, pitch = 0, vYaw = 0, vPitch = 0, drag = null, visible = true, last = performance.now();
-  const canvas = renderer.domElement;
-  canvas.addEventListener('pointerdown', (e) => {
-    canvas.setPointerCapture(e.pointerId);
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
     drag = { x: e.clientX, y: e.clientY };
     el.classList.add('dragging');
   });
-  canvas.addEventListener('pointermove', (e) => {
+  el.addEventListener('pointermove', (e) => {
     if (!drag) return;
     vYaw = (e.clientX - drag.x) * 0.012;
     vPitch = (e.clientY - drag.y) * 0.012;
@@ -64,8 +67,8 @@ export function mount(el) {
     drag = null;
     el.classList.remove('dragging');
   };
-  canvas.addEventListener('pointerup', release);
-  canvas.addEventListener('pointercancel', release);
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
 
   new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe(el);
   const tick = (now) => {
@@ -90,6 +93,7 @@ export function mount(el) {
   requestAnimationFrame(tick);
 
   el.append(canvas);
+  fit();
   canvas.getBoundingClientRect(); // commit the start state (scaled down, transparent) so the grow-in transitions
   el.classList.add('is3d');
   return true;

@@ -13215,59 +13215,59 @@ function tl(e) {
 		antialias: !0
 	});
 	n.setPixelRatio(Math.min(devicePixelRatio, 2));
-	let r = `<svg xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" fill="#000" d="${t}"/></svg>`, i = new ui(new Xc().parse(r).paths.flatMap((e) => Xc.createShapes(e)), {
+	let r = n.domElement, i = `<svg xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" fill="#000" d="${t}"/></svg>`, a = new ui(new Xc().parse(i).paths.flatMap((e) => Xc.createShapes(e)), {
 		depth: 90,
 		bevelEnabled: !0,
 		bevelThickness: 14,
 		bevelSize: 10,
 		bevelSegments: 4
 	});
-	i.center();
-	let a = new Pn(i, new wi({
+	a.center();
+	let o = new Pn(a, new wi({
 		color: 16216089,
 		roughness: .4,
 		metalness: .15
 	}));
-	a.scale.y = -1;
-	let o = new ot();
-	o.add(a);
-	let s = new ht();
-	s.add(o, new ga(16777215, 1.1));
-	let c = new ha(16769736, 3);
-	c.position.set(-300, 400, 600);
-	let l = new ha(16751181, 2);
-	l.position.set(400, -200, -300), s.add(c, l);
-	let u = new At().setFromObject(o).getSize(new G()), d = new fa(30, 1, 10, 5e3), f = () => {
-		let t = e.clientWidth, r = e.clientHeight;
-		n.setSize(t, r, !1), d.aspect = t / r, d.position.z = Math.max(u.x / d.aspect, u.y) / 2 / Math.tan(d.fov * Math.PI / 360) * 1.02, d.updateProjectionMatrix();
+	o.scale.y = -1;
+	let s = new ot();
+	s.add(o);
+	let c = new ht();
+	c.add(s, new ga(16777215, 1.1));
+	let l = new ha(16769736, 3);
+	l.position.set(-300, 400, 600);
+	let u = new ha(16751181, 2);
+	u.position.set(400, -200, -300), c.add(l, u);
+	let d = new At().setFromObject(s).getSize(new G()), f = new fa(30, 1, 10, 5e3), p = () => {
+		let e = r.clientWidth, t = r.clientHeight;
+		n.setSize(e, t, !1), f.aspect = e / t, f.position.z = Math.max(d.x / f.aspect, d.y) / 2 / Math.tan(f.fov * Math.PI / 360) * 1.02 * 1.7, f.updateProjectionMatrix();
 	};
-	f(), new ResizeObserver(f).observe(e);
-	let p = 0, m = 0, h = 0, g = 0, _ = null, v = !0, y = performance.now(), b = n.domElement;
-	b.addEventListener("pointerdown", (t) => {
-		b.setPointerCapture(t.pointerId), _ = {
+	p(), new ResizeObserver(p).observe(e);
+	let m = 0, h = 0, g = 0, _ = 0, v = null, y = !0, b = performance.now();
+	e.addEventListener("pointerdown", (t) => {
+		e.setPointerCapture(t.pointerId), v = {
 			x: t.clientX,
 			y: t.clientY
 		}, e.classList.add("dragging");
-	}), b.addEventListener("pointermove", (e) => {
-		_ &&= (h = (e.clientX - _.x) * .012, g = (e.clientY - _.y) * .012, p += h, m += g, {
+	}), e.addEventListener("pointermove", (e) => {
+		v &&= (g = (e.clientX - v.x) * .012, _ = (e.clientY - v.y) * .012, m += g, h += _, {
 			x: e.clientX,
 			y: e.clientY
 		});
 	});
 	let x = () => {
-		_ = null, e.classList.remove("dragging");
+		v = null, e.classList.remove("dragging");
 	};
-	b.addEventListener("pointerup", x), b.addEventListener("pointercancel", x), new IntersectionObserver(([e]) => v = e.isIntersecting).observe(e);
+	e.addEventListener("pointerup", x), e.addEventListener("pointercancel", x), new IntersectionObserver(([e]) => y = e.isIntersecting).observe(e);
 	let S = (e) => {
-		if (requestAnimationFrame(S), !v) return;
-		let t = Math.min((e - y) / 16.7, 3);
-		if (y = e, !_) {
-			p += h * t, m += g * t, h *= .95, g *= .95;
-			let e = Math.round(p / (2 * Math.PI)) * 2 * Math.PI;
-			p += (e - p) * .03 * t, m += -m * .05 * t;
+		if (requestAnimationFrame(S), !y) return;
+		let t = Math.min((e - b) / 16.7, 3);
+		if (b = e, !v) {
+			m += g * t, h += _ * t, g *= .95, _ *= .95;
+			let e = Math.round(m / (2 * Math.PI)) * 2 * Math.PI;
+			m += (e - m) * .03 * t, h += -h * .05 * t;
 		}
-		o.rotation.set(Math.max(-1.2, Math.min(1.2, m)), p, 0), o.position.y = Math.sin(e / 950) * 14, n.render(s, d);
+		s.rotation.set(Math.max(-1.2, Math.min(1.2, h)), m, 0), s.position.y = Math.sin(e / 950) * 14, n.render(c, f);
 	};
-	return requestAnimationFrame(S), e.append(b), b.getBoundingClientRect(), e.classList.add("is3d"), !0;
+	return requestAnimationFrame(S), e.append(r), p(), r.getBoundingClientRect(), e.classList.add("is3d"), !0;
 }
 export { tl as mount };
