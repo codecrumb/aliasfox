@@ -42,10 +42,16 @@
   el.addEventListener('pointerup', release);
   el.addEventListener('pointercancel', release);
 
-  // The 3D fox is ~160 KB gzipped: skip phones (art hidden), Save-Data, and anything slow to start.
+  // The 3D fox is ~160 KB gzipped: skip phones (art hidden) and Save-Data.
   if (!matchMedia('(min-width: 960px)').matches || navigator.connection?.saveData) return;
-  const load3d = () => import('/hero3d.js').then((m) => m.mount(el)).catch(() => {});
-  addEventListener('load', () =>
-    'requestIdleCallback' in window ? requestIdleCallback(load3d, { timeout: 4000 }) : setTimeout(load3d, 2000)
-  );
+  // Blank until the 3D fox grows in; only a slow load falls back to showing the SVG fox first.
+  el.classList.add('wait');
+  const showSvg = () => el.classList.add('show-svg');
+  const timer = setTimeout(showSvg, 600);
+  import('/hero3d.js')
+    .then((m) => m.mount(el) || Promise.reject())
+    .catch(() => {
+      clearTimeout(timer);
+      showSvg();
+    });
 })();

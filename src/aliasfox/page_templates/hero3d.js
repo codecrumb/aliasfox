@@ -13239,7 +13239,7 @@ function tl(e) {
 	l.position.set(400, -200, -300), s.add(c, l);
 	let u = new At().setFromObject(o).getSize(new G()), d = new fa(30, 1, 10, 5e3), f = () => {
 		let t = e.clientWidth, r = e.clientHeight;
-		n.setSize(t, r, !1), d.aspect = t / r, d.position.z = Math.max(u.x / d.aspect, u.y) / 2 / Math.tan(d.fov * Math.PI / 360) * 1.25, d.updateProjectionMatrix();
+		n.setSize(t, r, !1), d.aspect = t / r, d.position.z = Math.max(u.x / d.aspect, u.y) / 2 / Math.tan(d.fov * Math.PI / 360) * 1.02, d.updateProjectionMatrix();
 	};
 	f(), new ResizeObserver(f).observe(e);
 	let p = 0, m = 0, h = 0, g = 0, _ = null, v = !0, y = performance.now(), b = n.domElement;

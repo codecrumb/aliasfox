@@ -38,7 +38,7 @@ export function mount(el) {
     const w = el.clientWidth, h = el.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    camera.position.z = (Math.max(size.x / camera.aspect, size.y) / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.25;
+    camera.position.z = (Math.max(size.x / camera.aspect, size.y) / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.02;
     camera.updateProjectionMatrix();
   };
   fit();
