@@ -20,3 +20,5 @@ web/dist/
 .*.sw?
 *~
 *.code-workspace
+
+uv.lock
