@@ -326,7 +326,7 @@ def test_cache_key_differs_per_user_and_changes_on_logout(env, ab):
 # --- route coverage ----------------------------------------------------------------------
 
 # Multi mode's static public pages (pages.py); `/` serves the SPA when signed in.
-PAGE_ROUTES = {(m, p) for m in ("GET", "HEAD") for p in ("/", "/privacy", "/terms", "/site.css", "/hero.js", "/hero3d.js")}
+PAGE_ROUTES = {(m, p) for m in ("GET", "HEAD") for p in ("/", "/privacy", "/terms", "/site.HASH.css", "/hero.HASH.js", "/hero3d.HASH.js")}
 PUBLIC = {
     ("GET", "/healthz"),
     ("HEAD", "/healthz"),
@@ -360,7 +360,8 @@ def route_table(app):
             if inner is not None:
                 walk(inner.routes, prefix + route.include_context.prefix)
             elif isinstance(route, APIRoute):
-                table.update((m, prefix + route.path) for m in route.methods)
+                path = re.sub(r"\.[0-9a-f]{10}\.(css|js)$", r".HASH.\1", prefix + route.path)
+                table.update((m, path) for m in route.methods)
             elif isinstance(route, Mount) and prefix + route.path in PUBLIC_MOUNTS:
                 continue
             else:

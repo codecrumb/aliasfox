@@ -13,6 +13,7 @@ Plain HTML and one stylesheet, rendered once at startup from
 Every configured value goes through `html.escape(quote=True)`; the only raw
 markup inserted is fixed text from this module."""
 
+import hashlib
 import html
 import re
 from importlib import resources
@@ -22,10 +23,9 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from aliasfox.auth import has_valid_session
 from aliasfox.config import Settings
-from aliasfox.web import NO_CACHE
+from aliasfox.web import IMMUTABLE, NO_CACHE
 
 REPO_URL = "https://github.com/codecrumb/aliasfox"
-CSS_CACHE = "public, max-age=3600"
 _PLACEHOLDER = re.compile(r"\{\{(PUBLIC_URL|CONTACT|SIGNUPS)\}\}")
 PAGES = {"/": "landing.html", "/privacy": "privacy.html", "/terms": "terms.html"}
 
@@ -73,10 +73,27 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
     catch-all (`install_web`). Signed-in visitors at `/` get the SPA index."""
     if settings.aliasfox_mode != "multi":
         return
-    rendered = {path: render(_template(name), settings) for path, name in PAGES.items()}
-    css = _template("site.css")
-    hero_js = _template("hero.js")
-    hero_3d_js = _template("hero3d.js")
+    # Content-hashed URLs, cached forever: a change in content is a new URL.
+    # hero3d first, because hero.js imports it by name.
+    assets: dict[str, tuple[str, str]] = {}
+
+    def publish(name: str, body: str, media_type: str) -> str:
+        stem, ext = name.rsplit(".", 1)
+        url = f"/{stem}.{hashlib.sha256(body.encode()).hexdigest()[:10]}.{ext}"
+        assets[url] = (body, media_type)
+        return url
+
+    js, css = "text/javascript", "text/css"
+    hero_3d_url = publish("hero3d.js", _template("hero3d.js"), js)
+    hero_url = publish("hero.js", _template("hero.js").replace("/hero3d.js", hero_3d_url), js)
+    css_url = publish("site.css", _template("site.css"), css)
+    urls = {"/site.css": css_url, "/hero.js": hero_url}
+    rendered = {}
+    for path, name in PAGES.items():
+        page = render(_template(name), settings)
+        for plain, hashed in urls.items():
+            page = page.replace(f'"{plain}"', f'"{hashed}"')
+        rendered[path] = page
     html_headers = {"Cache-Control": NO_CACHE}
 
     @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
@@ -96,14 +113,8 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
     def terms():
         return HTMLResponse(rendered["/terms"], headers=html_headers)
 
-    @app.api_route("/hero.js", methods=["GET", "HEAD"], include_in_schema=False)
-    def hero_script():
-        return Response(hero_js, media_type="text/javascript", headers={"Cache-Control": CSS_CACHE})
+    for url, (body, media_type) in assets.items():
+        def serve(body: str = body, media_type: str = media_type):
+            return Response(body, media_type=media_type, headers={"Cache-Control": IMMUTABLE})
 
-    @app.api_route("/hero3d.js", methods=["GET", "HEAD"], include_in_schema=False)
-    def hero_3d_script():
-        return Response(hero_3d_js, media_type="text/javascript", headers={"Cache-Control": CSS_CACHE})
-
-    @app.api_route("/site.css", methods=["GET", "HEAD"], include_in_schema=False)
-    def site_css():
-        return Response(css, media_type="text/css", headers={"Cache-Control": CSS_CACHE})
+        app.add_api_route(url, serve, methods=["GET", "HEAD"], include_in_schema=False)

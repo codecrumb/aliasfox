@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import aliasfox.main as main_mod
 from aliasfox.config import ConfigError, Settings
+import aliasfox.pages as pages_mod
 from aliasfox.pages import install_pages
 from helpers import MULTI_BASE, FakeNeonVerifier, MultiUserEnv, multi_mode_settings
 
@@ -54,7 +55,7 @@ def test_landing_for_signed_out_visitor(tmp_path, monkeypatch, dist):
     assert 'href="/login"' in html
     assert 'href="/privacy"' in html and 'href="/terms"' in html
     assert f'href="{REPO}"' in html
-    assert 'href="/site.css"' in html
+    assert re.search(r'href="/site\.[0-9a-f]{10}\.css"', html)
     assert "not affiliated with or endorsed by Apple" in html
     assert "Apple, iCloud and Hide My Email are trademarks of Apple Inc." in html
     assert "without warranty" in html
@@ -70,18 +71,36 @@ def test_landing_has_no_script_tag_and_no_external_urls_except_repo_link(
         lower = html.lower()
         # the only script is the landing page's same-origin hero tilt
         assert lower.count("<script") == (path == "/"), path
-        assert "<script" not in lower or '<script src="/hero.js" defer></script>' in lower, path
+        assert "<script" not in lower or re.search(r'<script src="/hero\.[0-9a-f]{10}\.js" defer></script>', lower), path
         assert "<style" not in lower, path
         assert re.search(r"\sstyle\s*=", lower) is None, path
         assert re.search(r"\son[a-z]+\s*=", lower) is None, path  # inline handlers
         for url in re.findall(r"https?://[^\s\"'<>)]+", html):
             assert url.startswith(REPO), (path, url)
-    css = c.get("/site.css")
+    css = c.get(re.search(r'href="(/site\.[0-9a-f]{10}\.css)"', c.get("/").text).group(1))
     assert css.status_code == 200
     assert css.headers["content-type"].startswith("text/css")
-    assert css.headers["cache-control"] == "public, max-age=3600"
+    assert css.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert re.search(r"https?://", css.text) is None
     assert "@import" not in css.text
+
+
+def _css_url(c) -> str:
+    return re.search(r'href="(/site\.[0-9a-f]{10}\.css)"', c.get("/").text).group(1)
+
+
+def test_asset_urls_change_with_content_and_hero_imports_hashed_3d(tmp_path, monkeypatch):
+    c = client(tmp_path, monkeypatch)
+    page = c.get("/").text
+    hero_url = re.search(r'src="(/hero\.[0-9a-f]{10}\.js)"', page).group(1)
+    hero = c.get(hero_url)
+    assert hero.headers["cache-control"] == "public, max-age=31536000, immutable"
+    m = re.search(r"import\('(/hero3d\.[0-9a-f]{10}\.js)'\)", hero.text)
+    assert m and c.get(m.group(1)).status_code == 200
+    assert c.get("/site.css").status_code == 404  # unhashed URLs are gone
+    # a different stylesheet body yields a different URL
+    monkeypatch.setattr(pages_mod, "_template", lambda n, f=pages_mod._template: f(n) + "/*x*/" if n == "site.css" else f(n))
+    assert _css_url(client(tmp_path / "2", monkeypatch)) != _css_url(c)
 
 
 def test_signed_in_gets_spa_index(tmp_path, monkeypatch, dist):
@@ -243,7 +262,7 @@ def test_pages_absent_in_single_mode(tmp_path, dist):
 
 def test_security_headers_present_on_pages(tmp_path, monkeypatch):
     c = client(tmp_path, monkeypatch)
-    for path in (*PAGES, "/site.css"):
+    for path in (*PAGES, _css_url(c)):
         r = c.get(path, headers={"X-Forwarded-Proto": "https"})
         assert r.status_code == 200, path
         csp = r.headers["content-security-policy"]
@@ -256,7 +275,7 @@ def test_security_headers_present_on_pages(tmp_path, monkeypatch):
 
 def test_head_requests_supported(tmp_path, monkeypatch):
     c = client(tmp_path, monkeypatch)
-    for path in (*PAGES, "/site.css"):
+    for path in (*PAGES, _css_url(c)):
         assert c.head(path).status_code == 200, path
 
 
