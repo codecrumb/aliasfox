@@ -228,7 +228,7 @@ def test_no_contact_set_falls_back_to_github_issue_text(tmp_path, monkeypatch):
 def test_pages_absent_in_single_mode(tmp_path, dist):
     settings = Settings(secret_key="s" * 32, data_dir=tmp_path / "data")
     c = TestClient(main_mod.create_app(settings, dist_dir=dist), base_url="http://localhost")
-    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js"):
+    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js", "/hero3d.js"):
         r = c.get(path)
         assert r.status_code == 200 and r.text == INDEX, path  # SPA fallback, unchanged
     bare = TestClient(
@@ -237,7 +237,7 @@ def test_pages_absent_in_single_mode(tmp_path, dist):
         ),
         base_url="http://localhost",
     )
-    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js"):
+    for path in ("/", "/privacy", "/terms", "/site.css", "/hero.js", "/hero3d.js"):
         assert bare.get(path).status_code == 404, path
 
 
