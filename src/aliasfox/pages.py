@@ -19,7 +19,7 @@ import re
 from importlib import resources
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from aliasfox.auth import has_valid_session
 from aliasfox.config import Settings
@@ -68,10 +68,37 @@ def _template(name: str) -> str:
     return (resources.files("aliasfox") / "page_templates" / name).read_text(encoding="utf-8")
 
 
+ROBOTS_SINGLE = "User-agent: *\nDisallow: /\n"  # a private instance: nothing to index
+ROBOTS_MULTI = "User-agent: *\nDisallow: /api/\nDisallow: /login\nDisallow: /signup\n"
+
+
 def install_pages(app: FastAPI, settings: Settings) -> None:
-    """Register the public pages; multi mode only. Must run before the SPA
-    catch-all (`install_web`). Signed-in visitors at `/` get the SPA index."""
-    if settings.aliasfox_mode != "multi":
+    """Register robots.txt, and in multi mode the public pages. Must run before
+    the SPA catch-all (`install_web`). Signed-in visitors at `/` get the SPA
+    index; at `/login` and `/signup` they are redirected to `/`."""
+    multi = settings.aliasfox_mode == "multi"
+    base = (settings.public_url or "").strip().rstrip("/")
+    sitemap = bool(multi and base)  # sitemaps need absolute URLs
+    robots_txt = ROBOTS_MULTI if multi else ROBOTS_SINGLE
+    if sitemap:
+        robots_txt += f"Sitemap: {base}/sitemap.xml\n"
+
+    @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
+    def robots():
+        return PlainTextResponse(robots_txt)
+
+    if sitemap:
+        urls = "".join(f"<url><loc>{_esc(base + p)}</loc></url>" for p in ("/", "/privacy", "/terms"))
+        sitemap_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'
+        )
+
+        @app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
+        def sitemap_route():
+            return Response(sitemap_xml, media_type="application/xml")
+
+    if not multi:
         return
     # Content-hashed URLs, cached forever: a change in content is a new URL.
     # hero3d first, because hero.js imports it by name.
@@ -104,6 +131,17 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
                 raise HTTPException(status_code=404)
             return FileResponse(index, headers=html_headers)
         return HTMLResponse(rendered["/"], headers=html_headers)
+
+    def auth_screen(request: Request):
+        if has_valid_session(request):
+            return RedirectResponse("/", status_code=302)
+        index = getattr(request.app.state, "spa_index", None)
+        if index is None:
+            raise HTTPException(status_code=404)
+        return FileResponse(index, headers=html_headers)
+
+    for path in ("/login", "/signup"):
+        app.add_api_route(path, auth_screen, methods=["GET", "HEAD"], include_in_schema=False)
 
     @app.api_route("/privacy", methods=["GET", "HEAD"], include_in_schema=False)
     def privacy():

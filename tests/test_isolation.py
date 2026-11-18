@@ -326,10 +326,12 @@ def test_cache_key_differs_per_user_and_changes_on_logout(env, ab):
 # --- route coverage ----------------------------------------------------------------------
 
 # Multi mode's static public pages (pages.py); `/` serves the SPA when signed in.
-PAGE_ROUTES = {(m, p) for m in ("GET", "HEAD") for p in ("/", "/privacy", "/terms", "/site.HASH.css", "/hero.HASH.js", "/hero3d.HASH.js")}
+PAGE_ROUTES = {(m, p) for m in ("GET", "HEAD") for p in ("/", "/login", "/signup", "/privacy", "/terms", "/site.HASH.css", "/hero.HASH.js", "/hero3d.HASH.js")}
 PUBLIC = {
     ("GET", "/healthz"),
     ("HEAD", "/healthz"),
+    ("GET", "/robots.txt"),
+    ("HEAD", "/robots.txt"),
     ("GET", "/api/config"),
     ("POST", "/api/auth/exchange"),
     ("POST", "/api/auth/logout"),

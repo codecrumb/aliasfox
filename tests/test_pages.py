@@ -312,3 +312,35 @@ def test_privacy_memory_and_retention_wording_matches_code(tmp_path, monkeypatch
     assert "not removed automatically" not in html
     assert "only calls Hide My Email" not in html
     assert "sign out of it at Apple" not in html
+
+
+def test_robots_txt_disallows_app_paths_in_multi_and_everything_in_single(tmp_path, monkeypatch, dist):
+    r = client(tmp_path, monkeypatch, dist).get("/robots.txt")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    assert "Disallow: /api/" in r.text and "Disallow: /login" in r.text and "Disallow: /signup" in r.text
+    assert "Disallow: /\n" not in r.text
+    settings = Settings(secret_key="s" * 32, data_dir=tmp_path / "data")
+    single = TestClient(main_mod.create_app(settings, dist_dir=dist), base_url="http://localhost")
+    assert "Disallow: /\n" in single.get("/robots.txt").text
+
+
+def test_login_and_signup_redirect_home_when_signed_in(tmp_path, monkeypatch, dist):
+    env = MultiUserEnv(tmp_path, monkeypatch, ["a"], dist_dir=dist)
+    c, _ = env.sign_in("a")
+    for path in ("/login", "/signup"):
+        r = c.get(path, follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == "/", path
+        anon = env.anonymous().get(path)
+        assert anon.status_code == 200 and anon.text == INDEX, path
+
+
+def test_sitemap_only_when_public_url_is_set(tmp_path, monkeypatch, dist):
+    c = client(tmp_path / "a", monkeypatch, dist, public_url="https://fox.example/")
+    assert "Sitemap: https://fox.example/sitemap.xml" in c.get("/robots.txt").text
+    r = c.get("/sitemap.xml")
+    assert r.headers["content-type"].startswith("application/xml")
+    for path in ("/", "/privacy", "/terms"):
+        assert f"<loc>https://fox.example{path}</loc>" in r.text
+    bare = client(tmp_path / "b", monkeypatch, dist, public_url=None)
+    assert "Sitemap" not in bare.get("/robots.txt").text
+    assert bare.get("/sitemap.xml").text == INDEX  # SPA fallback, not a sitemap
