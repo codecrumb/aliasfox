@@ -47,7 +47,7 @@
   // Blank until the 3D fox grows in; only a slow load falls back to showing the SVG fox first.
   el.classList.add('wait');
   const showSvg = () => el.classList.add('show-svg');
-  const timer = setTimeout(showSvg, 600);
+  const timer = setTimeout(showSvg, 2500);
   import('/hero3d.js')
     .then((m) => m.mount(el) || Promise.reject())
     .catch(() => {
