@@ -33,6 +33,7 @@
     | { kind: 'bulkDelete' }
     | { kind: 'menu' }
     | { kind: 'help' }
+    | { kind: 'detail' }
     | { kind: 'forward'; current: string }
     | { kind: 'disconnect' }
     | { kind: 'account' }
@@ -226,8 +227,13 @@
     else rootEl.removeAttribute('inert');
   });
 
+  // Touch screens: focusing the search field raises the keyboard, so only a tap on it does that.
+  // Below 900px the details pane is hidden and a tapped row opens it as a dialog instead.
+  const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+  const stacked = (): boolean => typeof matchMedia === 'function' && matchMedia('(max-width: 899px)').matches;
+
   function focusSearch(): void {
-    if (!searchEl || anyOpen) return;
+    if (!searchEl || anyOpen || touch) return;
     searchEl.focus({ preventScroll: true });
   }
 
@@ -655,7 +661,7 @@
   };
 
   onMount(() => {
-    searchEl?.focus({ preventScroll: true });
+    if (!touch) searchEl?.focus({ preventScroll: true });
     measure();
     window.addEventListener('resize', measure);
     if (typeof ResizeObserver !== 'undefined' && listEl) {
@@ -672,6 +678,7 @@
       if (i >= 0) {
         select(i);
         focusSearch();
+        if (stacked()) dialog = { kind: 'detail' };
       }
     };
     const dbl = (e: MouseEvent): void => {
@@ -874,7 +881,8 @@
       {/if}
     </div>
 
-    <DetailPane
+    <div class="detail">
+      <DetailPane
       alias={selected}
       onCopy={() => {
         void copyAlias(selected);
@@ -886,7 +894,8 @@
       }}
       onEdit={openEdit}
       onDelete={openDelete}
-    />
+      />
+    </div>
   </div>
 
   <footer class="hints" aria-hidden="true">
@@ -930,6 +939,10 @@
   />
 {:else if dialog?.kind === 'menu'}
   <ActionsMenu actions={menuActions} onRun={(id) => void runAction(id)} onClose={closeDialog} />
+{:else if dialog?.kind === 'detail' && selected}
+  <Modal label="Alias details" onClose={closeDialog} size="sm">
+    <DetailPane alias={selected} bare onCopy={() => void copyAlias(selected)} onToggle={() => void toggleSelected()} onEdit={openEdit} onDelete={openDelete} />
+  </Modal>
 {:else if dialog?.kind === 'help'}
   <ShortcutHelp onClose={closeDialog} />
 {:else if dialog?.kind === 'forward'}
@@ -1169,6 +1182,7 @@
   }
   .sort {
     margin-left: auto;
+    white-space: nowrap;
     padding: 0 var(--space-3);
     font-size: 0.875rem;
   }
@@ -1181,6 +1195,7 @@
     transform: translateY(2px);
   }
   .count {
+    white-space: nowrap;
     color: var(--muted);
     font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
@@ -1278,6 +1293,36 @@
     display: none;
   }
 
+  @media (max-width: 639px) {
+    .toolbar {
+      flex-wrap: wrap;
+    }
+    .seg {
+      flex: 1 1 100%;
+    }
+    .seg button {
+      flex: 1;
+      min-width: 0;
+      padding: 0 var(--space-2);
+      white-space: nowrap;
+    }
+    .count {
+      order: 2;
+      margin-right: auto;
+    }
+    .sort {
+      order: 3;
+      margin-left: 0;
+    }
+    .list-wrap {
+      height: max(16rem, 62dvh);
+    }
+  }
+  @media (max-width: 899px) {
+    .detail {
+      display: none;
+    }
+  }
   @media (min-width: 640px) {
     .hint-kbd {
       display: inline-flex;

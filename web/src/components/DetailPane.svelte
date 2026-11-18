@@ -8,8 +8,10 @@
     onToggle: () => void;
     onEdit: () => void;
     onDelete: () => void;
+    /** Inside a dialog: no frame of its own. */
+    bare?: boolean;
   }
-  let { alias, onCopy, onToggle, onEdit, onDelete }: Props = $props();
+  let { alias, onCopy, onToggle, onEdit, onDelete, bare = false }: Props = $props();
 
   const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -23,7 +25,7 @@
   const date = $derived(alias ? created(alias.created_ms) : '');
 </script>
 
-<section class="pane" aria-label="Alias details">
+<section class="pane" class:bare aria-label="Alias details">
   {#if alias}
     <div class="addr-row">
       <p class="addr">{alias.hme}</p>
@@ -98,6 +100,11 @@
     border-radius: 14px;
     background: var(--surface);
     overflow-y: auto;
+  }
+  .pane.bare {
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
   .addr-row {
     display: flex;
