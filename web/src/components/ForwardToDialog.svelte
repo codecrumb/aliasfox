@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import { api } from '../lib/api';
+  import { api, ApiError } from '../lib/api';
   import { aliasStore } from '../lib/aliases';
   import { describeError, isSessionError } from '../lib/errors';
   import { sessionStore } from '../lib/session';
@@ -22,32 +22,26 @@
   let invalid = $state(false);
   let sessionLost = $state(false);
   let input: HTMLInputElement | undefined = $state();
-  // Apple's own addresses; null until loaded, and empty/failed means plain text box.
+  // Apple's own addresses. Empty once loaded means the fetch failed: fall back to a text box.
   let options: string[] = $state([]);
-  let other = $state(true);
-  const OTHER = '\u0000other';
+  let loaded = $state(false);
 
-  onMount(() => {
-    input?.focus({ preventScroll: true });
-    input?.select();
-    void loadOptions();
-  });
+  let pick: HTMLSelectElement | undefined = $state();
+
+  onMount(() => void loadOptions());
 
   async function loadOptions(): Promise<void> {
     try {
       const res = await api.forwardOptions();
-      if (!res.options.length) return;
       options = res.options;
-      other = !res.options.includes(address);
+      if (options.length && !options.includes(address)) address = res.selected || options[0]!;
     } catch {
       // Keep the text box: the list is a convenience, saving still works without it.
     }
-  }
-  function onPick(e: Event): void {
-    const v = (e.currentTarget as HTMLSelectElement).value;
-    other = v === OTHER;
-    if (!other) address = v;
-    else void tick().then(() => input?.focus());
+    loaded = true;
+    await tick();
+    (pick ?? input)?.focus({ preventScroll: true });
+    if (!pick) input?.select();
   }
 
   async function save(): Promise<void> {
@@ -68,7 +62,10 @@
     } catch (e) {
       busy = false;
       sessionLost = isSessionError(e);
-      error = describeError(e, "Couldn't change the forwarding address. Try again.");
+      error =
+        e instanceof ApiError && e.detail === 'apple_error'
+          ? 'Apple only accepts the addresses on your account.'
+          : describeError(e, "Couldn't change the forwarding address. Try again.");
       return;
     }
     busy = false;
@@ -98,13 +95,12 @@
     <div>
       <label for={options.length ? `${uid}-pick` : `${uid}-addr`}>Forward to</label>
       {#if options.length}
-        <select id="{uid}-pick" value={other ? OTHER : address} onchange={onPick}>
+        <select id="{uid}-pick" bind:this={pick} bind:value={address}>
           {#each options as o (o)}<option value={o}>{o}</option>{/each}
-          <option value={OTHER}>Other…</option>
         </select>
       {/if}
       <input
-        hidden={!other}
+        hidden={!loaded || options.length > 0}
         id="{uid}-addr"
         bind:this={input}
         bind:value={address}
@@ -126,7 +122,7 @@
     </div>
     <div class="dialog-actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" class="primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="submit" class="primary" disabled={busy || !loaded}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   </form>
 </Modal>
@@ -145,7 +141,5 @@
     font: inherit;
     color: inherit;
   }
-  select + input:not([hidden]) {
-    margin-top: var(--space-2);
-  }
+
 </style>
