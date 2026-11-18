@@ -16,6 +16,7 @@ from starlette.types import Scope
 DEFAULT_DIST = Path(__file__).parent / "static"
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
+PUBLIC_FILE_CACHE = "public, max-age=86400"  # unhashed icons/manifest: stable names, rarely change
 RESERVED = ("api", "healthz", "assets")
 
 
@@ -83,6 +84,6 @@ def install_web(app: FastAPI, dist_dir: Path | None = None) -> None:
     )
     def spa(full_path: str):
         target = _safe_file(root, full_path)
-        return FileResponse(
-            target or index, headers={"Cache-Control": NO_CACHE}
-        )
+        # index.html (also the SPA fallback) must always revalidate
+        cache = PUBLIC_FILE_CACHE if target and target != index else NO_CACHE
+        return FileResponse(target or index, headers={"Cache-Control": cache})

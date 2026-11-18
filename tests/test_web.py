@@ -44,9 +44,11 @@ def test_assets_served_with_immutable_cache(tmp_path, dist):
     assert c.get("/assets/missing.js").status_code == 404
 
 
-def test_top_level_file_served_no_cache(tmp_path, dist):
-    r = make_client(tmp_path, dist).get("/favicon.svg")
-    assert r.text == "<svg/>" and r.headers["cache-control"] == "no-cache"
+def test_top_level_file_served_with_day_cache_but_index_revalidates(tmp_path, dist):
+    c = make_client(tmp_path, dist)
+    r = c.get("/favicon.svg")
+    assert r.text == "<svg/>" and r.headers["cache-control"] == "public, max-age=86400"
+    assert c.get("/index.html").headers["cache-control"] == "no-cache"
 
 
 def test_spa_fallback_for_client_routes(tmp_path, dist):
