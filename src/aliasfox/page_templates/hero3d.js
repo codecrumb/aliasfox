@@ -13268,6 +13268,6 @@ function tl(e) {
 		}
 		o.rotation.set(Math.max(-1.2, Math.min(1.2, m)), p, 0), o.position.y = Math.sin(e / 950) * 14, n.render(s, d);
 	};
-	return requestAnimationFrame(S), e.append(b), requestAnimationFrame(() => e.classList.add("is3d")), !0;
+	return requestAnimationFrame(S), e.append(b), b.getBoundingClientRect(), e.classList.add("is3d"), !0;
 }
 export { tl as mount };

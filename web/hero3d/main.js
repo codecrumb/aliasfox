@@ -90,6 +90,7 @@ export function mount(el) {
   requestAnimationFrame(tick);
 
   el.append(canvas);
-  requestAnimationFrame(() => el.classList.add('is3d'));
+  canvas.getBoundingClientRect(); // commit the start state (scaled down, transparent) so the grow-in transitions
+  el.classList.add('is3d');
   return true;
 }
