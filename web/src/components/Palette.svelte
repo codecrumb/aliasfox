@@ -472,6 +472,19 @@
     if (err !== null) toasts.push({ kind: 'error', text: `Couldn't refresh. ${describeError(new ApiError(0, err))}` });
   }
 
+  // Coming back to the tab refreshes quietly when the list is older than this, so a quick
+  // switch away and back does not hit Apple again.
+  const STALE_MS = 60_000;
+  let lastSync = Date.now();
+  $effect(() => {
+    if (!$aliasStore.refreshing) lastSync = Date.now();
+  });
+  function onVisible(): void {
+    if (document.visibilityState !== 'visible' || anyOpen || $aliasStore.refreshing) return;
+    if ($sessionStore.state !== 'ready' || Date.now() - lastSync < STALE_MS) return;
+    void aliasStore.refresh();
+  }
+
   const keysFor = (id: KeyId): string[] | undefined => {
     const b = KEYMAP.find((k) => k.id === id);
     return b && (mac && b.keysMac ? b.keysMac : b.keys)[0]?.map((n) => cap(n, mac));
@@ -664,6 +677,7 @@
     if (!touch) searchEl?.focus({ preventScroll: true });
     measure();
     window.addEventListener('resize', measure);
+    document.addEventListener('visibilitychange', onVisible);
     if (typeof ResizeObserver !== 'undefined' && listEl) {
       resizeObs = new ResizeObserver(measure);
       resizeObs.observe(listEl);
@@ -701,6 +715,7 @@
     lst?.addEventListener('scroll', scroll, { passive: true });
     root?.addEventListener('click', rootClick);
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
       lst?.removeEventListener('mousedown', down);
       lst?.removeEventListener('click', click);
       lst?.removeEventListener('dblclick', dbl);

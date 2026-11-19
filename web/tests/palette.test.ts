@@ -1117,3 +1117,30 @@ describe('fix round 1', () => {
     expect(dialog('Actions')).toBeInTheDocument();
   });
 });
+
+describe('refresh on return to the tab', () => {
+  const setVisibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    Reflect.deleteProperty(document, 'visibilityState');
+  });
+
+  it('refreshes quietly only when the list is stale and no dialog is open', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    setList();
+    session.__set?.({ state: 'ready' });
+    render(Palette);
+    mocks().forEach((m) => m.mockClear());
+    setVisibility('visible');
+    expect(store.refresh).not.toHaveBeenCalled(); // just synced
+    vi.setSystemTime(Date.now() + 61_000);
+    setVisibility('hidden');
+    expect(store.refresh).not.toHaveBeenCalled();
+    setVisibility('visible');
+    expect(store.refresh).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+});
