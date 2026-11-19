@@ -696,12 +696,52 @@
     const down = (e: MouseEvent): void => {
       if (rowIndex(e) >= 0) e.preventDefault(); // keep focus in the search field
     };
+    // Touch long-press on a row starts selecting it; the click that follows the release is swallowed.
+    let pressTimer: ReturnType<typeof setTimeout> | undefined;
+    let pressX = 0;
+    let pressY = 0;
+    let pressed = false;
+    const cancelPress = (): void => {
+      if (pressTimer !== undefined) clearTimeout(pressTimer);
+      pressTimer = undefined;
+    };
+    const pressStart = (e: PointerEvent): void => {
+      pressed = false;
+      cancelPress();
+      const i = e.pointerType === 'touch' ? rowIndex(e) : -1;
+      if (i < 0) return;
+      pressX = e.clientX;
+      pressY = e.clientY;
+      pressTimer = setTimeout(() => {
+        pressed = true;
+        const a = results[i];
+        if (a) {
+          select(i);
+          marked.add(a.anonymous_id);
+          navigator.vibrate?.(10);
+        }
+      }, 450);
+    };
+    const pressMove = (e: PointerEvent): void => {
+      if (Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
+    };
+    const noMenu = (e: Event): void => {
+      if (rowIndex(e) >= 0) e.preventDefault(); // long-press would otherwise open the browser menu
+    };
     const click = (e: MouseEvent): void => {
+      if (pressed) {
+        pressed = false;
+        return;
+      }
       const i = rowIndex(e);
       if (i >= 0) {
         select(i);
         focusSearch();
-        if (stacked()) dialog = { kind: 'detail' };
+        if (stacked()) {
+          // While selecting on mobile there's no other way to tick rows, so a tap marks instead of opening.
+          if (marked.size > 0) toggleMark(results[i]!.anonymous_id);
+          else dialog = { kind: 'detail' };
+        }
       }
     };
     const dbl = (e: MouseEvent): void => {
@@ -720,6 +760,11 @@
     };
     lst?.addEventListener('mousedown', down);
     lst?.addEventListener('click', click);
+    lst?.addEventListener('pointerdown', pressStart);
+    lst?.addEventListener('pointermove', pressMove);
+    lst?.addEventListener('pointerup', cancelPress);
+    lst?.addEventListener('pointercancel', cancelPress);
+    lst?.addEventListener('contextmenu', noMenu);
     lst?.addEventListener('dblclick', dbl);
     lst?.addEventListener('scroll', scroll, { passive: true });
     root?.addEventListener('click', rootClick);
@@ -727,6 +772,12 @@
       document.removeEventListener('visibilitychange', onVisible);
       lst?.removeEventListener('mousedown', down);
       lst?.removeEventListener('click', click);
+      cancelPress();
+      lst?.removeEventListener('pointerdown', pressStart);
+      lst?.removeEventListener('pointermove', pressMove);
+      lst?.removeEventListener('pointerup', cancelPress);
+      lst?.removeEventListener('pointercancel', cancelPress);
+      lst?.removeEventListener('contextmenu', noMenu);
       lst?.removeEventListener('dblclick', dbl);
       lst?.removeEventListener('scroll', scroll);
       root?.removeEventListener('click', rootClick);

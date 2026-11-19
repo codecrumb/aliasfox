@@ -108,6 +108,12 @@
   .row {
     transition: background-color var(--dur) var(--ease);
   }
+  @media (pointer: coarse) {
+    .row {
+      -webkit-touch-callout: none;
+      user-select: none; /* long-press selects the row, not its text */
+    }
+  }
   .row.marked {
     background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   }
