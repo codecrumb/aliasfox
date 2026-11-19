@@ -296,7 +296,8 @@
 
   const plural = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'address' : 'addresses'}`;
 
-  // Runs `fn` on each target in turn (gently on Apple), unselecting what succeeded. Stops at the
+  // Runs `fn` on each target in turn (gently on Apple). The selection stays so a deactivate can be
+  // undone with a reactivate; deleted aliases drop out of it via the effect above. Stops at the
   // first failure so an outage or expired session doesn't produce a wall of errors.
   async function runBulk(targets: Alias[], past: string, verb: string, fn: (a: Alias) => Promise<void>): Promise<void> {
     if (bulkBusy || targets.length === 0) return;
@@ -308,7 +309,6 @@
         try {
           await fn(a);
           done++;
-          marked.delete(a.anonymous_id);
         } catch (e) {
           failure = e;
           break;

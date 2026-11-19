@@ -250,7 +250,7 @@ describe('palette list', () => {
       expect(store.setActive).toHaveBeenCalledTimes(2);
       expect(store.setActive).toHaveBeenCalledWith('id-3', false);
       expect(store.setActive).toHaveBeenCalledWith('id-2', false);
-      expect(screen.queryByRole('region', { name: 'Selected aliases' })).toBeNull();
+      expect(screen.getByRole('region', { name: 'Selected aliases' })).toHaveTextContent('2 selected');
     });
 
     it('stops at the first failure and keeps the rest selected', async () => {
