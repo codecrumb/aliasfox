@@ -29,6 +29,10 @@
       </div>
     {/each}
     <div class="item">
+      <dt>Back to the search field from anywhere</dt>
+      <dd><span class="combo"><kbd>/</kbd></span></dd>
+    </div>
+    <div class="item">
       <dt>Jump to a visible alias (hold {mac ? 'Option' : 'Alt'} to see the numbers)</dt>
       <dd><span class="combo"><kbd aria-label={spoken(cap('Alt', mac))}>{cap('Alt', mac)}</kbd><kbd>1</kbd></span><span class="or">…</span><span class="combo"><kbd aria-label={spoken(cap('Alt', mac))}>{cap('Alt', mac)}</kbd><kbd>0</kbd></span></dd>
     </div>

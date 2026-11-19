@@ -657,6 +657,15 @@
   // Keys pressed while nothing in particular has focus still drive the palette.
   function onWindowKey(e: KeyboardEvent): void {
     if (anyOpen || !searchEl) return;
+    // "/" jumps back to search from a button or filter tab, but is a plain character in any text field.
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && e.target !== searchEl) {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (!t?.closest('input, textarea, select, [contenteditable]')) {
+        e.preventDefault();
+        focusSearch();
+        return;
+      }
+    }
     if (e.target !== document.body && e.target !== rootEl) return;
     if (handleKey(e, keyCtx())) return;
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) focusSearch();
