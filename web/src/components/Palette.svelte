@@ -838,13 +838,15 @@
   {#if marked.size > 0}
     <div class="bulkbar" role="region" aria-label="Selected aliases">
       <p class="bulk-count">
+        <button type="button" class="ghost bulk-clear" aria-label="Clear" title="Clear selection" onmousedown={(e) => e.preventDefault()} onclick={() => { clearMarks(); focusSearch(); }}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" /></svg>
+        </button>
         {marked.size.toLocaleString()} selected{#if hiddenMarked > 0}<span class="muted"> · {hiddenMarked.toLocaleString()} hidden</span>{/if}
       </p>
       <div class="bulk-actions">
         <button type="button" disabled={bulkBusy} onmousedown={(e) => e.preventDefault()} onclick={() => { bulkSetActive(false); focusSearch(); }}>Deactivate</button>
         <button type="button" disabled={bulkBusy} onmousedown={(e) => e.preventDefault()} onclick={() => { bulkSetActive(true); focusSearch(); }}>Reactivate</button>
         <button type="button" class="danger" disabled={bulkBusy} onclick={openBulkDelete}>Delete</button>
-        <button type="button" class="ghost" onmousedown={(e) => e.preventDefault()} onclick={() => { clearMarks(); focusSearch(); }}>Clear</button>
       </div>
     </div>
   {/if}
@@ -1194,7 +1196,19 @@
     background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   }
   .bulk-count {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     font-weight: 600;
+  }
+  .bulk-count .bulk-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    width: 28px;
+    padding: 0;
+    border-radius: 999px;
   }
   .bulk-actions {
     display: flex;
