@@ -743,7 +743,7 @@
     <div class="brand"><span class="mark" aria-hidden="true"></span><span>AliasFox</span></div>
     <div class="chips">
       {#if $aliasStore.refreshing && list.length > 0}
-        <span class="chip"><span class="pulse" aria-hidden="true"></span>Updating…</span>
+        <span class="chip"><span class="pulse" aria-hidden="true"></span><span class="chip-text">Updating…</span></span>
       {/if}
       {#if $aliasStore.fromCache && $aliasStore.refreshing}
         <span class="chip">Offline copy</span>
@@ -992,6 +992,7 @@
   }
   .chips {
     flex: 1;
+    overflow: hidden;
     display: flex;
     gap: var(--space-2);
     min-width: 0;
@@ -1294,6 +1295,10 @@
   }
 
   @media (max-width: 639px) {
+    /* Only the pulsing dot: the full chip got squeezed under the New alias button. */
+    .chip-text {
+      display: none;
+    }
     .toolbar {
       flex-wrap: wrap;
     }
