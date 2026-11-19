@@ -725,6 +725,63 @@
     const pressMove = (e: PointerEvent): void => {
       if (Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
     };
+    // Three fingers dragging over the list select every row they cross, from the row they landed on.
+    let swipeAnchor = -1;
+    let swipeAdded = new Set<string>();
+    const centre = (e: TouchEvent): { x: number; y: number } => {
+      let x = 0;
+      let y = 0;
+      for (const t of e.touches) {
+        x += t.clientX;
+        y += t.clientY;
+      }
+      return { x: x / e.touches.length, y: y / e.touches.length };
+    };
+    const rowAt = (x: number, y: number): number => {
+      const row = document.elementFromPoint(x, y)?.closest<HTMLElement>('[role="option"]');
+      const i = row ? Number(row.dataset.index) : NaN;
+      return Number.isInteger(i) ? i : -1;
+    };
+    const swipeStart = (e: TouchEvent): void => {
+      if (e.touches.length < 2) return;
+      cancelPress(); // a second finger means this is not a long-press
+      if (e.touches.length !== 3) return;
+      const c = centre(e);
+      swipeAnchor = rowAt(c.x, c.y);
+      swipeAdded = new Set();
+    };
+    const swipeMove = (e: TouchEvent): void => {
+      if (swipeAnchor < 0 || e.touches.length !== 3) return;
+      e.preventDefault();
+      const c = centre(e);
+      if (lst) {
+        const r = lst.getBoundingClientRect();
+        if (c.y < r.top + 40) lst.scrollTop -= 14;
+        else if (c.y > r.bottom - 40) lst.scrollTop += 14;
+      }
+      const to = rowAt(c.x, c.y);
+      if (to < 0) return;
+      const ids = new Set<string>();
+      for (let k = Math.min(swipeAnchor, to); k <= Math.max(swipeAnchor, to); k++) {
+        const a = results[k];
+        if (a) ids.add(a.anonymous_id);
+      }
+      for (const id of swipeAdded) {
+        if (!ids.has(id)) {
+          marked.delete(id);
+          swipeAdded.delete(id);
+        }
+      }
+      for (const id of ids) {
+        if (!marked.has(id)) {
+          marked.add(id);
+          swipeAdded.add(id);
+        }
+      }
+    };
+    const swipeEnd = (): void => {
+      swipeAnchor = -1;
+    };
     const noMenu = (e: Event): void => {
       if (rowIndex(e) >= 0) e.preventDefault(); // long-press would otherwise open the browser menu
     };
@@ -765,6 +822,10 @@
     lst?.addEventListener('pointerup', cancelPress);
     lst?.addEventListener('pointercancel', cancelPress);
     lst?.addEventListener('contextmenu', noMenu);
+    lst?.addEventListener('touchstart', swipeStart, { passive: true });
+    lst?.addEventListener('touchmove', swipeMove, { passive: false });
+    lst?.addEventListener('touchend', swipeEnd);
+    lst?.addEventListener('touchcancel', swipeEnd);
     lst?.addEventListener('dblclick', dbl);
     lst?.addEventListener('scroll', scroll, { passive: true });
     root?.addEventListener('click', rootClick);
@@ -778,6 +839,10 @@
       lst?.removeEventListener('pointerup', cancelPress);
       lst?.removeEventListener('pointercancel', cancelPress);
       lst?.removeEventListener('contextmenu', noMenu);
+      lst?.removeEventListener('touchstart', swipeStart);
+      lst?.removeEventListener('touchmove', swipeMove);
+      lst?.removeEventListener('touchend', swipeEnd);
+      lst?.removeEventListener('touchcancel', swipeEnd);
       lst?.removeEventListener('dblclick', dbl);
       lst?.removeEventListener('scroll', scroll);
       root?.removeEventListener('click', rootClick);
