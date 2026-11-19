@@ -10,8 +10,10 @@
     onDelete: () => void;
     /** Inside a dialog: no frame of its own. */
     bare?: boolean;
+    /** The address was just copied: the button says so. */
+    copied?: boolean;
   }
-  let { alias, onCopy, onToggle, onEdit, onDelete, bare = false }: Props = $props();
+  let { alias, onCopy, onToggle, onEdit, onDelete, bare = false, copied = false }: Props = $props();
 
   const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -29,8 +31,8 @@
   {#if alias}
     <div class="addr-row">
       <p class="addr">{alias.hme}</p>
-      <button type="button" class="copy" aria-label="Copy address" onclick={onCopy}>
-        <span class="copy-icon" aria-hidden="true"></span><span class="copy-text" aria-hidden="true">Copy</span>
+      <button type="button" class="copy" class:copied aria-label="Copy address" onclick={onCopy}>
+        <span class="copy-icon" aria-hidden="true"></span><span class="copy-text" aria-hidden="true">{copied ? 'Copied' : 'Copy'}</span>
       </button>
     </div>
 
@@ -105,6 +107,21 @@
     padding: 0;
     border: 0;
     background: transparent;
+    overflow: visible;
+  }
+  .bare .addr-row {
+    margin: 0;
+    align-items: flex-start;
+  }
+  .copy.copied {
+    background: color-mix(in srgb, var(--ok) 16%, transparent);
+    color: var(--ok);
+    animation: copied-pop 0.3s var(--ease);
+  }
+  @keyframes copied-pop {
+    50% {
+      transform: scale(1.08);
+    }
   }
   .addr-row {
     display: flex;

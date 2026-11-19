@@ -1,5 +1,9 @@
 // Drag the hero fox to tilt it; once the browser is idle, swap in a real 3D fox (hero3d.js).
 // Cosmetic only.
+// The installed app (home-screen icon) has no use for the landing page: go straight to sign-in.
+// A signed-in visitor never gets here (the server serves the app at /), and /login bounces them back.
+if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) location.replace('/login');
+
 (() => {
   const el = document.querySelector('.hero-art');
   if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;

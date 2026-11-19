@@ -849,7 +849,7 @@
             index={win.start + k}
             total={results.length}
             selected={win.start + k === selIndex}
-            flash={a.anonymous_id === flashId}
+            flash={a.anonymous_id === flashId && dialog?.kind !== 'detail'}
             marked={marked.has(a.anonymous_id)}
             markMode={marked.size > 0}
             hint={altHeld ? numberHint(win.start + k - numberBase) : undefined}
@@ -941,7 +941,7 @@
   <ActionsMenu actions={menuActions} onRun={(id) => void runAction(id)} onClose={closeDialog} />
 {:else if dialog?.kind === 'detail' && selected}
   <Modal label="Alias details" onClose={closeDialog} size="sm">
-    <DetailPane alias={selected} bare onCopy={() => void copyAlias(selected)} onToggle={() => void toggleSelected()} onEdit={openEdit} onDelete={openDelete} />
+    <DetailPane alias={selected} bare copied={selected.anonymous_id === flashId} onCopy={() => void copyAlias(selected)} onToggle={() => void toggleSelected()} onEdit={openEdit} onDelete={openDelete} />
   </Modal>
 {:else if dialog?.kind === 'help'}
   <ShortcutHelp onClose={closeDialog} />
