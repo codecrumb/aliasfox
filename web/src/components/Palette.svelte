@@ -820,7 +820,7 @@
     };
     // Three fingers dragging over the list select every row they cross, from the row they landed on.
     let swipeAnchor = -1;
-    let swipeAdded = new Set<string>();
+    let swipeAdded = new SvelteSet<string>();
     const centre = (e: TouchEvent): { x: number; y: number } => {
       let x = 0;
       let y = 0;
@@ -841,7 +841,7 @@
       if (e.touches.length !== 3) return;
       const c = centre(e);
       swipeAnchor = rowAt(c.x, c.y);
-      swipeAdded = new Set();
+      swipeAdded = new SvelteSet<string>();
     };
     const swipeMove = (e: TouchEvent): void => {
       if (swipeAnchor < 0 || e.touches.length !== 3) return;
@@ -854,7 +854,7 @@
       }
       const to = rowAt(c.x, c.y);
       if (to < 0) return;
-      const ids = new Set<string>();
+      const ids = new SvelteSet<string>();
       for (let k = Math.min(swipeAnchor, to); k <= Math.max(swipeAnchor, to); k++) {
         const a = results[k];
         if (a) ids.add(a.anonymous_id);
