@@ -8,20 +8,24 @@
   const stale = $derived(
     $online && $aliasStore.loadError !== null && $aliasStore.list.length > 0 && $sessionStore.state !== 'reconnect'
   );
-  const waiting = $derived(
-    $pending > 0 ? `${$pending} ${$pending === 1 ? 'change' : 'changes'} waiting to sync` : ''
-  );
+  const count = $derived(`${$pending} ${$pending === 1 ? 'change' : 'changes'}`);
+  const syncing = $derived($online && !stale && $pending > 0 && $aliasStore.refreshing);
   const text = $derived(
-    [!$online ? 'Offline' : stale ? "Couldn't refresh · showing your last saved list" : '', waiting]
-      .filter(Boolean)
-      .join(' · ')
+    syncing
+      ? `Syncing ${count}…`
+      : [
+          !$online ? 'Offline' : stale ? "Couldn't refresh · showing your last saved list" : '',
+          $pending > 0 ? `${count} waiting to sync` : ''
+        ]
+          .filter(Boolean)
+          .join(' · ')
   );
 </script>
 
 {#if !$online || stale || $pending > 0}
   <div class="offline" role="status">
     <p>{text}</p>
-    {#if $online}
+    {#if $online && !syncing}
       <button type="button" onclick={() => void aliasStore.refresh()}>{stale ? 'Retry' : 'Sync now'}</button>
     {/if}
   </div>

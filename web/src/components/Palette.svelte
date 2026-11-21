@@ -12,6 +12,7 @@
   import * as queue from '../lib/queue';
   import { pending as pendingChanges } from '../lib/queue';
   import { IMPORT_MAX_BYTES, download, planImport, toCsv, type ImportPlan } from '../lib/transfer';
+  import { FILTERS, SORTS, centre, idsBetween, importSummary, plural, rowAt, type Dialog, type Filter } from '../lib/palette';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
   import { LIST_PADDING, ROW_HEIGHT, firstVisibleRow, pageSize, scrollToShow, windowFor } from '../lib/virtual';
@@ -30,34 +31,6 @@
   import ShortcutHelp from './ShortcutHelp.svelte';
   import StatsDialog from './StatsDialog.svelte';
 
-  type Filter = 'all' | 'active' | 'inactive';
-  type Dialog =
-    | { kind: 'new' }
-    | { kind: 'edit'; alias: Alias }
-    | { kind: 'delete'; alias: Alias }
-    | { kind: 'bulkDelete' }
-    | { kind: 'menu' }
-    | { kind: 'help' }
-    | { kind: 'stats' }
-    | { kind: 'import'; plan: ImportPlan }
-    | { kind: 'detail' }
-    | { kind: 'forward'; current: string }
-    | { kind: 'disconnect' }
-    | { kind: 'account' }
-    | { kind: 'logout' }
-    | { kind: 'copy'; text: string };
-
-  const FILTERS: { id: Filter; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'active', label: 'Active' },
-    { id: 'inactive', label: 'Inactive' }
-  ];
-  const SORTS: { id: SortMode; label: string }[] = [
-    { id: 'newest', label: 'Newest' },
-    { id: 'oldest', label: 'Oldest' },
-    { id: 'label', label: 'Label A–Z' },
-    { id: 'address', label: 'Address A–Z' }
-  ];
   const SKELETON = [0, 1, 2, 3, 4, 5, 6, 7];
   const UNREADABLE =
     "AliasFox can't read the stored Apple session (the server key may have changed). Reconnect to continue.";
@@ -302,7 +275,6 @@
     marked.clear();
   }
 
-  const plural = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'address' : 'addresses'}`;
 
   // Runs `fn` on each target in turn (gently on Apple). The selection stays so a deactivate can be
   // undone with a reactivate; deleted aliases drop out of it via the effect above. Stops at the
@@ -484,12 +456,6 @@
     } catch (e) {
       toasts.push({ kind: 'error', text: e instanceof Error ? e.message : "Couldn't read that file." });
     }
-  }
-  function importSummary(p: ImportPlan): string {
-    const parts = [`${p.unchanged} unchanged`];
-    if (p.unknown) parts.push(`${p.unknown} not in your list`);
-    if (p.inactive) parts.push(`${p.inactive} inactive (reactivate them first)`);
-    return parts.join(', ') + '.';
   }
   function confirmImport(plan: ImportPlan): void {
     closeDialog();
@@ -841,32 +807,18 @@
     // Three fingers dragging over the list select every row they cross, from the row they landed on.
     let swipeAnchor = -1;
     let swipeAdded = new SvelteSet<string>();
-    const centre = (e: TouchEvent): { x: number; y: number } => {
-      let x = 0;
-      let y = 0;
-      for (const t of e.touches) {
-        x += t.clientX;
-        y += t.clientY;
-      }
-      return { x: x / e.touches.length, y: y / e.touches.length };
-    };
-    const rowAt = (x: number, y: number): number => {
-      const row = document.elementFromPoint(x, y)?.closest<HTMLElement>('[role="option"]');
-      const i = row ? Number(row.dataset.index) : NaN;
-      return Number.isInteger(i) ? i : -1;
-    };
     const swipeStart = (e: TouchEvent): void => {
       if (e.touches.length < 2) return;
       cancelPress(); // a second finger means this is not a long-press
       if (e.touches.length !== 3) return;
-      const c = centre(e);
+      const c = centre(e.touches);
       swipeAnchor = rowAt(c.x, c.y);
       swipeAdded = new SvelteSet<string>();
     };
     const swipeMove = (e: TouchEvent): void => {
       if (swipeAnchor < 0 || e.touches.length !== 3) return;
       e.preventDefault();
-      const c = centre(e);
+      const c = centre(e.touches);
       if (lst) {
         const r = lst.getBoundingClientRect();
         if (c.y < r.top + 40) lst.scrollTop -= 14;
@@ -874,11 +826,7 @@
       }
       const to = rowAt(c.x, c.y);
       if (to < 0) return;
-      const ids = new SvelteSet<string>();
-      for (let k = Math.min(swipeAnchor, to); k <= Math.max(swipeAnchor, to); k++) {
-        const a = results[k];
-        if (a) ids.add(a.anonymous_id);
-      }
+      const ids = idsBetween(results, swipeAnchor, to);
       for (const id of swipeAdded) {
         if (!ids.has(id)) {
           marked.delete(id);
