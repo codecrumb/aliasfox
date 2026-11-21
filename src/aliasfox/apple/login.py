@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from aliasfox.apple.connect import AppleUnreachable
 from aliasfox.apple.hme import UntrustedAppleUrl, check_webservices_url
 from aliasfox.sessions import AppleSessionState
 
@@ -223,6 +224,9 @@ class LoginFlow:
                 )
             except Exception as exc:
                 log.warning("apple login failed: %s", type(exc).__name__)
+                # requests' connection and timeout errors are OSErrors; pyicloud's own errors are not.
+                if isinstance(exc, OSError):
+                    raise AppleUnreachable() from None
                 raise AppleLoginFailed() from None
             finally:
                 password = None  # drop our reference; pyicloud holds its own copy

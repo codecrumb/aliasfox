@@ -3,6 +3,7 @@ import threading
 
 import pytest
 
+from aliasfox.apple.connect import AppleUnreachable
 from aliasfox.apple.login import (
     AppleLoginFailed,
     FlowExpired,
@@ -159,6 +160,12 @@ def test_temp_dir_removed_on_auth_failure(monkeypatch):
     assert created and not os.path.exists(created[0])
     assert PASSWORD not in str(ei.value) and APPLE_ID not in str(ei.value)
     assert ei.value.__cause__ is None and ei.value.__suppress_context__
+
+
+def test_network_error_at_start_is_unreachable_not_login_failed():
+    f, _ = flow(make_factory(auth_error=ConnectionError("dns")))
+    with pytest.raises(AppleUnreachable):
+        f.start(1, APPLE_ID, PASSWORD)
 
 
 def test_temp_dir_removed_on_cancel():
