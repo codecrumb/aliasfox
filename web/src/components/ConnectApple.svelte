@@ -17,6 +17,8 @@
     unreachable: "Can't reach Apple right now. Try again in a moment.",
     generic: 'Something went wrong. Try again.',
     loginFailed: "Apple didn't accept those details. Check your Apple ID and password.",
+    locked: 'Apple says this account is locked. Unlock it at iforgot.apple.com, then try again.',
+    unsupported: "AliasFox can't sign in to accounts that use a security key. Use the cookie option instead.",
     expired: 'That sign-in took too long. Enter your password again.',
     resent: 'A new code is on its way.',
     resendLimit: 'Too many new codes for this sign-in. Go back and sign in again.',
@@ -156,9 +158,9 @@
       else say('cookie', MSG.generic);
       return;
     }
-    if (d === 'apple_login_failed') {
+    if (d === 'apple_login_failed' || d === 'apple_account_locked' || d === 'apple_login_unsupported') {
       if (step !== 2) go(2);
-      say('main', MSG.loginFailed);
+      say('main', d === 'apple_account_locked' ? MSG.locked : d === 'apple_login_unsupported' ? MSG.unsupported : MSG.loginFailed);
       void tick().then(() => pwInput?.focus());
     } else if (d === 'flow_expired') {
       flowId = '';

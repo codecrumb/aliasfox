@@ -102,6 +102,8 @@ def create_app(
             epochs.ensure_single_user()  # multi mode has no default user
         elif epochs.remove_single_user():  # left over from a switch from single mode
             log.info("removed the single-mode account")
+        if multi and (n := epochs.revoke_subjects(settings.denylist)):
+            log.info("revoked sessions of %d suspended user(s)", n)
         if service is None:
             store = SessionStore(engine, keyring)
             service = AliasService(store)

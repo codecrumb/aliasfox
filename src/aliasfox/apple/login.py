@@ -36,6 +36,14 @@ class AppleLoginFailed(Exception):
         super().__init__("apple login failed")
 
 
+class AppleAccountLocked(AppleLoginFailed):
+    """Apple reports the account locked (too many attempts or a security hold)."""
+
+
+class AppleLoginUnsupported(AppleLoginFailed):
+    """The account needs a sign-in method AliasFox can't do (security key, legacy 2SA)."""
+
+
 class InvalidCode(Exception):
     def __init__(self) -> None:
         super().__init__("invalid verification code")
@@ -227,6 +235,8 @@ class LoginFlow:
                 # requests' connection and timeout errors are OSErrors; pyicloud's own errors are not.
                 if isinstance(exc, OSError):
                     raise AppleUnreachable() from None
+                if type(exc).__name__ == "PyiCloudAccountLockedException":
+                    raise AppleAccountLocked() from None
                 raise AppleLoginFailed() from None
             finally:
                 password = None  # drop our reference; pyicloud holds its own copy
@@ -235,9 +245,9 @@ class LoginFlow:
                     # NB: pyicloud also reports requires_2sa for HSA2 accounts, so
                     # 2FA must be decided first.
                     if getattr(api, "two_factor_delivery_method", "") == "security_key":
-                        raise AppleLoginFailed()  # hardware key unsupported
+                        raise AppleLoginUnsupported()  # hardware key unsupported
                 elif api.requires_2sa:
-                    raise AppleLoginFailed()  # legacy 2SA only: unsupported
+                    raise AppleLoginUnsupported()  # legacy 2SA only: unsupported
                 else:
                     return LoginResult("ok", None, _build_state(api))
                 flow_id = secrets.token_urlsafe(32)

@@ -340,6 +340,12 @@ async function optimistic(
   try {
     if (offlineOp && !queue.isOnline()) throw new ApiError(0, 'network_error');
     await call();
+    const sent = offlineOp?.(previous) ?? null;
+    if (sent !== null && g === gen) {
+      const before = queue.size();
+      queue.supersede(sent);
+      if (queue.size() !== before) await persistQueue(g);
+    }
   } catch (e) {
     const op = offlineOp && queue.isNetworkError(e) ? offlineOp(previous) : null;
     if (op !== null && g === gen) {

@@ -38,6 +38,11 @@ let onLine = true;
 beforeEach(async () => {
   for (const f of Object.values(h.api)) f.mockReset();
   onLine = true;
+  // The encrypted cache lives in IndexedDB; a queue saved by one test must not reach the next.
+  await new Promise((r) => {
+    const q = indexedDB.deleteDatabase('aliasfox-cache');
+    q.onsuccess = q.onerror = q.onblocked = () => r(null);
+  });
   vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => onLine);
   sessionState.set({ cacheKey: KEY });
   vi.resetModules();
@@ -119,5 +124,17 @@ describe('offline queue', () => {
     await m.aliasStore.refresh();
     expect(get(m.queue.pending)).toBe(1);
     expect(get(m.aliasStore).list[0]!.is_active).toBe(false);
+  });
+
+  it('drops a waiting change when the same alias is changed online afterwards', async () => {
+    h.api.setActive.mockRejectedValueOnce(netDown());
+    await m.aliasStore.setActive('id1', false); // queued: server still has it active
+    expect(get(m.queue.pending)).toBe(1);
+    h.api.setActive.mockResolvedValue({ ok: true });
+    await m.aliasStore.setActive('id1', true); // user changes their mind while reachable
+    expect(get(m.queue.pending)).toBe(0);
+    h.api.setActive.mockClear();
+    await m.aliasStore.refresh();
+    expect(h.api.setActive).not.toHaveBeenCalled(); // the old deactivate is never replayed
   });
 });

@@ -43,6 +43,14 @@ export function add(op: QueuedOp): void {
   sync();
 }
 
+/** A change just went through online, so an older waiting one for the same alias and kind is
+ * obsolete: replaying it later would overwrite what the user did last. */
+export function supersede(op: QueuedOp): void {
+  const n = ops.length;
+  ops = ops.filter((o) => !(o.kind === op.kind && o.id === op.id));
+  if (ops.length !== n) sync();
+}
+
 export function restore(saved: unknown): void {
   ops = Array.isArray(saved)
     ? saved.filter((o): o is QueuedOp => o !== null && typeof o === 'object' && typeof (o as QueuedOp).id === 'string' && ((o as QueuedOp).kind === 'active' || (o as QueuedOp).kind === 'patch'))

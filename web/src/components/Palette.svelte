@@ -17,6 +17,7 @@
   import { LIST_PADDING, ROW_HEIGHT, firstVisibleRow, pageSize, scrollToShow, windowFor } from '../lib/virtual';
   import AccountDialog from './AccountDialog.svelte';
   import ActionsMenu, { type MenuAction } from './ActionsMenu.svelte';
+  import OfflineBanner from './OfflineBanner.svelte';
   import AliasRow from './AliasRow.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import ConnectApple from './ConnectApple.svelte';
@@ -331,7 +332,7 @@
       bulkBusy = false;
     }
     if (failure === null) {
-      const text = `${past} ${plural(done)}`;
+      const text = `${past} ${plural(done)}${queuedAmong(targets) ? ' · will sync when online' : ''}`;
       if (undo) offerUndo(text, async () => {
           for (const a of targets) await undo(a); // one at a time, like the original run
         });
@@ -342,6 +343,12 @@
         text: `${past} ${done} of ${targets.length}. Couldn't ${verb} the rest. ${describeError(failure)}`
       });
   }
+
+  // True when one of these aliases has a change waiting in the offline queue.
+  const queuedAmong = (as: Alias[]): boolean => {
+    const ids = new Set(queue.snapshot().map((o) => o.id));
+    return as.some((a) => ids.has(a.anonymous_id));
+  };
 
   function bulkSetActive(active: boolean): void {
     if (marked.size === 0) return;
@@ -449,7 +456,7 @@
     const past = next ? 'Reactivated' : 'Deactivated';
     try {
       await aliasStore.setActive(a.anonymous_id, next);
-      offerUndo(`${past} ${a.hme}`, () => aliasStore.setActive(a.anonymous_id, !next));
+      offerUndo(`${past} ${a.hme}${queuedAmong([a]) ? ' · will sync when online' : ''}`, () => aliasStore.setActive(a.anonymous_id, !next));
     } catch (e) {
       toasts.push({ kind: 'error', text: `Couldn't ${verb} ${a.hme}. ${describeError(e)}` });
     }
@@ -1009,6 +1016,8 @@
       <button type="button" class="reconnect" onclick={openReconnect}>Reconnect</button>
     </div>
   {/if}
+
+  <OfflineBanner />
 
   <div class="search">
     <span class="glass" aria-hidden="true"></span>

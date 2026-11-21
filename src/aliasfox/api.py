@@ -14,7 +14,9 @@ from starlette.concurrency import run_in_threadpool
 from aliasfox.apple.connect import AppleUnreachable, InvalidCookie, connect_with_cookie
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.apple.login import (
+    AppleAccountLocked,
     AppleLoginFailed,
+    AppleLoginUnsupported,
     FlowExpired,
     InvalidCode,
     LoginFlow,
@@ -374,6 +376,14 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppleLoginFailed)
     async def apple_login_failed(request: Request, exc: AppleLoginFailed):
         return JSONResponse({"detail": "apple_login_failed"}, status_code=401)
+
+    @app.exception_handler(AppleAccountLocked)
+    async def apple_account_locked(request: Request, exc: AppleAccountLocked):
+        return JSONResponse({"detail": "apple_account_locked"}, status_code=401)
+
+    @app.exception_handler(AppleLoginUnsupported)
+    async def apple_login_unsupported(request: Request, exc: AppleLoginUnsupported):
+        return JSONResponse({"detail": "apple_login_unsupported"}, status_code=401)
 
     @app.exception_handler(InvalidCode)
     async def invalid_code(request: Request, exc: InvalidCode):

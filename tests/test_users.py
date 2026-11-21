@@ -304,3 +304,11 @@ def test_single_mode_never_removes_the_single_user(tmp_path, monkeypatch):
     eng, _ = _single_db_with_session(tmp_path)
     create_app(Settings(secret_key=MULTI_SECRET, database_url=str(eng.url), data_dir=tmp_path))
     assert _count(eng, "select count(*) from users where auth_subject='single'") == 1
+
+
+def test_revoke_subjects_bumps_only_listed_existing_users(users):
+    a, b = users.create("a"), users.create("b")
+    ea, eb = users.get(a), users.get(b)
+    assert users.revoke_subjects(frozenset({"a", "nobody"})) == 1
+    assert users.get(a) == ea + 1 and users.get(b) == eb
+    assert users.revoke_subjects(frozenset()) == 0

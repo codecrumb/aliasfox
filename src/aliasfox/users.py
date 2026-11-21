@@ -44,6 +44,19 @@ class UserDirectory:
             )
             return s.scalar(select(User.session_epoch).where(User.id == user_id))
 
+    def revoke_subjects(self, subjects: frozenset[str]) -> int:
+        """Bump the epoch of each existing user among `subjects`, so their old cookies stop
+        working now instead of at expiry. Returns how many users were revoked."""
+        if not subjects:
+            return 0
+        with self._sessions.begin() as s:
+            result = s.execute(
+                update(User)
+                .where(User.auth_subject.in_(subjects))
+                .values(session_epoch=User.session_epoch + 1)
+            )
+            return result.rowcount
+
     # --- identity ----------------------------------------------------------------
 
     def find_by_subject(self, subject: str) -> int | None:

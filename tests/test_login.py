@@ -5,6 +5,7 @@ import pytest
 
 from aliasfox.apple.connect import AppleUnreachable
 from aliasfox.apple.login import (
+    AppleLoginUnsupported,
     AppleLoginFailed,
     FlowExpired,
     InvalidCode,
@@ -261,7 +262,7 @@ def test_hsa2_account_has_both_flags_and_proceeds_to_2fa():
 
 def test_legacy_2sa_only_fails_closed_and_removes_dir():
     f, fac = flow(make_factory(requires_2fa=False, requires_2sa=True))
-    with pytest.raises(AppleLoginFailed):
+    with pytest.raises(AppleLoginUnsupported):
         f.start(1, APPLE_ID, PASSWORD)
     assert not os.path.exists(fac.cls.instances[0].cookie_directory)
     assert not f._flows and f._starting == 0
@@ -562,3 +563,17 @@ def test_per_user_cap_is_one_pending_flow():
         f.start(1, APPLE_ID, PASSWORD)
     pending = [i for i in fac.cls.instances if os.path.isdir(i.cookie_directory)]
     assert len(pending) == 1
+
+
+def test_locked_account_is_reported_apart_from_bad_credentials():
+    from aliasfox.apple.login import AppleAccountLocked
+
+    class PyiCloudAccountLockedException(Exception):
+        pass
+
+    def factory(*a, **k):
+        raise PyiCloudAccountLockedException("locked")
+
+    f, _ = flow(factory)
+    with pytest.raises(AppleAccountLocked):
+        f.start(1, APPLE_ID, PASSWORD)
