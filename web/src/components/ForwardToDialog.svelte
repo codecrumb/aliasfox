@@ -99,6 +99,7 @@
           {#each options as o (o)}<option value={o}>{o}</option>{/each}
         </select>
       {/if}
+      {#if !loaded}<div class="skeleton" aria-hidden="true"></div>{/if}
       <input
         hidden={!loaded || options.length > 0}
         id="{uid}-addr"
@@ -130,6 +131,23 @@
 <style>
   .dialog-actions {
     margin-top: 0;
+  }
+  .skeleton {
+    min-height: 44px;
+    border-radius: var(--radius);
+    background: var(--field-border);
+    opacity: 0.35;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.15;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none;
+    }
   }
   select {
     width: 100%;
