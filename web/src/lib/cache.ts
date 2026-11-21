@@ -7,6 +7,7 @@ import { decryptJson, encryptJson } from './crypto';
 const DB_NAME = 'aliasfox-cache';
 const STORE = 'kv';
 const RECORD = 'aliases';
+const QUEUE_RECORD = 'queue';
 const VERSION = 1;
 
 function idb(): IDBFactory | null {
@@ -62,30 +63,31 @@ async function withStore<T>(
   }
 }
 
-async function deleteRecord(): Promise<void> {
+async function deleteRecord(record = RECORD): Promise<void> {
   try {
-    await withStore('readwrite', (s) => s.delete(RECORD));
+    await withStore('readwrite', (s) => s.delete(record));
   } catch {
     // ignore
   }
 }
 
-async function load(key: CryptoKey): Promise<Alias[] | null> {
+// `record` picks the stored list: the aliases (default) or the offline change queue.
+async function load<T = Alias>(key: CryptoKey, record = RECORD): Promise<T[] | null> {
   try {
     if (idb() === null) return null;
-    const rec = await withStore('readonly', (s) => s.get(RECORD));
+    const rec = await withStore('readonly', (s) => s.get(record));
     if (rec === undefined) return null;
     const r = rec as { v?: unknown; blob?: unknown } | null;
     if (r === null || typeof r !== 'object' || r.v !== 1 || !ArrayBuffer.isView(r.blob)) {
-      await deleteRecord();
+      await deleteRecord(record);
       return null;
     }
     try {
       const list = await decryptJson<unknown>(key, r.blob as Uint8Array);
       if (!Array.isArray(list)) throw new Error('bad_payload');
-      return list as Alias[];
+      return list as T[];
     } catch {
-      await deleteRecord();
+      await deleteRecord(record);
       return null;
     }
   } catch {
@@ -97,19 +99,19 @@ async function load(key: CryptoKey): Promise<Alias[] | null> {
 // logout can never be followed by a late write that resurrects the cache.
 let cacheEpoch = 0;
 
-async function save(key: CryptoKey, aliases: Alias[]): Promise<void> {
+async function save<T = Alias>(key: CryptoKey, items: T[], record = RECORD): Promise<void> {
   const epoch = cacheEpoch;
   let db: IDBDatabase | null = null;
   try {
     if (idb() === null) return;
-    const blob = await encryptJson(key, aliases);
+    const blob = await encryptJson(key, items);
     if (epoch !== cacheEpoch) return;
     db = await openDb();
     if (epoch !== cacheEpoch) return;
     const tx = db.transaction(STORE, 'readwrite');
     const finished = done(tx, null);
     // No await between the last epoch check and put().
-    tx.objectStore(STORE).put({ v: 1, blob }, RECORD);
+    tx.objectStore(STORE).put({ v: 1, blob }, record);
     if (epoch !== cacheEpoch) tx.abort();
     await finished;
   } catch {
@@ -136,4 +138,10 @@ async function clear(): Promise<void> {
   }
 }
 
-export const cache = { load, save, clear };
+export const cache = {
+  load,
+  save,
+  clear,
+  loadQueue: <T>(key: CryptoKey) => load<T>(key, QUEUE_RECORD),
+  saveQueue: <T>(key: CryptoKey, ops: T[]) => save<T>(key, ops, QUEUE_RECORD)
+};

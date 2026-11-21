@@ -786,6 +786,52 @@ describe('actions menu and dialogs', () => {
     await waitFor(() => expect(session.logout).toHaveBeenCalledTimes(1));
   });
 
+  it('offers a CSV of unsynced changes before logging out', async () => {
+    const queue = await import('../src/lib/queue');
+    setList([alias(1)]);
+    queue.add({ kind: 'active', id: alias(1).anonymous_id, from: true, to: false });
+    const create = vi.fn(() => 'blob:x');
+    Object.defineProperty(URL, 'createObjectURL', { value: create, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    try {
+      render(Palette);
+      await tick();
+      await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+      await fireEvent.click(within(dialog('Actions')).getByRole('option', { name: /Log out/ }));
+      const dlg = dialog('Log out with unsynced changes?');
+      expect(session.logout).not.toHaveBeenCalled();
+      await fireEvent.click(within(dlg).getByRole('button', { name: 'Log out without it' }));
+      await waitFor(() => expect(session.logout).toHaveBeenCalledTimes(1));
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      queue.reset();
+    }
+  });
+
+  it('downloads only the changed addresses as CSV, then logs out', async () => {
+    const queue = await import('../src/lib/queue');
+    setList([alias(1), alias(2)]);
+    queue.add({ kind: 'active', id: alias(1).anonymous_id, from: true, to: false });
+    const blobs: Blob[] = [];
+    Object.defineProperty(URL, 'createObjectURL', { value: (b: Blob) => (blobs.push(b), 'blob:x'), configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    try {
+      render(Palette);
+      await tick();
+      await key(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+      await fireEvent.click(within(dialog('Actions')).getByRole('option', { name: /Log out/ }));
+      const dlg = dialog('Log out with unsynced changes?');
+      await new Promise((r) => setTimeout(r, 600)); // past the opening-key guard
+      await fireEvent.click(within(dlg).getByRole('button', { name: 'Download CSV and log out' }));
+      await waitFor(() => expect(session.logout).toHaveBeenCalledTimes(1));
+      const text = await blobs[0]!.text();
+      expect(text).toContain(alias(1).hme);
+      expect(text).not.toContain(alias(2).hme);
+    } finally {
+      queue.reset();
+    }
+  });
+
   it('modal traps focus, sets inert and a body scroll lock, and restores focus to search', async () => {
     setList([alias(1)]);
     render(Palette);

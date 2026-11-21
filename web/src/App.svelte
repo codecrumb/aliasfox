@@ -7,6 +7,7 @@
   import SignUp from './components/SignUp.svelte';
   import StepTransition from './components/StepTransition.svelte';
   import Toasts from './components/Toasts.svelte';
+  import OfflineBanner from './components/OfflineBanner.svelte';
   import { aliasStore } from './lib/aliases';
   import { appConfig, loadConfig } from './lib/config';
   import { sessionStore } from './lib/session';
@@ -138,4 +139,5 @@
   </StepTransition>
 </main>
 
+<OfflineBanner />
 <Toasts />

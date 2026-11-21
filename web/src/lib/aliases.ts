@@ -4,6 +4,8 @@ import { cache } from './cache';
 import { importCacheKey } from './crypto';
 import { sessionStore } from './session';
 import { buildIndex, type Index } from './search';
+import * as queue from './queue';
+import { toasts } from './toasts';
 import type { Alias } from './types';
 
 export interface AliasState {
@@ -127,9 +129,51 @@ async function attempt(g: number, refresh: boolean): Promise<FetchOutcome> {
     patchState({ error: UNEXPECTED, loadError: UNEXPECTED });
     return 'applied';
   }
-  setList(res, { fromCache: false, error: null, loadError: null });
+  if (queue.size() === 0) {
+    setList(res, { fromCache: false, error: null, loadError: null });
+    await persist(g);
+    return 'applied';
+  }
+  // Offline changes are waiting: replay them against this fresh list before showing it.
+  mutationStart();
+  const s0 = mutSeq;
+  let out: queue.FlushResult;
+  try {
+    out = await queue.flush(res);
+  } finally {
+    const moved = mutSeq !== s0;
+    mutationEnd(g);
+    if (moved) staleFlush = true;
+  }
+  if (g !== gen) return 'gone';
+  reportFlush(out);
+  await persistQueue(g);
+  if (staleFlush) {
+    staleFlush = false;
+    return 'stale';
+  }
+  setList(queue.overlay(out.list), { fromCache: false, error: null, loadError: null });
   await persist(g);
   return 'applied';
+}
+
+let staleFlush = false;
+
+function reportFlush(out: queue.FlushResult): void {
+  if (out.error instanceof ApiError) sessionStore.onApiError(out.error);
+  if (out.applied > 0) {
+    toasts.push({ kind: 'ok', text: `Synced ${out.applied} offline ${out.applied === 1 ? 'change' : 'changes'}` });
+  }
+  if (out.notes.length > 0) {
+    const more = out.notes.length > 1 ? ` (+${out.notes.length - 1} more)` : '';
+    toasts.push({ kind: 'error', text: out.notes[0]! + more });
+  }
+}
+
+async function persistQueue(g: number): Promise<void> {
+  const key = cryptoKey;
+  if (key === null || g !== gen) return;
+  await cache.saveQueue(key, queue.snapshot());
 }
 
 // A single queued re-fetch after pending mutations settle. refresh=true bypasses the server's
@@ -187,6 +231,8 @@ async function runInit(g: number): Promise<void> {
   if (cryptoKey !== null) {
     const seq = mutSeq;
     const cached = await cache.load(cryptoKey);
+    if (g !== gen) return;
+    if (queue.size() === 0) queue.restore(await cache.loadQueue(cryptoKey));
     if (g !== gen) return;
     if (cached !== null && seq === mutSeq && listNow().length === 0) {
       setList(cached, { fromCache: true, loading: false });
@@ -282,7 +328,9 @@ function reserve(b: { hme: string; label: string; note: string }): Promise<Alias
 async function optimistic(
   apply: (list: Alias[]) => Alias[],
   call: () => Promise<unknown>,
-  undo: (current: Alias[], previous: Alias[]) => Alias[]
+  undo: (current: Alias[], previous: Alias[]) => Alias[],
+  // Set only for changes that are safe to keep and repeat later when the network is down.
+  offlineOp?: (previous: Alias[]) => queue.QueuedOp | null
 ): Promise<void> {
   const g = gen;
   const previous = listNow();
@@ -290,8 +338,17 @@ async function optimistic(
   mutationStart();
   setList(applied, { error: null });
   try {
+    if (offlineOp && !queue.isOnline()) throw new ApiError(0, 'network_error');
     await call();
   } catch (e) {
+    const op = offlineOp && queue.isNetworkError(e) ? offlineOp(previous) : null;
+    if (op !== null && g === gen) {
+      // Keep the change on screen and send it when the connection is back.
+      queue.add(op);
+      await persistQueue(g);
+      await persist(g);
+      return;
+    }
     if (g === gen) {
       const current = listNow();
       // Untouched since we applied: restore the exact previous list. Otherwise revert only ours.
@@ -317,6 +374,12 @@ function update(id: string, b: { label: string; note: string }): Promise<void> {
     (cur, prev) => {
       const old = prev.find((a) => a.anonymous_id === id);
       return old === undefined ? cur : replaceById(cur, id, (a) => ({ ...a, label: old.label, note: old.note }));
+    },
+    (prev) => {
+      const old = prev.find((a) => a.anonymous_id === id);
+      return old === undefined
+        ? null
+        : { kind: 'patch', id, from: { label: old.label, note: old.note }, to: { label: b.label, note: b.note } };
     }
   );
 }
@@ -328,6 +391,10 @@ function setActive(id: string, active: boolean): Promise<void> {
     (cur, prev) => {
       const old = prev.find((a) => a.anonymous_id === id);
       return old === undefined ? cur : replaceById(cur, id, (a) => ({ ...a, is_active: old.is_active }));
+    },
+    (prev) => {
+      const old = prev.find((a) => a.anonymous_id === id);
+      return old === undefined ? null : { kind: 'active', id, from: old.is_active, to: active };
     }
   );
 }
@@ -370,6 +437,10 @@ async function clear(): Promise<void> {
   pendingMutations = 0;
   wakeIdle();
   store.set(initialState());
+  const dropped = queue.reset();
+  if (dropped > 0) {
+    toasts.push({ kind: 'error', text: `${dropped} offline ${dropped === 1 ? 'change was' : 'changes were'} not synced and discarded.` });
+  }
   await cache.clear();
 }
 
@@ -390,3 +461,10 @@ export const aliasStore = {
 sessionStore.onLogout(() => {
   void aliasStore.clear();
 });
+
+// Back online: refresh, which also replays any waiting offline changes.
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (queue.size() > 0) void aliasStore.refresh();
+  });
+}

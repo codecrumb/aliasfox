@@ -15,6 +15,9 @@
     focus?: 'confirm' | 'cancel';
     onConfirm: () => void | Promise<void>;
     onCancel: () => void;
+    /** An optional third choice, shown between Cancel and the confirm button. */
+    secondaryLabel?: string;
+    onSecondary?: () => void | Promise<void>;
   }
   let {
     title,
@@ -25,7 +28,9 @@
     danger = false,
     focus = 'confirm',
     onConfirm,
-    onCancel
+    onCancel,
+    secondaryLabel,
+    onSecondary
   }: Props = $props();
 
   const uid = $props.id();
@@ -87,6 +92,9 @@
     <p class="field-error" role="alert">{error}</p>
     <div class="dialog-actions">
       <button type="button" class="ghost" bind:this={cancelBtn} disabled={busy} onclick={onCancel}>Cancel</button>
+      {#if secondaryLabel && onSecondary}
+        <button type="button" class="ghost" disabled={busy} onclick={() => void onSecondary()}>{secondaryLabel}</button>
+      {/if}
       <button
         type="button"
         class={danger ? 'danger' : 'primary'}

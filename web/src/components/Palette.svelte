@@ -9,6 +9,8 @@
   import { KEYMAP, cap, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
   import { parseQuery, query, sortAliases, type SortMode } from '../lib/search';
   import { sessionStore } from '../lib/session';
+  import * as queue from '../lib/queue';
+  import { pending as pendingChanges } from '../lib/queue';
   import { IMPORT_MAX_BYTES, download, planImport, toCsv, type ImportPlan } from '../lib/transfer';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
@@ -41,6 +43,7 @@
     | { kind: 'forward'; current: string }
     | { kind: 'disconnect' }
     | { kind: 'account' }
+    | { kind: 'logout' }
     | { kind: 'copy'; text: string };
 
   const FILTERS: { id: Filter; label: string }[] = [
@@ -430,6 +433,13 @@
     u.run();
   }
 
+  const pendingCount = $derived($pendingChanges);
+  function exportPendingAndLogout(): Promise<void> {
+    const ids = new Set(queue.snapshot().map((o) => o.id));
+    download('aliasfox-unsynced.csv', toCsv(list.filter((a) => ids.has(a.anonymous_id))), 'text/csv');
+    return sessionStore.logout();
+  }
+
   async function toggleSelected(): Promise<void> {
     const a = selected;
     if (!a) return;
@@ -676,7 +686,10 @@
         dialog = { kind: 'account' };
         return;
       case 'logout':
-        return sessionStore.logout();
+        // Changes still waiting to sync are lost on logout: offer them as a CSV first.
+        if (pendingCount > 0) dialog = { kind: 'logout' };
+        else return sessionStore.logout();
+        return;
     }
   }
 
@@ -1170,6 +1183,16 @@
     danger
     focus="cancel"
     onConfirm={confirmBulkDelete}
+    onCancel={closeDialog}
+  />
+{:else if dialog?.kind === 'logout'}
+  <ConfirmDialog
+    title="Log out with unsynced changes?"
+    text="{pendingCount} {pendingCount === 1 ? 'change has' : 'changes have'} not reached Apple yet and will be lost. The CSV lists the changed addresses; importing it restores label and note edits, not deactivations."
+    confirmLabel="Download CSV and log out"
+    secondaryLabel="Log out without it"
+    onConfirm={exportPendingAndLogout}
+    onSecondary={() => sessionStore.logout()}
     onCancel={closeDialog}
   />
 {:else if dialog?.kind === 'menu'}
