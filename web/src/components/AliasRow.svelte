@@ -102,6 +102,12 @@
     border-radius: 2px;
     background: var(--accent);
   }
+  @media (pointer: coarse) {
+    /* no hover on touch, so the bar would just linger after the detail closes */
+    .row.selected::before {
+      display: none;
+    }
+  }
   .row.flash {
     background: color-mix(in srgb, var(--ok) 18%, var(--surface));
   }
