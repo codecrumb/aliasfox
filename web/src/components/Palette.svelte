@@ -9,6 +9,7 @@
   import { KEYMAP, cap, handleKey, isAltLetter, isMac, type KeyCtx, type KeyId } from '../lib/keys';
   import { parseQuery, query, sortAliases, type SortMode } from '../lib/search';
   import { sessionStore } from '../lib/session';
+  import { IMPORT_MAX_BYTES, download, planImport, toCsv, type ImportPlan } from '../lib/transfer';
   import { toasts } from '../lib/toasts';
   import type { Alias } from '../lib/types';
   import { LIST_PADDING, ROW_HEIGHT, firstVisibleRow, pageSize, scrollToShow, windowFor } from '../lib/virtual';
@@ -24,6 +25,7 @@
   import Modal, { setModalReturnFocus } from './Modal.svelte';
   import NewAlias from './NewAlias.svelte';
   import ShortcutHelp from './ShortcutHelp.svelte';
+  import StatsDialog from './StatsDialog.svelte';
 
   type Filter = 'all' | 'active' | 'inactive';
   type Dialog =
@@ -33,6 +35,8 @@
     | { kind: 'bulkDelete' }
     | { kind: 'menu' }
     | { kind: 'help' }
+    | { kind: 'stats' }
+    | { kind: 'import'; plan: ImportPlan }
     | { kind: 'detail' }
     | { kind: 'forward'; current: string }
     | { kind: 'disconnect' }
@@ -299,7 +303,13 @@
   // Runs `fn` on each target in turn (gently on Apple). The selection stays so a deactivate can be
   // undone with a reactivate; deleted aliases drop out of it via the effect above. Stops at the
   // first failure so an outage or expired session doesn't produce a wall of errors.
-  async function runBulk(targets: Alias[], past: string, verb: string, fn: (a: Alias) => Promise<void>): Promise<void> {
+  async function runBulk(
+    targets: Alias[],
+    past: string,
+    verb: string,
+    fn: (a: Alias) => Promise<void>,
+    undo?: (a: Alias) => Promise<void>
+  ): Promise<void> {
     if (bulkBusy || targets.length === 0) return;
     bulkBusy = true;
     let done = 0;
@@ -317,8 +327,13 @@
     } finally {
       bulkBusy = false;
     }
-    if (failure === null) toasts.push({ kind: 'ok', text: `${past} ${plural(done)}` });
-    else
+    if (failure === null) {
+      const text = `${past} ${plural(done)}`;
+      if (undo) offerUndo(text, async () => {
+          for (const a of targets) await undo(a); // one at a time, like the original run
+        });
+      else toasts.push({ kind: 'ok', text });
+    } else
       toasts.push({
         kind: 'error',
         text: `${past} ${done} of ${targets.length}. Couldn't ${verb} the rest. ${describeError(failure)}`
@@ -334,7 +349,8 @@
       return;
     }
     void runBulk(targets, active ? 'Reactivated' : 'Deactivated', active ? 'reactivate' : 'deactivate', (a) =>
-      aliasStore.setActive(a.anonymous_id, active)
+      aliasStore.setActive(a.anonymous_id, active),
+      (a) => aliasStore.setActive(a.anonymous_id, !active)
     );
   }
   // Shift+Enter with a selection: deactivate them, unless none is active, then reactivate.
@@ -393,6 +409,27 @@
     else if (dialog === null) dialog = { kind: 'copy', text: hme };
   }
 
+  // The last deactivate/reactivate that can still be undone, from its toast's Undo button or
+  // Cmd/Ctrl+Z. Valid for as long as that toast is on screen.
+  let undoable: { toast: number; run: () => void } | null = null;
+  function offerUndo(text: string, run: () => Promise<void>): void {
+    const go = (): void => {
+      undoable = null;
+      run().then(
+        () => toasts.push({ kind: 'ok', text: 'Undone' }),
+        (e: unknown) => toasts.push({ kind: 'error', text: `Couldn't undo. ${describeError(e)}` })
+      );
+    };
+    const toast = toasts.push({ kind: 'ok', text, action: { label: 'Undo', run: go } });
+    undoable = { toast, run: go };
+  }
+  function runUndo(): void {
+    const u = undoable;
+    if (u === null || !get(toasts).some((t) => t.id === u.toast)) return;
+    toasts.dismiss(u.toast);
+    u.run();
+  }
+
   async function toggleSelected(): Promise<void> {
     const a = selected;
     if (!a) return;
@@ -402,10 +439,51 @@
     const past = next ? 'Reactivated' : 'Deactivated';
     try {
       await aliasStore.setActive(a.anonymous_id, next);
-      toasts.push({ kind: 'ok', text: `${past} ${a.hme}` });
+      offerUndo(`${past} ${a.hme}`, () => aliasStore.setActive(a.anonymous_id, !next));
     } catch (e) {
       toasts.push({ kind: 'error', text: `Couldn't ${verb} ${a.hme}. ${describeError(e)}` });
     }
+  }
+
+  function pickImport(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,text/csv';
+    input.onchange = () => void onImportPicked(input.files?.[0]);
+    input.click();
+  }
+
+  async function onImportPicked(file: File | undefined): Promise<void> {
+    if (!file) return;
+    if (file.size > IMPORT_MAX_BYTES) {
+      toasts.push({ kind: 'error', text: 'That file is too big to be an alias export.' });
+      return;
+    }
+    try {
+      const plan = planImport(await file.text(), list);
+      if (plan.updates.length === 0) {
+        toasts.push({ kind: 'ok', text: `Nothing to update. ${importSummary(plan)}` });
+      } else dialog = { kind: 'import', plan };
+    } catch (e) {
+      toasts.push({ kind: 'error', text: e instanceof Error ? e.message : "Couldn't read that file." });
+    }
+  }
+  function importSummary(p: ImportPlan): string {
+    const parts = [`${p.unchanged} unchanged`];
+    if (p.unknown) parts.push(`${p.unknown} not in your list`);
+    if (p.inactive) parts.push(`${p.inactive} inactive (reactivate them first)`);
+    return parts.join(', ') + '.';
+  }
+  function confirmImport(plan: ImportPlan): void {
+    closeDialog();
+    const next = new Map(plan.updates.map((u) => [u.alias.anonymous_id, u]));
+    void runBulk(
+      plan.updates.map((u) => u.alias),
+      'Updated',
+      'update',
+      (a) => aliasStore.update(a.anonymous_id, { label: next.get(a.anonymous_id)!.label, note: next.get(a.anonymous_id)!.note }),
+      (a) => aliasStore.update(a.anonymous_id, { label: a.label ?? '', note: a.note ?? '' })
+    );
   }
 
   function openNew(): void {
@@ -520,6 +598,10 @@
       { id: 'filter-active', label: 'Filter: Active', current: filter === 'active' },
       { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive' },
       { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh') },
+      { id: 'stats', label: 'Stats', aliases: ['Count', 'Summary', 'Top sites'] },
+      { id: 'export-csv', label: 'Export aliases as CSV', aliases: ['Download', 'Backup'] },
+      { id: 'export-json', label: 'Export aliases as JSON', aliases: ['Download', 'Backup'] },
+      { id: 'import', label: 'Import labels and notes from CSV', aliases: ['Upload'] },
       { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help') },
       ...($sessionStore.mode === 'multi' ? [{ id: 'account', label: 'Account' }] : []),
       { id: 'disconnect', label: 'Disconnect Apple account', danger: true },
@@ -577,6 +659,16 @@
       case 'help':
         dialog = { kind: 'help' };
         return;
+      case 'stats':
+        dialog = { kind: 'stats' };
+        return;
+      case 'export-csv':
+        return download('aliasfox-aliases.csv', toCsv(list), 'text/csv');
+      case 'export-json':
+        return download('aliasfox-aliases.json', JSON.stringify(list, null, 2), 'application/json');
+      case 'import':
+        if (reconnecting) return openReconnect();
+        return pickImport();
       case 'disconnect':
         dialog = { kind: 'disconnect' };
         return;
@@ -622,6 +714,7 @@
       markDown: () => markMove(1),
       markUp: () => markMove(-1),
       clearMarks,
+      undo: runUndo,
       help: () => (dialog = { kind: 'help' })
     };
   }
@@ -1087,6 +1180,18 @@
   </Modal>
 {:else if dialog?.kind === 'help'}
   <ShortcutHelp onClose={closeDialog} />
+{:else if dialog?.kind === 'stats'}
+  <StatsDialog {list} onClose={closeDialog} />
+{:else if dialog?.kind === 'import'}
+  {@const plan = dialog.plan}
+  <ConfirmDialog
+    title="Update {plural(plan.updates.length)}?"
+    text="Labels and notes from the file replace the ones on these addresses. {importSummary(plan)} You can undo this right after."
+    confirmLabel="Update {plan.updates.length}"
+    focus="cancel"
+    onConfirm={() => confirmImport(plan)}
+    onCancel={closeDialog}
+  />
 {:else if dialog?.kind === 'forward'}
   <ForwardToDialog current={dialog.current} onClose={closeDialog} onReconnect={openReconnect} />
 {:else if dialog?.kind === 'disconnect'}

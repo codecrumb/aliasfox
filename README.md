@@ -217,6 +217,7 @@ list.
 | `Shift` + `↓` | Select this alias and the next one |
 | `Shift` + `↑` | Select this alias and the previous one |
 | `Esc` | Clear the selection (empty search) |
+| `Ctrl` + `Z` or `⌘` + `Z` | Undo the last deactivate, reactivate or import (empty search, while its Undo button shows) |
 | `?` | Keyboard shortcuts (empty search) |
 
 `Ctrl` + `K` moves up on a Mac, where `⌘` + `K` opens the actions. Held keys act once, except the

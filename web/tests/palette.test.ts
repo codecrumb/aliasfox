@@ -246,7 +246,7 @@ describe('palette list', () => {
       store.setActive.mockImplementation(async () => {});
       await markTwo();
       await key(search(), { key: 'Enter', code: 'Enter', shiftKey: true });
-      await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Deactivated 2 addresses' }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', text: 'Deactivated 2 addresses' })));
       expect(store.setActive).toHaveBeenCalledTimes(2);
       expect(store.setActive).toHaveBeenCalledWith('id-3', false);
       expect(store.setActive).toHaveBeenCalledWith('id-2', false);
@@ -386,7 +386,7 @@ describe('palette keyboard actions', () => {
     await tick();
     expect(within(options()[0] as HTMLElement).getByText('Inactive')).toBeInTheDocument();
     finish();
-    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Deactivated addr2@icloud.com' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', text: 'Deactivated addr2@icloud.com' })));
   });
 
   it('test_alt_backspace_confirms_before_delete_enter_confirms_esc_cancels', async () => {

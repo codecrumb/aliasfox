@@ -55,3 +55,16 @@ describe('toasts', () => {
     expect(get(toasts)).toHaveLength(0);
   });
 });
+
+describe('toast action', () => {
+  it('runs the action once, dismisses the toast, and lasts 8s', async () => {
+    const run = vi.fn();
+    render(Toasts);
+    toasts.push({ kind: 'ok', text: 'Deactivated x', action: { label: 'Undo', run } });
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(get(toasts)).toHaveLength(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(get(toasts)).toHaveLength(0);
+  });
+});

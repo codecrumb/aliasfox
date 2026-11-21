@@ -23,6 +23,7 @@ export type KeyId =
   | 'markDown'
   | 'markUp'
   | 'clearMarks'
+  | 'undo'
   | 'help';
 
 export interface Combo {
@@ -113,6 +114,18 @@ export const KEYMAP: readonly KeyBinding[] = [
     label: 'Clear the selection (empty search)',
     combos: [{ key: 'Escape' }],
     when: 'marksOnly'
+  },
+  {
+    id: 'undo',
+    keys: [['Ctrl', 'Z']],
+    keysMac: [['⌘', 'Z']],
+    label: 'Undo the last deactivate, reactivate or import (empty search, while its Undo button shows)',
+    combos: [
+      { code: 'KeyZ', ctrl: true, nonMac: true },
+      { code: 'KeyZ', meta: true, mac: true }
+    ],
+    // With text in the search box Cmd/Ctrl+Z belongs to the text field.
+    when: 'searchEmpty'
   },
   { id: 'help', keys: [['?']], label: 'Keyboard shortcuts (empty search)', combos: [{ key: '?', anyShift: true }], when: 'searchEmpty' }
 ];

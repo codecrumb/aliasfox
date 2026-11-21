@@ -6,6 +6,10 @@
   {#each $toasts as t (t.id)}
     <div class="toast {t.kind}" role={t.kind === 'error' ? 'alert' : undefined}>
       <span class="text">{t.text}</span>
+      {#if t.action}
+        {@const act = t.action}
+        <button type="button" class="act" onclick={() => { toasts.dismiss(t.id); act.run(); }}>{act.label}</button>
+      {/if}
       <button type="button" class="close" aria-label="Dismiss notification" onclick={() => toasts.dismiss(t.id)}>
         <span aria-hidden="true">×</span>
       </button>
@@ -46,6 +50,15 @@
   .text {
     flex: 1;
     overflow-wrap: anywhere;
+  }
+  .act {
+    flex: none;
+    min-height: 44px;
+    padding: 0 var(--space-3);
+    border-color: transparent;
+    background: transparent;
+    color: var(--accent, inherit);
+    font-weight: 600;
   }
   .close {
     flex: none;
