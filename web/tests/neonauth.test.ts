@@ -153,6 +153,7 @@ describe('neonAuth client: failure classes', () => {
     ['wrong code', 400, { code: 'INVALID_OTP' }, 'bad_code'],
     ['expired code', 400, { code: 'OTP_EXPIRED' }, 'bad_code'],
     ['unverified email', 403, { code: 'EMAIL_NOT_VERIFIED' }, 'unverified'],
+    ['untrusted origin', 403, { code: 'INVALID_ORIGIN', message: 'Invalid origin' }, 'invalid_origin'],
     ['rate limited', 429, { message: 'Too many requests' }, 'rate_limited'],
     ['server error', 500, { message: 'SECRET stack trace' }, 'network'],
     ['non-JSON body', 502, 'not json', 'network']

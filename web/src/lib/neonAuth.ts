@@ -26,6 +26,7 @@ export type NeonAuthFailure =
   | 'unverified'
   | 'rate_limited'
   | 'no_session'
+  | 'invalid_origin'
   | 'network';
 
 export class NeonAuthError extends Error {
@@ -65,6 +66,8 @@ const MESSAGES: Record<NeonAuthFailure, string> = {
   rate_limited: 'Too many attempts, try again in a minute.',
   no_session:
     "Signed in, but this browser didn't keep the sign-in session. Allow cookies for this site and try again.",
+  invalid_origin:
+    "The sign-in service doesn't recognise this address. The site owner needs to add it as a trusted domain in Neon Auth.",
   network: "Can't reach the sign-in service. Check your connection and try again."
 };
 
@@ -82,6 +85,7 @@ function classify(status: number, code: string): NeonAuthFailure {
   if (/OTP/.test(code)) return 'bad_code';
   if (code === 'EMAIL_NOT_VERIFIED') return 'unverified';
   if (code === 'INVALID_EMAIL_OR_PASSWORD' || code === 'INVALID_PASSWORD') return 'invalid_credentials';
+  if (code === 'INVALID_ORIGIN') return 'invalid_origin';
   if (status === 429) return 'rate_limited';
   if (status === 401) return 'invalid_credentials';
   return 'network';
