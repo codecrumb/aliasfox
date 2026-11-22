@@ -127,15 +127,25 @@ def cleanup_stale_login_dirs(max_age_seconds: float) -> int:
 
 def _build_state(api) -> AppleSessionState:
     cookies = {str(c.name): str(c.value) for c in api.session.cookies}
+    data = getattr(api, "data", None)
+    ds = data.get("dsInfo") if isinstance(data, dict) else None
+    dsid = ds.get("dsid") if isinstance(ds, dict) else None
+    available = ds.get("isHideMyEmailFeatureAvailable") if isinstance(ds, dict) else None
+    if not isinstance(available, bool):
+        available = None
     ws = api.webservices
     entry = ws.get("premiummailsettings") if isinstance(ws, dict) else None
     url = entry.get("url") if isinstance(entry, dict) else None
     if not isinstance(url, str) or not url:
-        raise AppleLoginFailed()
-    check_webservices_url(url)
-    data = getattr(api, "data", None)
-    ds = data.get("dsInfo") if isinstance(data, dict) else None
-    dsid = ds.get("dsid") if isinstance(ds, dict) else None
+        # No premium mail service is an entitlement answer only when Apple says
+        # Hide My Email is off for this account (no iCloud+). Keep that session so
+        # the app can show the iCloud+ page; otherwise the login is unusable.
+        if available is False:
+            url = ""
+        else:
+            raise AppleLoginFailed()
+    if url:
+        check_webservices_url(url)
     extra: dict = {}
     sdata = getattr(api.session, "data", None)
     if isinstance(sdata, dict) and sdata.get("trust_token"):
@@ -144,6 +154,7 @@ def _build_state(api) -> AppleSessionState:
         cookies=cookies,
         webservices_url=url,
         dsid=str(dsid) if dsid is not None else None,
+        hme_available=available,
         extra=extra,
     )
 

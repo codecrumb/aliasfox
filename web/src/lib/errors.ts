@@ -6,6 +6,10 @@ import { ApiError } from './api';
 const LIMITED = new Set(['rate_limited', 'too_many_attempts', 'busy']);
 const UNREACHABLE = new Set(['apple_unreachable', 'network_error', 'bad_response']);
 const SESSION = new Set(['session_expired', 'session_unreadable', 'not_connected']);
+const NO_PLUS = 'hme_unavailable';
+
+export const ICLOUD_PLUS_TEXT =
+  "iCloud+ is required for Hide My Email. Subscribe in your Apple Account settings, then check again.";
 
 export const SESSION_EXPIRED_TEXT = 'Your Apple session expired. Reconnect, then try again.';
 
@@ -35,6 +39,7 @@ export function describeError(e: unknown, fallback = 'Something went wrong. Try 
   const d = detailOf(e);
   if (LIMITED.has(d)) return `Too many requests. ${retryText(e)}`;
   if (UNREACHABLE.has(d)) return "Can't reach Apple right now.";
+  if (d === NO_PLUS) return ICLOUD_PLUS_TEXT;
   if (d === 'apple_error') {
     const m = e instanceof ApiError ? (e.serverMessage ?? '') : '';
     return `Apple returned an error. ${m}`.trim();
@@ -47,5 +52,6 @@ export function describeError(e: unknown, fallback = 'Something went wrong. Try 
 /** The generate step has its own rate-limit wording. */
 export function describeGenerateError(e: unknown): string {
   if (isRateLimited(e)) return `Too many new addresses. ${retryText(e)}`;
+  if (detailOf(e) === NO_PLUS) return `New addresses need iCloud+. ${ICLOUD_PLUS_TEXT}`;
   return describeError(e, "Couldn't get a new address. Try again.");
 }

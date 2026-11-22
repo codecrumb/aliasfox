@@ -72,6 +72,7 @@ const SAMPLES: Record<string, unknown[]> = {
   deleteAccount: [],
   session: [],
   status: [],
+  statusRecheck: [],
   listAliases: [],
   generate: [],
   reserve: [{ hme: 'a@icloud.com', label: 'l', note: 'n' }],

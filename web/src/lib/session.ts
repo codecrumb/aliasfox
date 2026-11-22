@@ -1,7 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { ApiError, api } from './api';
 import { neonAuth, type NeonDeleteResult } from './neonAuth';
-import type { SessionInfo, SessionState } from './types';
+import type { SessionInfo, SessionState, StatusInfo } from './types';
 
 export interface SessionSnapshot {
   state: SessionState;
@@ -10,6 +10,8 @@ export interface SessionSnapshot {
   cacheKey: string | null;
   reason: string | null;
   errorText: string | null;
+  /** Apple's Hide My Email entitlement from the last status check (null: unknown). */
+  hmeAvailable: boolean | null;
   /** Set after "Delete account" (multi mode) for the signed-out view; cleared by the next sign-in. */
   accountDeleted: NeonDeleteResult | null;
 }
@@ -21,6 +23,7 @@ const initial: SessionSnapshot = {
   cacheKey: null,
   reason: null,
   errorText: null,
+  hmeAvailable: null,
   accountDeleted: null
 };
 
@@ -69,20 +72,22 @@ async function boot(): Promise<void> {
     if (st === null || typeof st !== 'object' || typeof st.connected !== 'boolean') {
       patch({ state: 'error', errorText: UNEXPECTED });
     } else if (st.connected) {
-      patch({ state: 'ready', reason: null });
+      const hmeAvailable =
+        typeof (st as StatusInfo).hme_available === 'boolean' ? (st as StatusInfo).hme_available : null;
+      patch({ state: 'ready', reason: null, hmeAvailable });
     } else if (st.reason === 'session_unreadable') {
-      patch({ state: 'reconnect', reason: 'session_unreadable' });
+      patch({ state: 'reconnect', reason: 'session_unreadable', hmeAvailable: null });
     } else {
-      patch({ state: 'connect', reason: null });
+      patch({ state: 'connect', reason: null, hmeAvailable: null });
     }
   } catch (e) {
     if (g !== gen) return;
     if (e instanceof ApiError && e.detail === 'not_authenticated') {
-      patch({ state: 'login', cacheKey: null, reason: null, errorText: null });
+      patch({ state: 'login', cacheKey: null, reason: null, errorText: null, hmeAvailable: null });
     } else if (e instanceof ApiError && e.detail === 'not_connected') {
-      patch({ state: 'connect', reason: null });
+      patch({ state: 'connect', reason: null, hmeAvailable: null });
     } else {
-      patch({ state: 'error', errorText: detailOf(e) });
+      patch({ state: 'error', errorText: detailOf(e), hmeAvailable: null });
     }
   }
 }
@@ -194,8 +199,28 @@ function onApiError(e: ApiError): void {
     case 'session_expired':
       patch({ state: 'reconnect', reason: e.detail });
       break;
+    case 'hme_unavailable':
+      // Apple says this account has no Hide My Email entitlement (iCloud+).
+      patch({ hmeAvailable: false });
+      break;
     default:
       break;
+  }
+}
+
+/** Ask Apple again for the Hide My Email entitlement (after subscribing or cancelling). */
+async function recheck(): Promise<boolean | null> {
+  const g = gen;
+  try {
+    const res = await api.statusRecheck();
+    if (g !== gen) return null;
+    const available = typeof res.hme_available === 'boolean' ? res.hme_available : null;
+    patch({ hmeAvailable: available });
+    return available;
+  } catch (e) {
+    if (g !== gen) return null;
+    if (e instanceof ApiError) onApiError(e);
+    throw e;
   }
 }
 
@@ -233,5 +258,6 @@ export const sessionStore = {
   dropCacheKey,
   onLogout,
   onApiError,
-  markReady
+  markReady,
+  recheck
 };

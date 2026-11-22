@@ -332,6 +332,7 @@ PUBLIC = {
     ("HEAD", "/healthz"),
     ("GET", "/robots.txt"),
     ("HEAD", "/robots.txt"),
+    *{(m, p) for m in ("GET", "HEAD") for p in ("/llms.txt", "/.well-known/ard.json")},  # both modes
     ("GET", "/api/config"),
     ("POST", "/api/auth/exchange"),
     ("POST", "/api/auth/logout"),

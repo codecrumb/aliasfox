@@ -42,6 +42,7 @@ class FakeService:
         self.calls = []
         self.error = None
         self.connected = True
+        self.hme_available = True
 
     def _rec(self, name, *args, **kw):
         self.calls.append((name, args, kw))
@@ -79,6 +80,14 @@ class FakeService:
     async def is_connected(self, user_id):
         self._rec("is_connected", user_id)
         return self.connected
+
+    async def availability(self, user_id):
+        self._rec("availability", user_id)
+        return self.hme_available
+
+    async def recheck(self, user_id):
+        self._rec("recheck", user_id)
+        return self.hme_available
 
 
 @pytest.fixture
@@ -243,12 +252,18 @@ def test_status_route(svc):
     c = make_client(svc)
     assert c.get("/api/status").json() == {
         "connected": True,
+        "hme_available": True,
         "mode": "single",
         "auth_enabled": False,
     }
     svc.connected = False
     assert c.get("/api/status").json()["connected"] is False
     assert svc.calls[-1] == ("is_connected", (1,), {})
+    svc.connected = True
+    svc.hme_available = False
+    assert c.get("/api/status").json()["hme_available"] is False
+    assert c.post("/api/status/recheck").json() == {"connected": True, "hme_available": False}
+    assert svc.calls[-1] == ("recheck", (1,), {})
 
 
 # --- auth enabled -----------------------------------------------------------

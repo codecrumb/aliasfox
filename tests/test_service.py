@@ -8,9 +8,10 @@ from helpers import make_store
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
+from aliasfox.apple.connect import InvalidCookie
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.db import AppleSessionRow, init_db
-from aliasfox.service import AliasService, NotConnected
+from aliasfox.service import AliasService, HmeUnavailable, NotConnected
 from aliasfox.sessions import AppleSessionState, SessionUnreadable
 
 
@@ -313,6 +314,39 @@ async def test_close_failure_does_not_break_success(store, tracker):
 async def test_is_connected(svc):
     assert await svc.is_connected(1) is True
     assert await svc.is_connected(99) is False
+
+
+async def test_availability_reads_stored_flag(store, svc):
+    assert await svc.availability(1) is None
+    store.save(1, AppleSessionState({"c": "v"}, "https://ws.example", hme_available=False))
+    assert await svc.availability(1) is False
+
+
+async def test_list_without_hme_service_url_is_unavailable(store, svc):
+    store.save(1, AppleSessionState({"c": "v"}, "", hme_available=False))
+    with pytest.raises(HmeUnavailable):
+        await svc.list_aliases(1)
+
+
+async def test_recheck_saves_new_availability_and_rotated_cookies(store, svc, monkeypatch):
+    def fake(state, *, transport=None):
+        state.cookies["rot"] = "1"
+        return "https://ws.example", "9", True
+
+    monkeypatch.setattr("aliasfox.service.validate_state", fake)
+    assert await svc.recheck(1) is True
+    saved = store.load(1)
+    assert saved.hme_available is True
+    assert saved.cookies["rot"] == "1"
+
+
+async def test_recheck_maps_rejected_cookie_to_session_expired(svc, monkeypatch):
+    def fake(state, *, transport=None):
+        raise InvalidCookie("no")
+
+    monkeypatch.setattr("aliasfox.service.validate_state", fake)
+    with pytest.raises(SessionExpired):
+        await svc.recheck(1)
 
 
 async def test_forget_drops_list_cache_only_for_that_user():

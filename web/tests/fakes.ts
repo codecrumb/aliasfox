@@ -96,7 +96,8 @@ export function createSessionStore() {
     mode: null as string | null,
     cacheKey: null as string | null,
     reason: null as string | null,
-    errorText: null as string | null
+    errorText: null as string | null,
+    hmeAvailable: null as boolean | null
   });
   return {
     subscribe: store.subscribe,
@@ -105,6 +106,7 @@ export function createSessionStore() {
     logout: vi.fn(async () => {}),
     onLogout: vi.fn(() => () => {}),
     onApiError: vi.fn(),
+    recheck: vi.fn(async (): Promise<boolean | null> => true),
     markReady: vi.fn(async () => {
       store.update((s) => ({ ...s, state: 'ready', reason: null }));
     }),

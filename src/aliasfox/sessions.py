@@ -23,6 +23,9 @@ class AppleSessionState:
     cookies: dict[str, str] = field(repr=False)
     webservices_url: str
     dsid: str | None = None
+    # Whether Apple reported Hide My Email as available (iCloud+) when this
+    # session was last validated. None means Apple did not say.
+    hme_available: bool | None = None
     extra: dict = field(default_factory=dict, repr=False)
 
 

@@ -213,8 +213,13 @@ describe('built bundle', () => {
       expect(known).toBe(2); // and both match their known shapes
     });
 
-    it('references no remote URL other than inert namespace and Svelte error-doc strings', () => {
-      const allowed = [/^http:\/\/www\.w3\.org\/\d{4}\/[\w/]+$/, /^https:\/\/svelte\.dev\/e\/[a-z_]+$/];
+    it('references no remote URL other than inert namespaces, Svelte error docs, and the iCloud+ link', () => {
+      const allowed = [
+        /^http:\/\/www\.w3\.org\/\d{4}\/[\w/]+$/,
+        /^https:\/\/svelte\.dev\/e\/[a-z_]+$/,
+        // The one deliberate outbound link: where to subscribe to iCloud+.
+        /^https:\/\/www\.apple\.com\/icloud\/$/
+      ];
       for (const f of js) {
         for (const m of read(f).matchAll(/https?:\/\/[^\s"'`)\\]+/g)) {
           expect(allowed.some((a) => a.test(m[0])), `${rel(f)}: ${m[0]}`).toBe(true);

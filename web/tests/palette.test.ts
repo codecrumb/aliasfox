@@ -57,7 +57,7 @@ beforeEach(() => {
     if (impl) m.mockImplementation(impl as (...a: unknown[]) => unknown);
   }
   copy.mockResolvedValue('copied');
-  session.__set({ state: 'ready', reason: null });
+  session.__set({ state: 'ready', reason: null, hmeAvailable: null });
   setList([]);
 });
 afterEach(() => {
@@ -1161,6 +1161,37 @@ describe('fix round 1', () => {
     await key(filter, { key: 'Enter', code: 'Enter', repeat: true });
     expect(store.refresh).not.toHaveBeenCalled();
     expect(dialog('Actions')).toBeInTheDocument();
+  });
+});
+
+describe('iCloud+ entitlement', () => {
+  it('shows the iCloud+ page and disables creation when the list is empty', async () => {
+    session.__set({ hmeAvailable: false });
+    render(Palette);
+    expect(await screen.findByText('iCloud+ is required for Hide My Email.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /New alias/ })).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'See iCloud+ plans' })).toHaveAttribute(
+      'href',
+      'https://www.apple.com/icloud/'
+    );
+  });
+
+  it('keeps existing aliases visible behind an iCloud+ banner', async () => {
+    setList(many(2));
+    session.__set({ hmeAvailable: false });
+    render(Palette);
+    expect(await screen.findByText(/No iCloud\+ on this Apple Account/)).toBeInTheDocument();
+    expect(options()).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /New alias/ })).toBeDisabled();
+  });
+
+  it('asks Apple again and refreshes when the subscription is back', async () => {
+    session.__set({ hmeAvailable: false });
+    session.recheck.mockResolvedValueOnce(true);
+    render(Palette);
+    await fireEvent.click(await screen.findByRole('button', { name: /check again/i }));
+    await waitFor(() => expect(store.refresh).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok' }));
   });
 });
 

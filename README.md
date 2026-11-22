@@ -148,6 +148,11 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
   `connected:false` (with `reason:"session_unreadable"` when the stored session cannot be read, for
   example after the secret key changed). Reconnecting works after a secret change: the user gets a new
   data key and the unreadable session is deleted.
+- `/api/status` also reports `hme_available` (`true`/`false`, `null` when Apple did not say). `false`
+  means the Apple account has no active iCloud+ subscription, so Hide My Email cannot issue new
+  addresses. `POST /api/status/recheck` asks Apple again (after subscribing or cancelling), persists
+  rotated cookies, and returns the fresh value. Generate/reserve for such an account answer 403
+  `hme_unavailable` (after one live recheck, so a fresh subscription is picked up).
 - 502 `apple_unreachable`: Apple could not be reached while checking a pasted cookie (the cookie
   itself is not blamed, unlike 400 `invalid_cookie`).
 - 429 `rate_limited`: per-user limits on `?refresh=true` (at most one real refresh per 5 seconds, sooner

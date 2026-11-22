@@ -58,6 +58,9 @@
   const reconnecting = $derived($sessionStore.state === 'reconnect');
   const bannerText = $derived($sessionStore.reason === 'session_unreadable' ? UNREADABLE : EXPIRED);
   const anyOpen = $derived(dialog !== null || reconnectOpen);
+  // Apple's last status check said Hide My Email (iCloud+) is not available.
+  const hmeUnavailable = $derived($sessionStore.hmeAvailable === false && !reconnecting);
+  let checkingPlus = $state(false);
 
   const list = $derived($aliasStore.list);
   const searched = $derived(query($aliasStore.index, q));
@@ -371,6 +374,24 @@
     reconnectOpen = true;
   }
 
+  async function checkIcloudPlus(): Promise<void> {
+    if (checkingPlus) return;
+    checkingPlus = true;
+    try {
+      const available = await sessionStore.recheck();
+      if (available === true) {
+        toasts.push({ kind: 'ok', text: 'iCloud+ is active. Reloading your aliases.' });
+        await aliasStore.refresh();
+      } else if (available === false) {
+        toasts.push({ kind: 'error', text: 'Apple still reports no iCloud+ on this account.' });
+      }
+    } catch (e) {
+      toasts.push({ kind: 'error', text: describeError(e, "Couldn't check your iCloud+ status.") });
+    } finally {
+      checkingPlus = false;
+    }
+  }
+
   function closeDialog(): void {
     dialog = null;
   }
@@ -471,6 +492,10 @@
 
   function openNew(): void {
     if (reconnecting) return openReconnect();
+    if (hmeUnavailable) {
+      toasts.push({ kind: 'error', text: 'New aliases need iCloud+. Subscribe in your Apple Account settings, then check again.' });
+      return;
+    }
     dialog = { kind: 'new' };
   }
   function openEdit(): void {
@@ -950,7 +975,13 @@
         <span class="chip">Offline copy</span>
       {/if}
     </div>
-    <button type="button" class="primary new" onclick={openNew}>
+    <button
+      type="button"
+      class="primary new"
+      onclick={openNew}
+      disabled={hmeUnavailable}
+      title={hmeUnavailable ? 'Requires iCloud+' : undefined}
+    >
       New alias<kbd class="hint-kbd" aria-hidden="true">{cap('Alt', mac)} N</kbd>
     </button>
     <button type="button" class="ghost more" aria-label="Actions" onclick={() => (dialog = { kind: 'menu' })}>
@@ -962,6 +993,23 @@
     <div class="banner" role="status">
       <p>{bannerText}</p>
       <button type="button" class="reconnect" onclick={openReconnect}>Reconnect</button>
+    </div>
+  {/if}
+
+  {#if hmeUnavailable && list.length > 0}
+    <div class="banner plus" role="status">
+      <p>
+        <strong>No iCloud+ on this Apple Account.</strong>
+        Your existing aliases are shown, but new ones can’t be created and forwarding may have stopped.
+      </p>
+      <div class="banner-actions">
+        <a class="reconnect-link" href="https://www.apple.com/icloud/" target="_blank" rel="noopener noreferrer"
+          >Get iCloud+</a
+        >
+        <button type="button" class="reconnect" disabled={checkingPlus} onclick={() => void checkIcloudPlus()}>
+          {checkingPlus ? 'Checking…' : 'Check again'}
+        </button>
+      </div>
     </div>
   {/if}
 
@@ -1063,7 +1111,25 @@
         <div class="spacer" aria-hidden="true" style:height="{win.bottom}px"></div>
       </div>
 
-      {#if errorEmpty}
+      {#if hmeUnavailable && list.length === 0}
+        <div class="state plus-state">
+          <span class="mark big" aria-hidden="true"></span>
+          <p class="state-title">iCloud+ is required for Hide My Email.</p>
+          <p class="muted">
+            This Apple Account doesn’t have an active iCloud+ subscription, so Apple can’t issue Hide My Email
+            addresses. Existing aliases aren’t deleted: their forwarding stops while the subscription is inactive,
+            and Apple may hide the Hide My Email list until you subscribe again.
+          </p>
+          <div class="plus-actions">
+            <a class="reconnect-link" href="https://www.apple.com/icloud/" target="_blank" rel="noopener noreferrer"
+              >See iCloud+ plans</a
+            >
+            <button type="button" class="reconnect" disabled={checkingPlus} onclick={() => void checkIcloudPlus()}>
+              {checkingPlus ? 'Checking…' : 'I’ve subscribed — check again'}
+            </button>
+          </div>
+        </div>
+      {:else if errorEmpty}
         <div class="state">
           <p class="state-title">Couldn't load your aliases.</p>
           <p class="muted">{errorText}</p>
@@ -1298,6 +1364,41 @@
     flex: 1;
     font-size: 0.9375rem;
   }
+  .banner-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .banner-actions .reconnect,
+  .plus-actions .reconnect {
+    padding: var(--space-2) var(--space-3);
+    font-size: 0.875rem;
+  }
+  .reconnect-link {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-size: 0.875rem;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .reconnect-link:hover {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
+  .plus-state {
+    max-width: 34rem;
+  }
+  .plus-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
 
   .search {
     position: relative;
@@ -1501,8 +1602,12 @@
     text-align: center;
     pointer-events: none;
   }
-  .state button {
+  .state button,
+  .state a {
     pointer-events: auto;
+  }
+  .state .muted {
+    max-width: 34rem;
   }
   .state-title {
     max-width: 28rem;
