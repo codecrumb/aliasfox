@@ -557,38 +557,38 @@
     const bulk: MenuAction[] =
       n > 0
         ? [
-            { id: 'bulk-deactivate', label: `Deactivate ${n} selected`, disabled: bulkBusy },
-            { id: 'bulk-reactivate', label: `Reactivate ${n} selected`, disabled: bulkBusy },
-            { id: 'bulk-delete', label: `Delete ${n} selected`, danger: true, disabled: bulkBusy },
-            { id: 'bulk-copy', label: `Copy ${n} selected addresses` },
-            { id: 'bulk-clear', label: 'Clear selection', keys: keysFor('clearMarks') }
+            { id: 'bulk-deactivate', label: `Deactivate ${n} selected`, disabled: bulkBusy, aliases: ['Disable', 'Turn off', 'Pause'] },
+            { id: 'bulk-reactivate', label: `Reactivate ${n} selected`, disabled: bulkBusy, aliases: ['Enable', 'Turn on', 'Resume', 'Restore'] },
+            { id: 'bulk-delete', label: `Delete ${n} selected`, danger: true, disabled: bulkBusy, aliases: ['Remove', 'Erase', 'Trash'] },
+            { id: 'bulk-copy', label: `Copy ${n} selected addresses`, aliases: ['Clipboard'] },
+            { id: 'bulk-clear', label: 'Clear selection', keys: keysFor('clearMarks'), aliases: ['Deselect', 'Unselect', 'Reset'] }
           ]
         : [];
     return [
       ...bulk,
-      { id: 'copy', label: 'Copy address', keys: keysFor('copy'), disabled: none },
-      { id: 'toggle', label: selected && !selected.is_active ? 'Reactivate' : 'Deactivate', keys: keysFor('toggle'), disabled: none },
-      { id: 'new', label: 'New alias', keys: keysFor('new') },
-      { id: 'edit', label: 'Edit label and note', keys: keysFor('edit'), disabled: none },
-      { id: 'delete', label: 'Delete', keys: keysFor('delete'), disabled: none, danger: true },
-      { id: 'mark', label: 'Select or unselect this alias', keys: keysFor('mark'), disabled: none },
-      { id: 'mark-all', label: 'Select all in the list', keys: keysFor('markAll') },
-      { id: 'forward', label: 'Change forward-to address' },
-      { id: 'sort-cycle', label: 'Cycle sort order', keys: keysFor('sort') },
+      { id: 'copy', label: 'Copy address', keys: keysFor('copy'), disabled: none, aliases: ['Clipboard', 'Duplicate'] },
+      { id: 'toggle', label: selected && !selected.is_active ? 'Reactivate' : 'Deactivate', keys: keysFor('toggle'), disabled: none, aliases: ['Disable', 'Enable', 'Turn off', 'Turn on', 'Pause', 'Resume', 'Activate', 'Switch'] },
+      { id: 'new', label: 'New alias', keys: keysFor('new'), aliases: ['Create', 'Add', 'Generate', 'Make'] },
+      { id: 'edit', label: 'Edit label and note', keys: keysFor('edit'), disabled: none, aliases: ['Rename', 'Label', 'Note', 'Change name'] },
+      { id: 'delete', label: 'Delete', keys: keysFor('delete'), disabled: none, danger: true, aliases: ['Remove', 'Erase', 'Trash', 'Destroy'] },
+      { id: 'mark', label: 'Select or unselect this alias', keys: keysFor('mark'), disabled: none, aliases: ['Check', 'Pick', 'Toggle selection', 'Multi-select'] },
+      { id: 'mark-all', label: 'Select all in the list', keys: keysFor('markAll'), aliases: ['Everything', 'Check all'] },
+      { id: 'forward', label: 'Change forward-to address', aliases: ['Forwarding', 'Destination', 'Redirect', 'Send to', 'Inbox', 'Email'] },
+      { id: 'sort-cycle', label: 'Cycle sort order', keys: keysFor('sort'), aliases: ['Order', 'Arrange'] },
       ...SORTS.map((s) => ({ id: `sort-${s.id}`, label: `Sort: ${s.label}`, current: sortMode === s.id })),
-      { id: 'filter-cycle', label: 'Cycle filter', keys: keysFor('filter') },
-      { id: 'filter-all', label: 'Filter: All', current: filter === 'all' },
-      { id: 'filter-active', label: 'Filter: Active', current: filter === 'active' },
-      { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive' },
-      { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh') },
-      { id: 'stats', label: 'Stats', aliases: ['Count', 'Summary', 'Top sites'] },
-      { id: 'export-csv', label: 'Export aliases as CSV', aliases: ['Download', 'Backup'] },
-      { id: 'export-json', label: 'Export aliases as JSON', aliases: ['Download', 'Backup'] },
-      { id: 'import', label: 'Import labels and notes from CSV', aliases: ['Upload'] },
-      { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help') },
-      ...($sessionStore.mode === 'multi' ? [{ id: 'account', label: 'Account' }] : []),
-      { id: 'disconnect', label: 'Disconnect Apple account', danger: true },
-      { id: 'logout', label: 'Log out', aliases: ['Sign out', 'Logout', 'Signout'] }
+      { id: 'filter-cycle', label: 'Cycle filter', keys: keysFor('filter'), aliases: ['Show', 'View'] },
+      { id: 'filter-all', label: 'Filter: All', current: filter === 'all', aliases: ['Everything', 'Show all'] },
+      { id: 'filter-active', label: 'Filter: Active', current: filter === 'active', aliases: ['Enabled', 'On', 'Live'] },
+      { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive', aliases: ['Disabled', 'Deactivated', 'Off', 'Paused'] },
+      { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh'), aliases: ['Reload', 'Sync', 'Update', 'Fetch', 'iCloud'] },
+      { id: 'stats', label: 'Stats', aliases: ['Count', 'Summary', 'Top sites', 'Statistics', 'Analytics', 'Numbers', 'Total'] },
+      { id: 'export-csv', label: 'Export aliases as CSV', aliases: ['Download', 'Backup', 'Save', 'Dump', 'Spreadsheet'] },
+      { id: 'export-json', label: 'Export aliases as JSON', aliases: ['Download', 'Backup', 'Save', 'Dump', 'Data'] },
+      { id: 'import', label: 'Import labels and notes from CSV', aliases: ['Upload', 'Load', 'Restore', 'Labels', 'Notes'] },
+      { id: 'help', label: 'Keyboard shortcuts', keys: keysFor('help'), aliases: ['Shortcuts', 'Hotkeys', 'Keys', 'Keybindings', 'Cheatsheet', 'Guide'] },
+      ...($sessionStore.mode === 'multi' ? [{ id: 'account', label: 'Account', aliases: ['Profile', 'Password', 'Email', 'Settings'] }] : []),
+      { id: 'disconnect', label: 'Disconnect Apple account', danger: true, aliases: ['Unlink', 'Apple ID', 'iCloud', 'Remove Apple'] },
+      { id: 'logout', label: 'Log out', aliases: ['Sign out', 'Logout', 'Signout', 'Exit', 'Leave', 'Quit'] }
     ];
   });
 
