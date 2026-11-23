@@ -64,7 +64,7 @@ class ApiKeyStore:
         self._hmac_key = derive_key(secret, info=b"aliasfox-apikey-v1")
         self._sessions = sessionmaker(engine, expire_on_commit=False)
 
-    def _hash(self, key: str) -> bytes:
+    def digest(self, key: str) -> bytes:
         return hmac.new(self._hmac_key, key.encode(), hashlib.sha256).digest()
 
     def create(
@@ -90,7 +90,7 @@ class ApiKeyStore:
                 name=name[:80],
                 preset=preset,
                 scopes=",".join(x for x in SCOPES if x in scope_set),
-                key_hash=self._hash(key),
+                key_hash=self.digest(key),
                 prefix=key[len(_PREFIX) : len(_PREFIX) + 8],
                 expires_at=expires_at,
             )
@@ -116,7 +116,7 @@ class ApiKeyStore:
 
     def lookup(self, key: str) -> KeyInfo | None:
         try:
-            digest = self._hash(key)
+            digest = self.digest(key)
         except (AttributeError, UnicodeEncodeError):  # non-str, or lone surrogates
             return None
         with self._sessions() as s:

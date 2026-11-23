@@ -122,3 +122,12 @@ def test_lookup_none_when_stored_scopes_all_unknown(store, engine, uid):
 @pytest.mark.parametrize("bad", [None, 123, b"afk_x", "afk_\ud800"])
 def test_lookup_unhashable_input_is_none(store, bad):
     assert store.lookup(bad) is None
+
+
+def test_digest_is_public_and_matches_stored_hash(store, engine, uid):
+    key, _ = store.create(uid, "k", ["read"])
+    with engine.connect() as c:
+        stored = c.execute(text("select key_hash from api_keys")).scalar_one()
+    assert store.digest(key) == stored
+    with pytest.raises(UnicodeEncodeError):
+        store.digest("afk_\ud800")

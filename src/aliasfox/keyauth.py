@@ -49,6 +49,7 @@ class KeyAuth:
         self._lock = threading.Lock()
         self._cache: dict[bytes, tuple[KeyInfo, float]] = {}  # hmac -> (info, cached_at)
         self._touched: dict[int, float] = {}
+        self._gen = 0  # bumped by invalidate*; stops an in-flight lookup re-caching a revoked key
         self._failed = RateLimiter(FAILED_PER_MINUTE, 60, clock=clock)
         self._per_key = RateLimiter(PER_KEY_PER_MINUTE, 60, clock=clock)
         self.limiters: "list[RateLimiter]" = [self._failed, self._per_key]
@@ -58,7 +59,7 @@ class KeyAuth:
             return None
         now = self._clock()
         try:
-            digest = self._store._hash(key)
+            digest = self._store.digest(key)
         except UnicodeEncodeError:
             return None
         with self._lock:
@@ -67,11 +68,13 @@ class KeyAuth:
             info = hit[0]
             if info.expires_at is None or info.expires_at > datetime.now(timezone.utc):
                 return info
+        with self._lock:
+            gen = self._gen
         info = self._store.lookup(key)
         with self._lock:
             if info is None:
                 self._cache.pop(digest, None)
-            else:
+            elif gen == self._gen:
                 if len(self._cache) >= CACHE_MAX and digest not in self._cache:
                     self._drop_stale(now)
                     if len(self._cache) >= CACHE_MAX:
@@ -125,7 +128,7 @@ class KeyAuth:
             try:
                 return self.authenticate(request, scope)
             except KeyAuthError as e:
-                headers = {"Retry-After": str(max(1, e.retry_after))} if e.status == 429 and e.retry_after else None
+                headers = {"Retry-After": str(max(1, e.retry_after or 0))} if e.status == 429 else None
                 detail = {"error": e.detail, "needed": e.needed} if e.needed else e.detail  # body: {"detail": ...}
                 raise HTTPException(e.status, detail, headers=headers) from None
 
@@ -133,12 +136,14 @@ class KeyAuth:
 
     def invalidate(self, key_id: int) -> None:
         with self._lock:
+            self._gen += 1
             for d in [d for d, (i, _) in self._cache.items() if i.id == key_id]:
                 del self._cache[d]
             self._touched.pop(key_id, None)
 
     def invalidate_user(self, user_id: int) -> None:
         with self._lock:
+            self._gen += 1
             for d, (i, _) in list(self._cache.items()):
                 if i.user_id == user_id:
                     del self._cache[d]

@@ -172,3 +172,30 @@ def test_cache_is_bounded_and_evicts(env):
         keyauth.CACHE_MAX = old
     env.clock.t += 31
     assert env.auth.evict_expired() == 2 and not env.auth._cache
+
+
+def test_429_retry_after_is_at_least_one_even_when_window_slid(env, monkeypatch):
+    key, _ = env.key()
+    h = {"Authentication": key}
+    for _ in range(120):
+        assert env.client.get("/r", headers=h).status_code == 200
+    monkeypatch.setattr(env.auth._per_key, "retry_after", lambda k: 0)
+    r = env.client.get("/r", headers=h)
+    assert r.status_code == 429 and r.headers["Retry-After"] == "1"
+
+
+def test_invalidate_during_inflight_lookup_does_not_recache_revoked_key(env, monkeypatch):
+    key, info = env.key()
+    h = {"Authentication": key}
+    real = env.store.lookup
+
+    def racing(k):
+        found = real(k)
+        env.store.revoke(env.uid, info.id)
+        env.auth.invalidate(info.id)  # revoke lands while this lookup is in flight
+        return found
+
+    monkeypatch.setattr(env.store, "lookup", racing)
+    env.client.get("/r", headers=h)
+    monkeypatch.undo()
+    assert env.client.get("/r", headers=h).status_code == 401
