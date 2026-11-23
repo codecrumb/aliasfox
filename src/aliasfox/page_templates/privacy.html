@@ -40,7 +40,7 @@
     <li>an identifier from the sign-in provider (an opaque user id, not your email address);</li>
     <li>a wrapped data key: a random key made for you, itself encrypted with a key that only the server has;</li>
     <li>one encrypted Apple session, once you connect Apple: the cookies iCloud gives a signed-in browser, plus the iCloud service address, your Apple account id and, when Apple issues one, a trust token. Only the latest one is kept;</li>
-    <li>the API keys you create, if any: a name you choose, the permissions you give it, an optional expiry, and when it was created and last used. The key itself is shown to you once and only a keyed hash of it is stored, so AliasFox cannot show it to you again;</li>
+    <li>the API keys you create, if any: a name you choose, the permissions you give it, an optional expiry, and when it was created and last used. The key itself is shown to you once and only a keyed hash of it is stored, so AliasFox cannot show it to you again. The first 8 characters of the key and the access preset's name are also stored in clear, and shown in your key list;</li>
     <li>timestamps (when your account was created and when your Apple session was last saved) and a counter that is increased when you log out, so logging out ends every open session.</li>
   </ul>
 

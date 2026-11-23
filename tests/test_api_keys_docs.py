@@ -42,6 +42,7 @@ def test_privacy_stored_list_and_delete_account_cover_keys():
     t = _text(TPL / "privacy.html")
     assert "only a keyed hash of it is stored" in t
     assert "shown to you once" in t
+    assert "first 8 characters of the key" in t and "stored in clear" in t
     m = re.search(r"<strong>delete account:</strong>(.*?)</li>", (TPL / "privacy.html").read_text(), re.S | re.I)
     assert m and "api keys" in _text_of(m.group(1))
 

@@ -189,7 +189,7 @@ forwarding address.
 | `DELETE /api/v1/aliases/{id}` | `delete` |
 
 **Limits.** 10 create calls per minute per user, shared with the web app; 120 requests per minute per key;
-after repeated Apple errors on creation a cooldown pauses creating for a few minutes. Failed key attempts are
+after repeated Apple errors on creation a cooldown pauses creating for about 5 minutes. Failed key attempts are
 limited per client address, so set `TRUSTED_PROXY_HOPS` correctly behind a proxy.
 
 **`API_KEYS_ENABLED`** (default `true`). Set it to `false` and every request that uses a key (`/api/v1`,

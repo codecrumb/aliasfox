@@ -78,6 +78,34 @@ describe('ApiKeysDialog', () => {
     expect(document.body.textContent).not.toContain('SECRETSECRET');
   });
 
+  it('shows expiry on key rows: Expires <date> or Expired', async () => {
+    const soon = new Date(Date.now() + 5 * 864e5).toISOString();
+    h.listKeys.mockResolvedValue([
+      row(1, { expires_at: soon }), row(2, { expires_at: '2020-01-01T00:00:00Z' }), row(3)
+    ]);
+    mount();
+    await screen.findByText('Key 1');
+    const t = document.body.textContent ?? '';
+    expect(t).toContain(`Expires ${new Date(soon).toLocaleDateString()}`);
+    expect(t.match(/Expired/g)).toHaveLength(1);
+    expect(t.match(/Expires \d/g)).toHaveLength(1);
+  });
+
+  it('Escape does nothing while a fresh key is shown, and closes the list view', async () => {
+    h.createKey.mockResolvedValue({ ...row(7), key: FULL_KEY });
+    const onClose = vi.fn();
+    render(ApiKeysDialog, { onClose });
+    await fireEvent.input(await screen.findByLabelText('Name'), { target: { value: 'bw' } });
+    await fireEvent.click(screen.getByRole('radio', { name: 'Bitwarden' }));
+    await fireEvent.click(create());
+    const field = await screen.findByLabelText('Your new API key');
+    await fireEvent.keyDown(field, { key: 'Escape', code: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Your new API key')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the MCP command with the key for the assistant preset', async () => {
     h.createKey.mockResolvedValue({ ...row(8, { preset: 'assistant' }), key: FULL_KEY });
     mount();

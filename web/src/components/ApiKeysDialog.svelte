@@ -103,6 +103,8 @@
   }
 
   const when = (iso: string | null): string => (iso ? new Date(iso).toLocaleDateString() : 'never');
+  const expiry = (iso: string | null): string =>
+    iso ? (new Date(iso).getTime() <= Date.now() ? ' · Expired' : ` · Expires ${when(iso)}`) : '';
 </script>
 
 {#if revoking}
@@ -119,7 +121,7 @@
     onCancel={() => (revoking = null)}
   />
 {:else}
-  <Modal labelledby="{uid}-title" onClose={onClose} persistent={created !== null} size="md">
+  <Modal labelledby="{uid}-title" onClose={onClose} persistent={created !== null} escape={created === null} size="md">
     <h2 class="dialog-title" id="{uid}-title">API keys</h2>
     {#if created}
       {@const c = created}
@@ -157,7 +159,7 @@
               <strong>{k.name}</strong>
               <span class="meta">{presetLabel(k.preset)} · <span class="mono">afk_{k.prefix}…</span></span>
               <span class="chips">{#each k.scopes as s (s)}<span class="chip">{s}</span>{/each}</span>
-              <span class="meta">Created {when(k.created_at)} · Last used {when(k.last_used_at)}</span>
+              <span class="meta">Created {when(k.created_at)} · Last used {when(k.last_used_at)}{expiry(k.expires_at)}</span>
             </div>
             <button type="button" onclick={() => (revoking = k)} aria-label="Revoke {k.name}">Revoke</button>
           </li>
