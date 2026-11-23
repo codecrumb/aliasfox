@@ -52,6 +52,12 @@ describe('KEYMAP / handleKey', () => {
     expect(c.toggle).toHaveBeenCalledTimes(1);
   });
 
+  it('Alt+D also toggles (hidden alias of Shift+Enter)', () => {
+    const c = ctx();
+    expect(handleKey(ev({ key: '∂', code: 'KeyD', altKey: true }), c)).toBe(true);
+    expect(c.toggle).toHaveBeenCalledTimes(1);
+  });
+
   it('Alt shortcuts use event.code (Option+N on a Mac types a dead key)', () => {
     const c = ctx();
     expect(handleKey(ev({ key: '˜', code: 'KeyN', altKey: true }), c)).toBe(true);

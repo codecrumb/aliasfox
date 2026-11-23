@@ -66,7 +66,13 @@ export const CONFIRM_GUARD_MS = 250;
 
 export const KEYMAP: readonly KeyBinding[] = [
   { id: 'copy', keys: [['Enter']], label: 'Copy address', combos: [{ key: 'Enter' }] },
-  { id: 'toggle', keys: [['Shift', 'Enter']], label: 'Deactivate or reactivate the address', combos: [{ key: 'Enter', shift: true }] },
+  {
+    id: 'toggle',
+    keys: [['Shift', 'Enter']],
+    label: 'Deactivate or reactivate the address',
+    // Alt+D is an undocumented alias (no entry in `keys`): easier to remember than Shift+Enter.
+    combos: [{ key: 'Enter', shift: true }, { code: 'KeyD', alt: true }]
+  },
   { id: 'new', keys: [['Alt', 'N']], label: 'New alias', combos: [{ code: 'KeyN', alt: true }] },
   { id: 'edit', keys: [['Alt', 'E']], label: 'Edit label and note', combos: [{ code: 'KeyE', alt: true }] },
   {
