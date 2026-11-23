@@ -61,7 +61,11 @@ function bodyModels(): Map<string, Map<string, boolean>> {
 
 // Backend /api routes the client deliberately does not call. Keep this honest: each entry needs a
 // reason, and the test fails if an entry no longer exists in the backend.
-const UNUSED_BY_CLIENT: Record<string, string> = {};
+const UNUSED_BY_CLIENT: Record<string, string> = {
+  'GET /api/keys': 'added to the client with the dialog in Task 10',
+  'POST /api/keys': 'added to the client with the dialog in Task 10',
+  'DELETE /api/keys/{id}': 'added to the client with the dialog in Task 10',
+};
 
 // Sample arguments for every api.* method. A new method without a sample fails the coverage test.
 const SAMPLES: Record<string, unknown[]> = {

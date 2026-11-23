@@ -15,6 +15,7 @@ from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.db import init_db, make_engine
 from aliasfox.exchange import install_exchange, neon_issuer
+from aliasfox.key_routes import build_key_router
 from aliasfox.keyauth import KeyAuth
 from aliasfox.keys import KeyRing
 from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
@@ -148,6 +149,9 @@ def create_app(
             service, store, settings, flow, directory=epochs, limiters=app.state.limiters
         )
     )
+    api_keys, key_auth = getattr(app.state, "api_keys", None), getattr(app.state, "key_auth", None)
+    if api_keys is not None and key_auth is not None:
+        app.include_router(build_key_router(api_keys, key_auth))
     install_error_handlers(app)
     install_pages(app, settings)  # multi mode only; before the SPA catch-all
     install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
