@@ -110,3 +110,15 @@ def test_unknown_scope_in_row_is_dropped_on_lookup(store, engine, uid):
     with engine.begin() as c:
         c.execute(text("update api_keys set scopes='read,bogus' where id=:i"), {"i": info.id})
     assert store.lookup(key).scopes == frozenset({"read"})
+
+
+def test_lookup_none_when_stored_scopes_all_unknown(store, engine, uid):
+    key, info = store.create(uid, "k", ["read"])
+    with engine.begin() as c:
+        c.execute(text("update api_keys set scopes='bogus' where id=:i"), {"i": info.id})
+    assert store.lookup(key) is None
+
+
+@pytest.mark.parametrize("bad", [None, 123, b"afk_x", "afk_\ud800"])
+def test_lookup_unhashable_input_is_none(store, bad):
+    assert store.lookup(bad) is None

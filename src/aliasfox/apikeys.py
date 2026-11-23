@@ -115,11 +115,17 @@ class ApiKeyStore:
             )
 
     def lookup(self, key: str) -> KeyInfo | None:
+        try:
+            digest = self._hash(key)
+        except (AttributeError, UnicodeEncodeError):  # non-str, or lone surrogates
+            return None
         with self._sessions() as s:
-            row = s.scalar(select(ApiKeyRow).where(ApiKeyRow.key_hash == self._hash(key)))
+            row = s.scalar(select(ApiKeyRow).where(ApiKeyRow.key_hash == digest))
             if row is None:
                 return None
             info = _info(row)
+        if not info.scopes:
+            return None
         if info.expires_at is not None and info.expires_at <= datetime.now(timezone.utc):
             return None
         return info

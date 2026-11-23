@@ -9,11 +9,13 @@ from starlette.concurrency import run_in_threadpool
 
 from aliasfox.api import build_router, install_error_handlers
 from aliasfox.apple.connect import seed_from_env
+from aliasfox.apikeys import ApiKeyStore
 from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
 from aliasfox.auth import install_auth
 from aliasfox.config import Settings, get_settings, validate_startup
 from aliasfox.db import init_db, make_engine
 from aliasfox.exchange import install_exchange, neon_issuer
+from aliasfox.keyauth import KeyAuth
 from aliasfox.keys import KeyRing
 from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
     SECURITY_HEADERS,
@@ -22,6 +24,7 @@ from aliasfox.middleware import (  # noqa: F401  (SECURITY_HEADERS re-exported)
 )
 from aliasfox.neon_jwt import NeonTokenVerifier
 from aliasfox.pages import install_pages
+from aliasfox.ratelimit import track
 from aliasfox.service import AliasService
 from aliasfox.sessions import SessionStore
 from aliasfox.users import UserDirectory
@@ -44,6 +47,11 @@ async def sweep_memory(app: FastAPI, flow: LoginFlow) -> None:
         app.state.alias_service.evict_expired()
     except Exception as exc:
         log.warning("alias cache sweep failed: %s", type(exc).__name__)
+    try:
+        if (key_auth := getattr(app.state, "key_auth", None)) is not None:
+            key_auth.evict_expired()
+    except Exception as exc:
+        log.warning("api key cache sweep failed: %s", type(exc).__name__)
     for limiter in getattr(app.state, "limiters", ()):
         try:
             limiter.sweep()
@@ -93,6 +101,7 @@ def create_app(
     validate_startup(settings)
     multi = settings.aliasfox_mode == "multi"
     epochs = None
+    api_keys = None
     if service is None or multi:  # multi mode always needs the users table
         engine = make_engine(settings)
         init_db(engine)
@@ -107,6 +116,7 @@ def create_app(
         if service is None:
             store = SessionStore(engine, keyring)
             service = AliasService(store)
+        api_keys = ApiKeyStore(engine, settings.secret_key)
     flow = login_flow or LoginFlow()
     app = FastAPI(
         title="AliasFox",
@@ -118,6 +128,11 @@ def create_app(
     )
     app.state.alias_service = service  # logout and the lifespan sweep drop its cache
     install_auth(app, settings, epochs, password_login=not multi)
+    if api_keys is not None:
+        app.state.api_keys = api_keys
+        app.state.key_auth = KeyAuth(api_keys, settings)
+        for lim in app.state.key_auth.limiters:
+            track(app.state, lim)
     if multi:
         verifier = NeonTokenVerifier(
             jwks_url=settings.neon_auth_jwks_url, issuer=neon_issuer(settings)
