@@ -301,7 +301,7 @@ def test_placeholders_in_configured_values_are_not_expanded(tmp_path, monkeypatc
     html = c.get("/privacy").text
     assert "mailto:{{SIGNUPS}}@example.com" in html
     assert 'href="https://fox.example/{{CONTACT}}/privacy"' in html
-    assert html.count('href="/signup"') == 0
+    assert 'class="button primary"' not in html  # the SIGNUPS call to action
 
 
 def test_privacy_memory_and_retention_wording_matches_code(tmp_path, monkeypatch):
