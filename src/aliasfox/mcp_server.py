@@ -4,11 +4,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from aliasfox.apple.connect import AppleUnreachable
 from aliasfox.apple.hme import Alias, HmeError, SessionExpired
 from aliasfox.createguard import CreateGuard
 from aliasfox.keyauth import KeyAuth, KeyAuthError
 from aliasfox.service import AliasService, NotConnected
+from aliasfox.sessions import SessionUnreadable
 from aliasfox.v1 import CreateLimited, create_alias
 
 VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -134,15 +137,17 @@ def build_mcp_router(service: AliasService, key_auth: KeyAuth, guard: CreateGuar
             return _result(await run(name, args, key.user_id))
         except CreateLimited as e:
             return _result(text=f"Too many addresses created. Try again in {max(1, e.retry_after)} seconds.", error=True)
-        except (NotConnected, SessionExpired):
+        except (NotConnected, SessionExpired, SessionUnreadable):
             return _result(text="Apple session expired or not connected. Sign in again in AliasFox.", error=True)
+        except AppleUnreachable:
+            return _result(text="Could not reach Apple. Try again.", error=True)
         except HmeError as e:
             return _result(text=f"iCloud: {e.message[:200]}", error=True)
 
     @router.post("/mcp")
     async def mcp_post(request: Request):
         try:
-            key = key_auth.authenticate(request, None)
+            key = await run_in_threadpool(key_auth.authenticate, request, None)
         except KeyAuthError as e:
             headers = {"WWW-Authenticate": "Bearer"} if e.status == 401 else {}
             if e.status == 429:

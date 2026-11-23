@@ -45,6 +45,8 @@ async def create_alias(
                 raise
             hme = await service.generate(user_id)  # Apple asked for a fresh address; no new budget hit
             alias = await service.reserve(user_id, hme, label, note)
+    except SessionExpired:
+        raise  # the user's session, not an Apple outage: no cooldown
     except HmeError:
         guard.record_error(user_id)
         raise

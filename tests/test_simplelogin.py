@@ -190,3 +190,23 @@ def test_cross_origin_post_with_key_works(env):
     key = key_for(env, "a", "acct-a")
     r = env.anonymous().post(URL, headers={"Authentication": key, "Origin": "https://evil.example"})
     assert r.status_code == 201
+
+
+def test_session_unreadable_and_apple_unreachable_are_error_json(env, monkeypatch):
+    from aliasfox.apple.connect import AppleUnreachable
+    from aliasfox.sessions import SessionUnreadable
+
+    env.settings.public_url = "https://fox.example"
+    key = key_for(env, "a", "acct-a")
+    c = env.anonymous()
+    for exc, status, text in (
+        (SessionUnreadable(), 503, "Apple session expired. Sign in again at https://fox.example"),
+        (AppleUnreachable(), 502, "iCloud: could not reach Apple"),
+    ):
+        def boom(*a, _e=exc, **k):
+            raise _e
+
+        monkeypatch.setattr(env.service, "generate", boom)
+        r = c.post(URL, headers={"Authentication": key})
+        assert (r.status_code, r.json()) == (status, {"error": text})
+    assert env.app.state.create_guard._cool == {}

@@ -1,12 +1,15 @@
 """SimpleLogin-compatible create endpoint for the Bitwarden client. Errors are {"error": text}."""
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from aliasfox.apple.connect import AppleUnreachable
 from aliasfox.apple.hme import HmeError, SessionExpired
 from aliasfox.config import Settings
 from aliasfox.createguard import CreateGuard
 from aliasfox.keyauth import KeyAuth, KeyAuthError
 from aliasfox.service import AliasService, NotConnected
+from aliasfox.sessions import SessionUnreadable
 from aliasfox.v1 import CreateLimited, create_alias
 
 
@@ -28,7 +31,7 @@ def build_simplelogin_router(
     @router.post("/api/alias/random/new", status_code=201)
     async def random_new(request: Request, hostname: str = ""):
         try:
-            key = key_auth.authenticate(request, "create")
+            key = await run_in_threadpool(key_auth.authenticate, request, "create")
         except KeyAuthError as e:
             if e.status == 401:
                 return _err(401, "Invalid API key")
@@ -48,9 +51,11 @@ def build_simplelogin_router(
             alias = await create_alias(service, guard, key.user_id, label, note)
         except CreateLimited as e:
             return _err(429, f"Too many addresses created. Try again in {max(1, e.retry_after)} seconds.", e.retry_after)
-        except (NotConnected, SessionExpired):
+        except (NotConnected, SessionExpired, SessionUnreadable):
             url = f" Sign in again at {settings.public_url}" if settings.public_url else ""
             return _err(503, "Apple session expired." + url)
+        except AppleUnreachable:
+            return _err(502, "iCloud: could not reach Apple")
         except HmeError as e:
             return _err(502, f"iCloud: {e.message[:200]}")
         return {"alias": alias.hme}

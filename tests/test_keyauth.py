@@ -199,3 +199,14 @@ def test_invalidate_during_inflight_lookup_does_not_recache_revoked_key(env, mon
     env.client.get("/r", headers=h)
     monkeypatch.undo()
     assert env.client.get("/r", headers=h).status_code == 401
+
+
+def test_single_mode_rejects_keys_of_leftover_users(tmp_path):
+    e = Env(tmp_path, aliasfox_mode="single")
+    other = UserDirectory(e.engine, KeyRing(SECRET)).create("sub-b")
+    assert other != 1
+    mine, _ = e.store.create(1, "k", ["read"])
+    theirs, _ = e.store.create(other, "k", ["read"])
+    assert e.client.get("/r", headers={"Authentication": mine}).status_code == 200
+    r = e.client.get("/r", headers={"Authentication": theirs})
+    assert (r.status_code, r.json()) == (401, {"detail": "invalid_api_key"})

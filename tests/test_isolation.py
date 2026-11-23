@@ -338,6 +338,8 @@ PUBLIC = {
     ("POST", "/api/auth/logout"),
     ("GET", "/{full_path:spa_path}"),  # SPA shell and public files from the build
     ("HEAD", "/{full_path:spa_path}"),
+    ("GET", "/.well-known/{rest:path}"),
+    ("HEAD", "/.well-known/{rest:path}"),
     *PAGE_ROUTES,
 }
 PUBLIC_MOUNTS = {"/assets"}  # hashed static build assets
@@ -571,3 +573,23 @@ def test_api_keys_disabled_makes_key_routes_503_but_ui_works(env, ab):
     assert c.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}).status_code == 503
     assert c.post("/api/auth/exchange", json={"token": "tok-a"}).status_code == 200
     assert alias_ids(c.get("/api/aliases")) == ["acct-a-id-0", "acct-a-id-1"]
+
+
+def test_key_resolved_during_account_delete_never_serves_the_reused_id(env, ab, monkeypatch):
+    from aliasfox.users import UserDirectory
+
+    ca, a, cb, b = ab
+    h = _bearer(env, b)
+    real = UserDirectory.delete
+
+    def delete_with_racing_key_request(self, user_id):
+        # a key request landing between the first invalidation and the row delete re-caches the row
+        assert env.anonymous().get("/api/v1/me", headers=h).status_code == 200
+        real(self, user_id)
+
+    monkeypatch.setattr(UserDirectory, "delete", delete_with_racing_key_request)
+    assert cb.delete("/api/account").status_code == 200
+    monkeypatch.undo()
+    cc, c = env.sign_in("c")
+    assert c == b  # SQLite reuses the highest deleted id
+    assert env.anonymous().get("/api/v1/me", headers=h).status_code == 401

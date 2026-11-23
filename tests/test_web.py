@@ -210,3 +210,10 @@ def test_suite_is_hermetic_about_real_static_dir(tmp_path):
         base_url="http://localhost",
     )
     assert c.get("/").status_code == 404
+
+
+def test_well_known_is_json_404_not_the_spa(tmp_path, dist):
+    c = make_client(tmp_path, dist)
+    for path in ("/.well-known/oauth-protected-resource", "/.well-known/x/y"):
+        r = c.get(path)
+        assert r.status_code == 404 and r.json() == {"detail": "not_found"}

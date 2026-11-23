@@ -203,3 +203,20 @@ def test_string_number_null_ids_are_echoed(env, ok):
         "/mcp", headers={"Authorization": f"Bearer {key}"}, json={"jsonrpc": "2.0", "id": ok, "method": "ping"}
     )
     assert r.json() == {"jsonrpc": "2.0", "id": ok, "result": {}}
+
+
+def test_session_unreadable_and_apple_unreachable_are_error_results(env, monkeypatch):
+    from aliasfox.apple.connect import AppleUnreachable
+    from aliasfox.sessions import SessionUnreadable
+
+    key = key_for(env, ["read"])
+    for exc, text in (
+        (SessionUnreadable(), "Apple session expired or not connected. Sign in again in AliasFox."),
+        (AppleUnreachable(), "Could not reach Apple. Try again."),
+    ):
+        def boom(*a, _e=exc, **k):
+            raise _e
+
+        monkeypatch.setattr(env.service, "list_aliases", boom)
+        r = tool(env, key, "list_aliases")["result"]
+        assert r["isError"] and r["content"][0]["text"] == text

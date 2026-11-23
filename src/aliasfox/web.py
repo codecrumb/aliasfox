@@ -5,10 +5,11 @@ the catch-all itself refuses `/api/*` and `/healthz` so unknown API paths keep
 their JSON 404."""
 
 import os
+import re
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.convertors import Convertor, register_url_convertor
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
@@ -17,7 +18,7 @@ DEFAULT_DIST = Path(__file__).parent / "static"
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
 PUBLIC_FILE_CACHE = "public, max-age=86400"  # unhashed icons/manifest: stable names, rarely change
-RESERVED = ("api", "healthz", "assets")
+RESERVED = ("api", "healthz", "assets", ".well-known")
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -34,7 +35,7 @@ class _SpaPathConvertor(Convertor):
     """Like `path`, but never matches the reserved prefixes: those requests fall
     through to the real routes (native 404/405) instead of being swallowed."""
 
-    regex = r"(?!(?:" + "|".join(RESERVED) + r")(?:/|$)).*"
+    regex = r"(?!(?:" + "|".join(re.escape(r) for r in RESERVED) + r")(?:/|$)).*"
 
     def convert(self, value: str) -> str:
         return str(value)
@@ -76,6 +77,11 @@ def install_web(app: FastAPI, dist_dir: Path | None = None) -> None:
     assets = root / "assets"
     if assets.is_dir():
         app.mount("/assets", ImmutableStaticFiles(directory=assets), name="assets")
+
+    @app.api_route("/.well-known/{rest:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def well_known(rest: str):
+        # MCP clients probe oauth-protected-resource after a 401; never answer with index.html
+        return JSONResponse({"detail": "not_found"}, status_code=404)
 
     @app.api_route(
         "/{full_path:spa_path}",

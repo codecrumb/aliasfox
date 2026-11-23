@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, Request
 
 from aliasfox.apikeys import ApiKeyStore, KeyInfo
-from aliasfox.auth import client_ip, limiter_key
+from aliasfox.auth import USER_ID, client_ip, limiter_key
 from aliasfox.config import Settings
 from aliasfox.ratelimit import RateLimiter
 
@@ -100,6 +100,8 @@ class KeyAuth:
         if key is None:
             raise KeyAuthError(401, "invalid_api_key")
         info = self._resolve(key)
+        if info is not None and self._settings.aliasfox_mode != "multi" and info.user_id != USER_ID:
+            info = None  # single mode: like cookies, only the owner; leftover users' keys are dead
         if info is None:
             self._failed.hit(ip)
             raise KeyAuthError(401, "invalid_api_key")

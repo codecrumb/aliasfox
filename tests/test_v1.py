@@ -155,3 +155,34 @@ def test_repeated_403_consumes_no_create_budget(env, monkeypatch):
         assert c.post("/api/v1/aliases", headers=ro, json={"label": "x"}).status_code == 403
     assert seen == []
     assert c.post("/api/v1/aliases", headers=rw, json={"label": "x"}).status_code == 201
+
+
+def _expire_then_reconnect(env, monkeypatch):
+    from helpers import FakeHmeClient
+
+    def expired(self, *a, **k):
+        raise SessionExpired(401, "expired")
+
+    real = FakeHmeClient.generate, FakeHmeClient.reserve
+    monkeypatch.setattr(FakeHmeClient, "generate", expired)
+    monkeypatch.setattr(FakeHmeClient, "reserve", expired)
+
+    def restore():
+        monkeypatch.setattr(FakeHmeClient, "generate", real[0])
+        monkeypatch.setattr(FakeHmeClient, "reserve", real[1])
+
+    return restore
+
+
+def test_expired_session_never_starts_the_create_cooldown(env, monkeypatch):
+    c, uid, h = key_for(env, "a", "acct-a", ["create"])
+    restore = _expire_then_reconnect(env, monkeypatch)
+    for _ in range(3):
+        assert api(env).post("/api/v1/aliases", headers=h, json={"label": "x"}).status_code == 503
+    assert c.post("/api/aliases/generate").status_code == 401
+    assert c.post("/api/aliases", json={"hme": "x@icloud.com", "label": "x"}).status_code == 401
+    guard = env.app.state.create_guard
+    assert guard._cool == {}
+    restore()
+    assert api(env).post("/api/v1/aliases", headers=h, json={"label": "x"}).status_code == 201
+    assert c.post("/api/aliases/generate").status_code == 200

@@ -197,6 +197,8 @@ def build_router(
             return limited
         try:
             return {"hme": await service.generate(user_id)}
+        except SessionExpired:
+            raise  # the user's session, not an Apple outage: no cooldown
         except HmeError:
             guard.record_error(user_id)
             raise
@@ -207,6 +209,8 @@ def build_router(
             return limited
         try:
             alias = await service.reserve(user_id, body.hme, body.label, body.note)
+        except SessionExpired:
+            raise  # the user's session, not an Apple outage: no cooldown
         except HmeError:
             guard.record_error(user_id)
             raise
@@ -342,6 +346,8 @@ def build_router(
                 key_auth.invalidate_user(user_id)  # hot-cached keys must not outlive the rows
             login_user.reset(str(user_id))
             await run_in_threadpool(directory.delete, user_id)
+            if key_auth is not None:
+                key_auth.invalidate_user(user_id)  # again: a key resolved mid-delete may have re-cached the row
             response.delete_cookie(
                 COOKIE_NAME,
                 httponly=True,
