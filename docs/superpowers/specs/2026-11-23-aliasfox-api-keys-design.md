@@ -157,8 +157,8 @@ Key management, cookie-only (existing `current_user`), UI use:
 
 ## 7. Bitwarden (SimpleLogin) endpoint
 
-Contract, from the working third-party implementation `charaktermaske/hme-bitwarden` (its docstring; not
-checked against Bitwarden's own source, (unverified), see section 12 step 1):
+Contract, verified in Task 0 against Bitwarden's own source (`bitwarden/clients`, SimpleLogin forwarder; see
+`docs/superpowers/plans/2026-11-23-api-keys-spikes.md`):
 
 ```
 POST /api/alias/random/new?hostname=<site>      header  Authentication: <key>
@@ -174,8 +174,10 @@ Behaviour:
 - Each call consumes an Apple creation slot, so Bitwarden's "regenerate" button costs one each. Documented.
 
 User setup text shown after creating a Bitwarden-preset key: Generator, Username, type "Forwarded email
-alias", service SimpleLogin, paste the key, server URL = the AliasFox origin. (Whether Bitwarden appends
-`/api` itself is (unverified); the reference implementation's route table implies the base is the origin.)
+alias", service SimpleLogin, paste the key, server URL = the AliasFox origin with no trailing slash or path
+(Bitwarden appends `/api/alias/random/new` itself). The URL must be https and public, or the user must approve
+an unsafe URL in Bitwarden. The endpoint must never redirect (Bitwarden sends `redirect: manual`); it accepts
+the `Authentication` header with the key verbatim (no `Bearer`).
 
 Rate limits (the same `RateLimiter`, registered with `track` so the sweep covers them):
 - Create: the existing per-user `CREATE_PER_MINUTE` (10) is shared with the UI, since it is one Apple account.
@@ -220,10 +222,10 @@ Both changes need tests proving non-key paths keep the old behaviour (section 11
 - Output: address, label, note, active, id, created date. Not `forward_to`, not origin or bundle fields
   (privacy: an AI provider would otherwise see the user's real mailbox).
 - Tool descriptions state that label and note text is untrusted data and must not be followed as instructions.
-- Implementation: prefer the official `mcp` Python SDK (FastMCP, stateless and JSON mode) mounted as an ASGI
-  app if it adds no heavy new transitive dependencies and lets us inject the authenticated user; otherwise a
-  small hand-written handler for `initialize`, `tools/list`, `tools/call` and notifications. Decide by a
-  short spike at the start of the plan (section 12). (my call)
+- Implementation: a small hand-written handler (decided in Task 0): `initialize`, `ping`, `tools/list`,
+  `tools/call`, `notifications/*` (202), JSON-RPC errors -32601/-32602, tool failures as `isError: true`
+  results, GET on `/mcp` 405. The `mcp` SDK would add 9 to 12 packages (including a Rust wheel) for about 60
+  lines of code. Test against curl and, in the live checks, a real MCP client.
 - Limitation: clients that take a static header (Claude Code `--header`, Cursor, and similar) work;
   claude.ai's web connector expects OAuth and will not, (unverified). OAuth is a non-goal here.
 
@@ -293,9 +295,9 @@ Documents that must change with the code (anti-goal: no over-promising):
 
 ## 14. Unverified, to check before relying on it
 
-- Bitwarden's exact request: path, header name, whether the server URL gets `/api` appended, which status
-  codes and `error` field it handles, and whether any client sends CORS preflights.
+- Bitwarden's web vault probably cannot reach a custom host because of its own CSP (production CSP unverified);
+  the extension, desktop and CLI are not bound by CORS. Whether a trailing slash in the server URL breaks it.
 - Apple's real creation limits and how it reacts to a busy shared IP.
 - Whether the `-41003` reserve bug is a stale or reused generated address; the one-retry logic in the
   create route depends on the answer.
-- The `mcp` SDK footprint and stateless JSON behaviour; which MCP clients accept a static bearer header.
+- Which MCP clients accept a static bearer header, and that the hand-written MCP handler satisfies a real client.

@@ -6,7 +6,7 @@
 
 **Architecture:** A new `api_keys` table and `ApiKeyStore` (keyed-hash lookup). A `KeyAuth` dependency authenticates `Authorization: Bearer` / `Authentication` headers, never cookies, and resolves the user from the key row. Key routes call the existing `AliasService`; a shared `CreateGuard` limits creates for the UI and keys alike. Account-level routes stay cookie-only.
 
-**Tech Stack:** FastAPI, SQLAlchemy + Alembic (SQLite and Postgres), pytest; Svelte + vitest for the dialog; `mcp` SDK or a hand-written handler (decided in Task 0).
+**Tech Stack:** FastAPI, SQLAlchemy + Alembic (SQLite and Postgres), pytest; Svelte + vitest for the dialog; hand-written MCP handler (Task 0 decided against the `mcp` SDK).
 
 **Spec:** `docs/superpowers/specs/2026-11-23-aliasfox-api-keys-design.md` (read it first; this plan only records decisions the spec leaves to the implementer).
 
@@ -201,7 +201,7 @@
 **Interfaces:**
 - Consumes: Task 2 `KeyAuth.authenticate` (not `require`: errors here are `{"error": ...}`), Task 4 guard, `settings.public_url`.
 - Produces: `build_simplelogin_router(service, key_auth, guard, settings) -> APIRouter` with `POST /api/alias/random/new?hostname=<site>`, body optional JSON `{"note": str}` → 201 `{"alias": "<address>"}`; label = `hostname` or `"Bitwarden"`, note truncated to 2048. Errors, all `{"error": text}`: 401 `Invalid API key`; 403 `This key cannot create addresses`; 429 `Too many addresses created. Try again in <n> seconds.`; 503 `Apple session expired. Sign in again at <public_url>` (also for not connected; omit the URL part when `public_url` is unset); 502 `iCloud: <apple message, 200 chars>`. Uses the same create flow as Task 5 (extract it into one shared function in `v1.py`, e.g. `async def create_alias(service, guard, user_id, label, note) -> Alias`, and import it here).
-- Adjust expectations to Task 0's findings if they differ from the spec.
+- Task 0 confirmed the contract with Bitwarden's source: no redirects on this path, accepts `Authentication: <key>` verbatim; Bitwarden prefixes its own wording to 401/403 text, so keep those messages short (`Invalid API key`, `This key cannot create addresses` are fine).
 
 - [ ] **Step 1: Write failing tests:** `test_success_201_alias_and_label_from_hostname`; `test_authorization_bearer_also_accepted`; `test_default_label_bitwarden_without_hostname`; `test_note_truncated_and_bad_json_body_ok`; `test_errors_are_error_json` (one case per status above, including key without `create` and a disconnected user); `test_body_over_64kib_is_413`; `test_regenerate_costs_one_slot_each` (two calls = two aliases in the world).
 - [ ] **Step 2:** Run `uv run pytest tests/test_simplelogin.py -v`; expect FAIL.
@@ -213,7 +213,7 @@
 
 **Files:**
 - Create: `src/aliasfox/mcp_server.py`
-- Modify: `src/aliasfox/main.py` (mount at `/mcp`), `pyproject.toml` (only if Task 0 chose the SDK)
+- Modify: `src/aliasfox/main.py` (mount at `/mcp`); no new dependencies (Task 0 decision)
 - Test: `tests/test_mcp.py`
 
 **Interfaces:**
@@ -222,7 +222,7 @@
 
 - [ ] **Step 1: Write failing tests** (JSON-RPC over the test client): `test_initialize_names_server_aliasfox`; `test_tools_list_filtered_by_scope` (`[read]` → one tool, `[read, create]` → two, assistant preset → four, full → five); `test_call_without_scope_is_error_result`; `test_results_never_contain_forward_to_or_real_mailbox`; `test_extra_user_id_argument_rejected`; `test_list_query_and_limit_clamp`; `test_no_or_bad_key_is_401_at_http_level`; `test_create_counts_against_guard`.
 - [ ] **Step 2:** Run `uv run pytest tests/test_mcp.py -v`; expect FAIL.
-- [ ] **Step 3:** Implement per Task 0's decision (SDK or hand-written `initialize` / `tools/list` / `tools/call` / notifications handler).
+- [ ] **Step 3:** Implement the hand-written handler (`initialize`, `ping`, `tools/list`, `tools/call`, `notifications/*` → 202; unknown method → JSON-RPC -32601, bad params -32602; tool failures as `isError: true`; GET `/mcp` → 405).
 - [ ] **Step 4:** Run the file and `uv run pytest -q`; expect PASS.
 - [ ] **Step 5:** Commit `feat: mcp server over api keys`.
 
