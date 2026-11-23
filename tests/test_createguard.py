@@ -66,12 +66,12 @@ def test_denied_check_does_not_extend_cooldown():
 
 
 def test_cooldown_denial_consumes_no_hit_and_reset_user_clears():
-    g, c = make(per_user=2)
+    g, c = make(per_user=2, cooldown_seconds=30)
     for _ in range(3):
         g.record_error(1)
-    assert g.check(1) == 300 and g.check(1) == 300  # denied twice during cooldown
-    c.t += 301
-    assert g.check(1) is None and g.check(1) is None  # both hits still there
+    assert g.check(1) == 30 and g.check(1) == 30  # denied twice during cooldown
+    c.t += 31  # cooldown over, the 60 s hit window has not elapsed
+    assert g.check(1) is None and g.check(1) is None  # both hits still available
     assert g.check(1) >= 1
     for _ in range(3):
         g.record_error(1)
@@ -80,11 +80,14 @@ def test_cooldown_denial_consumes_no_hit_and_reset_user_clears():
 
 
 def test_global_denial_returns_the_users_hit():
-    g, c = make(per_user=1, global_per_minute=1)
-    assert g.check(1) is None
-    assert g.check(2) >= 1  # global full: user 2's hit must be handed back
-    c.t += 61
-    assert g.check(2) is None  # would be denied per-user if the hit had leaked
+    g, c = make(per_user=1, global_per_minute=2)
+    assert g.check(1) is None  # t0: user 1 + global slot
+    c.t += 40
+    assert g.check(2) is None  # fills global
+    c.t += 1
+    assert g.check(3) >= 1  # denied by global at t=41
+    c.t += 20  # t=61: user 1's global slot expired, user 3's t=41 hit would still be in window
+    assert g.check(3) is None
 
 
 def test_per_user_denial_leaves_global_capacity_intact():
