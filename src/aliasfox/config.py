@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     )
     trusted_proxy: bool = Field(False, validation_alias=_env("TRUSTED_PROXY"))
     trusted_proxy_hops: int = Field(1, ge=1, validation_alias=_env("TRUSTED_PROXY_HOPS"))
+    api_keys_enabled: bool = Field(True, validation_alias=_env("API_KEYS_ENABLED"))
     signups_enabled: bool = Field(False, validation_alias=_env("SIGNUPS_ENABLED"))
     signup_allowlist: str = Field("", validation_alias=_env("SIGNUP_ALLOWLIST"))
     # Comma-separated Neon Auth user ids (token `sub`) refused at sign-in.

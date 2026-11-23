@@ -312,3 +312,16 @@ def test_revoke_subjects_bumps_only_listed_existing_users(users):
     assert users.revoke_subjects(frozenset({"a", "nobody"})) == 1
     assert users.get(a) == ea + 1 and users.get(b) == eb
     assert users.revoke_subjects(frozenset()) == 0
+
+
+def test_delete_user_removes_keys(users, engine):
+    from aliasfox.apikeys import ApiKeyStore
+
+    uid = users.create("sub-k")
+    other = users.create("sub-o")
+    store = ApiKeyStore(engine, SECRET)
+    store.create(uid, "a", ["read"])
+    keep, _ = store.create(other, "b", ["read"])
+    users.delete(uid)
+    assert store.list_for_user(uid) == []
+    assert store.lookup(keep) is not None

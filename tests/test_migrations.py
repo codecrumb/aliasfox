@@ -25,7 +25,7 @@ def test_fresh_db_reaches_head(tmp_path):
     assert "email" not in _cols(engine, "users")
     assert "apple_sessions" in inspect(engine).get_table_names()
     with engine.connect() as c:
-        assert c.execute(text("select version_num from alembic_version")).scalar() == "0002"
+        assert c.execute(text("select version_num from alembic_version")).scalar() == "0003"
         # init_db seeds no rows: single mode creates its user via
         # UserDirectory.ensure_single_user(); multi mode has no default user.
         assert c.execute(text("select count(*) from users")).scalar() == 0
@@ -105,4 +105,25 @@ def test_alembic_cli_path_adopts_legacy_db_without_secret_key(tmp_path, monkeypa
     assert "email" not in _cols(engine, "users")
     with engine.connect() as c:
         assert c.execute(text("select auth_subject from users where id=1")).scalar() == "single"
-        assert c.execute(text("select version_num from alembic_version")).scalar() == "0002"
+        assert c.execute(text("select version_num from alembic_version")).scalar() == "0003"
+
+
+def test_api_keys_table_created_and_dropped(tmp_path):
+    from pathlib import Path
+
+    import aliasfox
+    from alembic import command
+    from alembic.config import Config
+
+    engine = _engine(tmp_path)
+    init_db(engine)
+    assert _cols(engine, "api_keys") >= {
+        "id", "user_id", "name", "preset", "scopes", "key_hash", "prefix",
+        "created_at", "last_used_at", "expires_at",
+    }
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(aliasfox.__file__).parent / "migrations"))
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.downgrade(cfg, "0002")
+    assert "api_keys" not in inspect(engine).get_table_names()

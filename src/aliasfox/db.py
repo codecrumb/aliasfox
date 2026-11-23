@@ -3,7 +3,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import DateTime, Engine, LargeBinary, create_engine, inspect, text
+from sqlalchemy import DateTime, Engine, LargeBinary, String, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from aliasfox.config import Settings
@@ -39,6 +39,21 @@ class AppleSessionRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+
+class ApiKeyRow(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    preset: Mapped[str | None] = mapped_column(default=None)
+    scopes: Mapped[str]
+    key_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
+    prefix: Mapped[str] = mapped_column(String(8))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 def _normalise_url(url: str) -> str:

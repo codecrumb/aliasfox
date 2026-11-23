@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from aliasfox.crypto import DecryptionError
-from aliasfox.db import DEFAULT_USER_ID, AppleSessionRow, User
+from aliasfox.db import DEFAULT_USER_ID, ApiKeyRow, AppleSessionRow, User
 from aliasfox.keys import KeyRing
 
 SINGLE_SUBJECT = "single"
@@ -151,11 +151,12 @@ class UserDirectory:
             if user_id is None:
                 return False
             s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))
+            s.execute(delete(ApiKeyRow).where(ApiKeyRow.user_id == user_id))
             s.execute(delete(User).where(User.id == user_id))
             return True
 
     def delete(self, user_id: int) -> None:
-        """Remove the user's Apple session and user row (with its wrapped key).
+        """Remove the user's Apple session, API keys and user row (with its wrapped key).
 
         Callers must also drop all in-process per-user state for this id: the
         AliasService cache (`AliasService.disconnect` clears it, bumps the
@@ -167,4 +168,5 @@ class UserDirectory:
         """
         with self._sessions.begin() as s:
             s.execute(delete(AppleSessionRow).where(AppleSessionRow.user_id == user_id))
+            s.execute(delete(ApiKeyRow).where(ApiKeyRow.user_id == user_id))
             s.execute(delete(User).where(User.id == user_id))
