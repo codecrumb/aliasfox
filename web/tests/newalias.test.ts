@@ -53,6 +53,16 @@ async function openReady() {
 }
 
 describe('new alias flow', () => {
+  it('the New address button swaps in a fresh address', async () => {
+    render(Palette);
+    altN();
+    const dlg = await screen.findByRole('dialog');
+    await within(dlg).findByText('fresh@icloud.com');
+    await fireEvent.click(within(dlg).getByRole('button', { name: 'New address' }));
+    await within(dlg).findByText('again@icloud.com');
+    expect(store.generate).toHaveBeenLastCalledWith(true);
+  });
+
   it('test_alt_n_generates_then_enter_reserves_with_label_once', async () => {
     const { dlg, label } = await openReady();
     expect(store.generate).toHaveBeenCalledTimes(1);
@@ -65,7 +75,7 @@ describe('new alias flow', () => {
     expect(store.reserve).toHaveBeenCalledTimes(1);
     expect(store.reserve).toHaveBeenCalledWith({ hme: 'fresh@icloud.com', label: 'Shop', note: 'n1' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await waitFor(() => expect(copy).toHaveBeenCalledWith('fresh@icloud.com', expect.any(Promise)));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(expect.any(Promise), expect.any(Promise)));
     await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created and copied' }));
     const sel = screen.getAllByRole('option').find((o) => o.getAttribute('aria-selected') === 'true');
     expect(sel).toHaveAttribute('data-id', 'new-id');
@@ -220,7 +230,7 @@ describe('new alias flow', () => {
     await type(label, 'Shop');
     await enter(label);
     expect(copy).toHaveBeenCalledTimes(1);
-    expect(copy).toHaveBeenCalledWith('fresh@icloud.com', expect.any(Promise));
+    expect(copy).toHaveBeenCalledWith(expect.any(Promise), expect.any(Promise));
     done(alias(777, { anonymous_id: 'made', hme: 'fresh@icloud.com', label: 'Shop' }));
     await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'Created and copied' }));
     expect(copy).toHaveBeenCalledTimes(1);
@@ -274,6 +284,18 @@ describe('new alias flow', () => {
     await altN();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(push).toHaveBeenCalledWith({ kind: 'error', text });
+  });
+
+  it('an address Apple rejects is replaced once, created, copied, and the user is told', async () => {
+    store.reserve.mockRejectedValueOnce(new ApiError(502, 'apple_error'));
+    store.reserve.mockImplementationOnce((async (b: { hme: string }) => alias(5, { anonymous_id: 'n', hme: b.hme, label: 'Shop' })) as never);
+    const { label } = await openReady();
+    await type(label, 'Shop');
+    await enter(label);
+    await waitFor(() => expect(push).toHaveBeenCalledWith({ kind: 'ok', text: 'That address had expired, so it was changed to again@icloud.com' }));
+    expect(store.generate).toHaveBeenLastCalledWith(true);
+    expect(store.reserve).toHaveBeenLastCalledWith({ hme: 'again@icloud.com', label: 'Shop', note: '' });
+    await expect(copy.mock.calls[0]![0]).resolves.toBe('again@icloud.com');
   });
 
   it('failed reserve keeps the dialog open with the input and an inline error', async () => {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { aliasStore } from '../lib/aliases';
+  import { ApiError } from '../lib/api';
   import { describeError, describeGenerateError, isSessionError } from '../lib/errors';
   import { copyText } from '../lib/clipboard';
   import { createDeadKeyGuard, isCompositionInput, isSubmitChord } from '../lib/keys';
@@ -49,8 +50,13 @@
   onMount(() => {
     labelInput?.focus({ preventScroll: true });
     deadKey.arm(label);
-    aliasStore.generate().then(
-      async (h) => {
+    load(false, '');
+  });
+  // A fresh address; on failure at first the dialog closes, on a re-roll the old address stays.
+  function load(fresh: boolean, previous: string): void {
+    hme = '';
+    aliasStore.generate(fresh).then(
+      (h) => {
         if (!alive) return;
         hme = h;
         if (queued) {
@@ -61,10 +67,15 @@
       (e: unknown) => {
         if (!alive) return;
         toasts.push({ kind: 'error', text: describeGenerateError(e) });
-        onClose();
+        if (previous === '') return onClose();
+        hme = previous;
+        if (queued) {
+          queued = false;
+          void create();
+        }
       }
     );
-  });
+  }
   onDestroy(() => {
     alive = false;
   });
@@ -90,9 +101,19 @@
     let copying: Promise<'copied' | 'fallback'>;
     try {
       // Start the copy now, inside the key press; it completes only if the reserve does.
-      const reserving = aliasStore.reserve({ hme, label: l, note });
-      copying = copyText(hme, reserving);
+      // A generated address can go stale while the dialog sits open: if Apple rejects it, take a
+      // fresh one and retry once, and copy whichever address was actually created.
+      let used = hme;
+      const reserving = aliasStore.reserve({ hme, label: l, note }).catch(async (e: unknown) => {
+        if (!(e instanceof ApiError) || e.detail !== 'apple_error') throw e;
+        used = await aliasStore.generate(true);
+        return aliasStore.reserve({ hme: used, label: l, note });
+      });
+      const usedText = reserving.then(() => used);
+      usedText.catch(() => {}); // the reserve's own error is handled below
+      copying = copyText(usedText, reserving);
       const r: unknown = await reserving;
+      if (used !== hme && r !== null) toasts.push({ kind: 'ok', text: `That address had expired, so it was changed to ${used}` });
       created =
         r !== null && typeof r === 'object' && typeof (r as Alias).anonymous_id === 'string' && typeof (r as Alias).hme === 'string'
           ? (r as Alias)
@@ -146,6 +167,7 @@
       <div class="ticket">
         <span class="visually-hidden">New address:</span>
         <span class="addr mono">{hme}</span>
+        <button type="button" class="ghost recreate" disabled={busy || queued} onclick={() => load(true, hme)}>New address</button>
       </div>
     {/if}
 
@@ -201,6 +223,10 @@
     border-radius: var(--radius);
     background: var(--surface);
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .recreate {
+    margin-left: auto;
+    flex: none;
   }
   .addr {
     font-size: 1.0625rem;

@@ -950,7 +950,13 @@
         <span class="chip">Offline copy</span>
       {/if}
     </div>
-    <button type="button" class="primary new" onclick={openNew}>
+    <button
+      type="button"
+      class="primary new"
+      onclick={openNew}
+      onpointerenter={() => aliasStore.warm()}
+      onfocus={() => aliasStore.warm()}
+    >
       New alias<kbd class="hint-kbd" aria-hidden="true">{cap('Alt', mac)} N</kbd>
     </button>
     <button type="button" class="ghost more" aria-label="Actions" onclick={() => (dialog = { kind: 'menu' })}>

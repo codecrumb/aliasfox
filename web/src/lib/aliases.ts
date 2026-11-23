@@ -45,6 +45,9 @@ let initPromise: Promise<void> | null = null;
 let refreshPromise: Promise<void> | null = null;
 const reserves = new Map<string, Promise<Alias | null>>();
 let generatePromise: Promise<string> | null = null;
+// An address generated ahead of the New alias dialog, so it opens with one ready.
+const SPARE_TTL_MS = 5 * 60 * 1000; // shortcut: Apple's expiry for a generated address is unknown (unverified); stay short
+let spare: { p: Promise<string>; at: number } | null = null;
 // Mutations currently awaiting their API call, plus waiters released when none are pending.
 let pendingMutations = 0;
 let idleWaiters: Array<() => void> = [];
@@ -239,6 +242,7 @@ async function runInit(g: number): Promise<void> {
     }
   }
   await fetchAndApply(g, false);
+  if (g === gen) warm();
 }
 
 function init(): Promise<void> {
@@ -261,7 +265,7 @@ function refresh(): Promise<void> {
   return p;
 }
 
-async function runGenerate(g: number): Promise<string> {
+async function runGenerate(g: number, quiet: boolean): Promise<string> {
   try {
     const res = await api.generate();
     if (res === null || typeof res !== 'object' || typeof res.hme !== 'string') {
@@ -269,18 +273,37 @@ async function runGenerate(g: number): Promise<string> {
     }
     return res.hme;
   } catch (e) {
-    if (g === gen) fail(e);
+    if (g === gen && !quiet) fail(e);
     throw e;
   }
 }
 
-function generate(): Promise<string> {
+function generateNow(quiet = false): Promise<string> {
   if (generatePromise !== null) return generatePromise;
-  const p: Promise<string> = runGenerate(gen).finally(() => {
+  const p: Promise<string> = runGenerate(gen, quiet).finally(() => {
     if (generatePromise === p) generatePromise = null;
   });
   generatePromise = p;
   return p;
+}
+
+// Starts generating a spare address in the background; a failure here is silent.
+function warm(): void {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (spare !== null && Date.now() - spare.at < SPARE_TTL_MS) return;
+  const s = { p: generateNow(true), at: Date.now() };
+  s.p.catch(() => {
+    if (spare === s) spare = null;
+  });
+  spare = s;
+}
+
+// Uses the spare when there is a fresh one (`fresh` skips it); otherwise asks Apple now.
+function generate(fresh = false): Promise<string> {
+  const s = spare;
+  spare = null;
+  if (fresh || s === null || Date.now() - s.at >= SPARE_TTL_MS) return generateNow();
+  return s.p.catch(() => generateNow()); // the quiet attempt failed: try again out loud
 }
 
 function validAlias(v: unknown): v is Alias {
@@ -303,6 +326,7 @@ async function runReserve(g: number, b: { hme: string; label: string; note: stri
       typeof created.created_ms === 'number' && created.created_ms > 0 ? created : { ...created, created_ms: Date.now() };
     setList([stamped, ...listNow()], { error: null, loadError: null });
     await persist(g);
+    warm(); // the next New alias opens with an address ready
     return stamped;
   } catch (e) {
     if (g === gen) fail(e);
@@ -439,6 +463,7 @@ async function clear(): Promise<void> {
   refreshPromise = null;
   reserves.clear();
   generatePromise = null;
+  spare = null;
   refetchPromise = null;
   pendingMutations = 0;
   wakeIdle();
@@ -455,6 +480,7 @@ export const aliasStore = {
   init,
   refresh,
   generate,
+  warm,
   reserve,
   update,
   setActive,

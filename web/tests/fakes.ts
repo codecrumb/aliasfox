@@ -56,7 +56,8 @@ export function createAliasStore() {
     subscribe: store.subscribe,
     init: vi.fn(async () => {}),
     refresh: vi.fn(async () => {}),
-    generate: vi.fn(async () => 'fresh@icloud.com'),
+    generate: vi.fn(async (fresh = false): Promise<string> => (fresh ? 'again@icloud.com' : 'fresh@icloud.com')),
+    warm: vi.fn(),
     reserve: vi.fn(async (b: { hme: string; label: string; note: string }): Promise<Alias | null> => {
       const created = alias(99999, {
         anonymous_id: 'new-id',

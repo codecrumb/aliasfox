@@ -560,15 +560,31 @@ describe('review fixes', () => {
   it('generate has a single in-flight guard', async () => {
     await loaded([]);
     const d = deferred<{ hme: string }>();
-    h.api.generate.mockReturnValue(d.promise);
-    const p1 = m.aliasStore.generate();
-    const p2 = m.aliasStore.generate();
+    h.api.generate.mockClear().mockReturnValue(d.promise); // init already warmed a spare
+    const p1 = m.aliasStore.generate(true);
+    const p2 = m.aliasStore.generate(true);
     expect(p2).toBe(p1);
     d.resolve({ hme: 'g@icloud.com' });
     expect(await p1).toBe('g@icloud.com');
     expect(h.api.generate).toHaveBeenCalledTimes(1);
     h.api.generate.mockResolvedValue({ hme: 'h@icloud.com' });
     expect(await m.aliasStore.generate()).toBe('h@icloud.com');
+  });
+
+  it('warm generates a spare that the next generate uses; fresh skips it; failures stay silent', async () => {
+    await loaded([]);
+    h.api.generate.mockReset().mockResolvedValueOnce({ hme: 'spare@icloud.com' }).mockResolvedValue({ hme: 'next@icloud.com' });
+    m.aliasStore.warm();
+    m.aliasStore.warm(); // already warm: no second request
+    expect(await m.aliasStore.generate()).toBe('spare@icloud.com');
+    expect(h.api.generate).toHaveBeenCalledTimes(1);
+    expect(await m.aliasStore.generate()).toBe('next@icloud.com'); // spare was consumed
+    m.aliasStore.warm();
+    expect(await m.aliasStore.generate(true)).toBe('next@icloud.com'); // fresh ignores the spare
+    h.api.generate.mockReset().mockRejectedValueOnce(new m.ApiError(429, 'rate_limited')).mockResolvedValue({ hme: 'retry@icloud.com' });
+    m.aliasStore.warm();
+    expect(await m.aliasStore.generate()).toBe('retry@icloud.com');
+    expect(get(m.aliasStore).error).toBeNull();
   });
 
   it('loadError is set only by list fetch failures, never by mutation failures', async () => {
