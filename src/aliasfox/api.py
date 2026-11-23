@@ -24,6 +24,7 @@ from aliasfox.apple.login import (
     TooManyResends,
 )
 from aliasfox.auth import COOKIE_NAME, _cookie_secure, client_ip, current_user, limiter_key
+from aliasfox.createguard import CreateGuard
 from aliasfox.crypto import derive_cache_key
 from aliasfox.ratelimit import RateLimiter
 from aliasfox.service import AccountDeleted, AliasService, NotConnected
@@ -43,6 +44,10 @@ CREATE_PER_MINUTE = 10
 
 def _now() -> float:
     return time.monotonic()
+
+
+def default_create_guard() -> CreateGuard:
+    return CreateGuard(per_user=CREATE_PER_MINUTE, clock=lambda: _now())
 
 AliasId = Annotated[str, Path(min_length=1, max_length=128)]
 
@@ -117,6 +122,7 @@ def build_router(
     directory: UserDirectory | None = None,
     *,
     limiters: list[RateLimiter] | None = None,
+    create_guard: CreateGuard | None = None,
 ) -> APIRouter:
     """`limiters`, when given, receives every RateLimiter made here so the
     lifespan sweep can prune them."""
@@ -130,12 +136,14 @@ def build_router(
     verify_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     cookie_ip = RateLimiter(VERIFY_PER_IP, APPLE_WINDOW_SECONDS)
     global_key = "global"
-    create_limit = RateLimiter(CREATE_PER_MINUTE, 60, clock=lambda: _now())
+    guard = create_guard or default_create_guard()
     last_refresh: dict[int, float] = {}
     if limiters is not None:
         limiters.extend(
-            (login_ip, login_global, login_user, verify_ip, cookie_ip, create_limit)
+            (login_ip, login_global, login_user, verify_ip, cookie_ip)
         )
+        if create_guard is None:  # an injected guard is tracked by whoever built it
+            limiters.extend(guard.limiters)
 
     def key_of(request: Request) -> str:
         return limiter_key(client_ip(
@@ -143,10 +151,8 @@ def build_router(
             ))
 
     def _create_limited(user_id: int) -> JSONResponse | None:
-        key = str(user_id)
-        if not create_limit.hit(key):
-            return _rate_limited(create_limit.retry_after(key))
-        return None
+        wait = guard.check(user_id)
+        return None if wait is None else _rate_limited(wait)
 
     router = APIRouter(prefix="/api")
     User = Annotated[int, Depends(current_user)]
@@ -188,13 +194,23 @@ def build_router(
     async def generate(user_id: User):
         if (limited := _create_limited(user_id)) is not None:
             return limited
-        return {"hme": await service.generate(user_id)}
+        try:
+            return {"hme": await service.generate(user_id)}
+        except HmeError:
+            guard.record_error(user_id)
+            raise
 
     @router.post("/aliases")
     async def reserve(body: ReserveBody, user_id: User):
         if (limited := _create_limited(user_id)) is not None:
             return limited
-        return alias_json(await service.reserve(user_id, body.hme, body.label, body.note))
+        try:
+            alias = await service.reserve(user_id, body.hme, body.label, body.note)
+        except HmeError:
+            guard.record_error(user_id)
+            raise
+        guard.record_success(user_id)
+        return alias_json(alias)
 
     @router.patch("/aliases/{alias_id}")
     async def patch(alias_id: AliasId, body: PatchBody, user_id: User):
@@ -320,7 +336,7 @@ def build_router(
             await run_in_threadpool(login_flow.cancel_user, user_id)
             await service.disconnect(user_id)
             last_refresh.pop(user_id, None)
-            create_limit.reset(str(user_id))
+            guard.reset_user(user_id)
             login_user.reset(str(user_id))
             await run_in_threadpool(directory.delete, user_id)
             response.delete_cookie(

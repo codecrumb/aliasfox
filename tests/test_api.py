@@ -435,3 +435,15 @@ def test_other_mutations_and_plain_list_not_limited(client, svc, now):
     for _ in range(15):
         assert client.get("/api/aliases").status_code == 200
         assert client.delete("/api/aliases/id1").status_code == 200
+
+
+def test_three_apple_errors_on_reserve_start_create_cooldown(client, svc, now):
+    svc.error = HmeError(1234, "apple said no")
+    for _ in range(3):
+        assert client.post("/api/aliases", json={"hme": "a@icloud.com", "label": "L"}).status_code == 502
+    svc.error = None
+    r = client.post("/api/aliases/generate")
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) >= 1
+    now.t += 301
+    assert client.post("/api/aliases/generate").status_code == 200

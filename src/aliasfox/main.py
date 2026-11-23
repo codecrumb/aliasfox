@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 
-from aliasfox.api import build_router, install_error_handlers
+from aliasfox.api import build_router, default_create_guard, install_error_handlers
 from aliasfox.apple.connect import seed_from_env
 from aliasfox.apikeys import ApiKeyStore
 from aliasfox.apple.login import LoginFlow, cleanup_stale_login_dirs
@@ -53,6 +53,11 @@ async def sweep_memory(app: FastAPI, flow: LoginFlow) -> None:
             key_auth.evict_expired()
     except Exception as exc:
         log.warning("api key cache sweep failed: %s", type(exc).__name__)
+    try:
+        if (guard := getattr(app.state, "create_guard", None)) is not None:
+            guard.sweep()
+    except Exception as exc:
+        log.warning("create guard sweep failed: %s", type(exc).__name__)
     for limiter in getattr(app.state, "limiters", ()):
         try:
             limiter.sweep()
@@ -134,6 +139,9 @@ def create_app(
         app.state.key_auth = KeyAuth(api_keys, settings)
         for lim in app.state.key_auth.limiters:
             track(app.state, lim)
+    app.state.create_guard = default_create_guard()
+    for lim in app.state.create_guard.limiters:
+        track(app.state, lim)
     if multi:
         verifier = NeonTokenVerifier(
             jwks_url=settings.neon_auth_jwks_url, issuer=neon_issuer(settings)
@@ -146,7 +154,8 @@ def create_app(
 
     app.include_router(
         build_router(
-            service, store, settings, flow, directory=epochs, limiters=app.state.limiters
+            service, store, settings, flow, directory=epochs, limiters=app.state.limiters,
+            create_guard=app.state.create_guard,
         )
     )
     api_keys, key_auth = getattr(app.state, "api_keys", None), getattr(app.state, "key_auth", None)
