@@ -333,6 +333,7 @@ PUBLIC = {
     ("GET", "/robots.txt"),
     ("HEAD", "/robots.txt"),
     ("GET", "/api/config"),
+    ("GET", "/mcp"),  # answers 405 Allow: POST for everyone, no data
     ("POST", "/api/auth/exchange"),
     ("POST", "/api/auth/logout"),
     ("GET", "/{full_path:spa_path}"),  # SPA shell and public files from the build

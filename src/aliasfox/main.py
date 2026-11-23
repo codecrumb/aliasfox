@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 
+from aliasfox.mcp_server import build_mcp_router
 from aliasfox.simplelogin import build_simplelogin_router
 from aliasfox.v1 import build_v1_router
 from aliasfox.api import build_router, default_create_guard, install_error_handlers
@@ -167,6 +168,7 @@ def create_app(
     if key_auth is not None:
         app.include_router(build_v1_router(service, key_auth, app.state.create_guard))
         app.include_router(build_simplelogin_router(service, key_auth, app.state.create_guard, settings))
+        app.include_router(build_mcp_router(service, key_auth, app.state.create_guard))
     install_error_handlers(app)
     install_pages(app, settings)  # multi mode only; before the SPA catch-all
     install_web(app, dist_dir)  # after the API router: its catch-all must not shadow /api
