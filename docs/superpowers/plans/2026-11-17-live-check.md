@@ -35,3 +35,15 @@ item and record the result in `~/AI/aliasfox/CONTEXT.md` (verified, or "(unverif
 - [ ] gitleaks skipped 4 of 128 commits (3 merges, 1 unexplained); trim `docs/spike-results.md` (alias count, ADP, shard host); check `docs/brand/aliasfox-logo-source.png` metadata (exiftool).
 - [ ] Set the log-retention wording and the governing-law placeholder in the terms.
 - [ ] `curl -sL https://www.gnu.org/licenses/agpl-3.0.txt | diff - LICENSE` (verified identical 2026-11-17).
+
+## Live checks for API keys
+All unverified (to-do) until run against the real deployment.
+- [ ] Bitwarden client (Generator > Forwarded email alias > SimpleLogin) creates an address: the label equals the site hostname and the alias appears in the app.
+- [ ] Revoke the key in the app: Bitwarden's next create fails within a second.
+- [ ] Claude Code connects to `/mcp` with `--header "Authorization: Bearer <key>"`, lists aliases and creates one.
+- [ ] Revoke the key: MCP calls fail at once.
+- [ ] Bitwarden with a trailing slash in the Server URL: record what happens (works, 404 or other).
+- [ ] Apple session expired: record the message text Bitwarden shows when creating.
+- [ ] `API_KEYS_ENABLED=false` on Render: `/api/v1`, `/mcp` and the Bitwarden endpoint answer 503; `/api/keys` still works.
+- [ ] Confirm Render's real `X-Forwarded-For` hops with the failed-key limiter (`TRUSTED_PROXY_HOPS`): 21 wrong-key calls give 429 and only your own address is limited.
+- [ ] Shared-IP limits: three Apple errors on create trigger the cooldown; 11 creates in a minute give 429 shared with the web app.
