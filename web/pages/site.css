@@ -1,0 +1,355 @@
+/* Source for the public pages' stylesheet (landing, privacy, terms).
+   Built by `npm run build:site` into src/aliasfox/page_templates/site.css,
+   which is committed (like hero3d.js) so the Python package needs no Node
+   step at runtime. Edit THIS file, never the generated one.
+
+   Scope: the landing content is styled with utilities in landing.html.
+   Shared chrome (header, footer, .wrap), the legal-page styles and the
+   hero-art 3D state classes driven by hero.js stay plain CSS below.
+   No preflight: the base layer is hand-written and unchanged. */
+@layer theme, base, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source '../../src/aliasfox/page_templates/*.html';
+
+/* Same tokens as the app (web/src/styles/tokens.css). `fg` is the app's
+   `--text`, renamed so the utility reads `text-fg`, not `text-text`. */
+@theme {
+  --color-*: initial;
+  --color-white: #fff;
+  --color-bg: #0b0c0f;
+  --color-surface: #14161b;
+  --color-elevated: #1b1e25;
+  --color-border: #262a33;
+  --color-fg: #e8e9ec;
+  --color-muted: #a3a9b5; /* lighter than the app's muted: long reading text, 8:1 on bg */
+  --color-accent: #ff8a3d;
+  --color-accent-hover: #ffa264;
+  --color-accent-contrast: #1a0e05;
+  --color-warn-bg: #2a1d10;
+  --color-warn-border: #6b4420;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-ui: 10px;
+
+  /* The site's two breakpoints: 640px (sm) and 960px (md, "wide hero"). */
+  --breakpoint-*: initial;
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 60rem;
+}
+
+@layer base {
+  :root {
+    --gutter: 16px;
+    --focus-ring: 2px solid var(--color-accent);
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    background: var(--color-bg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    line-height: 1.2;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  h1 {
+    font-size: 1.75rem;
+  }
+  h2 {
+    font-size: 1.25rem;
+    margin-top: 40px;
+    margin-bottom: 12px;
+  }
+  h3 {
+    font-size: 1.0625rem;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+  p,
+  ul {
+    margin: 0 0 12px;
+  }
+  ul {
+    padding-left: 1.25rem;
+  }
+  li + li {
+    margin-top: 6px;
+  }
+  strong {
+    font-weight: 650;
+  }
+  code,
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  kbd {
+    display: inline-block;
+    padding: 0 6px;
+    border: 1px solid var(--color-border);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-fg);
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+  :focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  main {
+    flex: 1;
+    padding-top: 32px;
+    padding-bottom: 48px;
+  }
+  @media (min-width: 40rem) {
+    h1 {
+      font-size: 2rem;
+    }
+    main {
+      padding-top: 56px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Page width + safe-area gutters. Landing widens it with max-w-[76rem]. */
+  .wrap {
+    width: 100%;
+    max-width: 44rem;
+    margin: 0 auto;
+    padding-left: max(var(--gutter), env(safe-area-inset-left));
+    padding-right: max(var(--gutter), env(safe-area-inset-right));
+  }
+
+  .skip {
+    position: absolute;
+    left: var(--gutter);
+    top: -100px;
+    padding: 8px 12px;
+    background: var(--color-elevated);
+    border-radius: var(--radius-ui);
+  }
+  .skip:focus {
+    top: 8px;
+  }
+
+  /* Header and footer, shared by all three pages */
+  .site-header {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .site-header .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 60px;
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--color-fg);
+    text-decoration: none;
+    font-size: 1.125rem;
+    font-weight: 650;
+  }
+  .brand img {
+    display: block;
+    width: 28px;
+    height: 28px;
+  }
+  .header-link {
+    color: var(--color-fg);
+    text-decoration: none;
+    padding: 8px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-ui);
+  }
+  .header-link:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  @media (max-width: 39.9375rem) {
+    .header-link {
+      display: none;
+    }
+  }
+
+  .site-footer {
+    border-top: 1px solid var(--color-border);
+    padding-top: 20px;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    color: var(--color-muted);
+    font-size: 0.9375rem;
+  }
+  .site-footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin-bottom: 12px;
+  }
+  .site-footer a {
+    color: var(--color-fg);
+  }
+  .site-footer p {
+    margin: 0 0 6px;
+  }
+
+  /* Button and notice: pages.py emits these class names from Python
+     (SIGNUPS_OPEN / SIGNUPS_CLOSED), so they stay named components. */
+  .button {
+    @apply inline-flex min-h-11 max-sm:min-h-13 items-center justify-center rounded-ui border border-border bg-elevated px-6 max-sm:px-7 font-semibold text-fg no-underline hover:border-muted;
+  }
+  .button.primary {
+    @apply border-accent bg-accent text-accent-contrast hover:border-accent-hover hover:bg-accent-hover;
+  }
+  .notice {
+    @apply rounded-ui border border-border bg-surface px-4 py-3;
+  }
+
+  /* Policy pages (privacy, terms) */
+  .draft {
+    margin-bottom: 24px;
+    padding: 12px 16px;
+    border: 1px solid var(--color-warn-border);
+    border-radius: var(--radius-ui);
+    background: var(--color-warn-bg);
+  }
+  .draft p {
+    margin: 0;
+  }
+  .updated {
+    margin-top: 8px;
+    color: var(--color-muted);
+  }
+  .doc p,
+  .doc li {
+    color: var(--color-fg);
+  }
+  .placeholder {
+    padding: 2px 6px;
+    border: 1px dashed var(--color-accent);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.9375em;
+  }
+
+  /* The fox. hero.js toggles .dragging / .wait / .show-svg / .is3d and sets
+     --rx / --ry, so this block stays hand-written. Below 960px it is hidden. */
+  .hero-art {
+    display: none;
+  }
+  @media (min-width: 60rem) {
+    .hero-art {
+      display: block;
+      grid-column: 2;
+      grid-row: 1 / span 3;
+      width: 380px;
+      margin-right: 48px;
+      position: relative;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    }
+    .hero-art.dragging {
+      cursor: grabbing;
+    }
+    .hero-art canvas {
+      position: absolute;
+      inset: -35%;
+      width: 170%;
+      height: 170%;
+      pointer-events: none;
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    .hero-art.wait svg {
+      opacity: 0;
+    }
+    .hero-art.wait.show-svg svg {
+      opacity: 1;
+      transition: opacity 0.4s;
+    }
+    .hero-art.is3d {
+      transform: none;
+    }
+    .hero-art.is3d canvas {
+      opacity: 1;
+      transform: none;
+      transition:
+        opacity 0.4s,
+        transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .hero-art.wait.is3d svg {
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .hero-art svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      pointer-events: none;
+      filter: drop-shadow(0 24px 40px rgba(247, 112, 25, 0.28));
+      animation: float 6s ease-in-out infinite;
+    }
+  }
+  @keyframes float {
+    50% {
+      transform: translateY(-14px);
+    }
+  }
+}
