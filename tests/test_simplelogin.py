@@ -145,3 +145,48 @@ def test_regenerate_costs_one_slot_each(env):
     for _ in range(2):
         assert c.post(URL, headers={"Authentication": key}).status_code == 201
     assert len(labels(env)) == before + 2
+
+
+def test_control_characters_stripped_from_label_and_note(env):
+    key = key_for(env, "a", "acct-a")
+    r = env.anonymous().post(
+        URL + "?hostname=ex%0d%0aam%00ple%7f.com%09", headers={"Authentication": key},
+        json={"note": "a\r\nb\x00c\x7fd\te"},
+    )
+    assert r.status_code == 201
+    got = by_hme(env, r.json()["alias"])
+    assert got["label"] == "example.com" and got["note"] == "abcde"
+
+
+def test_control_only_hostname_falls_back_to_default_label(env):
+    key = key_for(env, "a", "acct-a")
+    r = env.anonymous().post(URL + "?hostname=%0d%0a%00", headers={"Authentication": key})
+    assert r.status_code == 201 and by_hme(env, r.json()["alias"])["label"] == "Bitwarden"
+
+
+def test_bad_or_under_scoped_key_leaves_create_budget_unchanged(env):
+    key = key_for(env, "a", "acct-a")
+    ro = key_for(env, "a", "acct-a", ["read"])
+    c = env.anonymous()
+    for h in ({"Authentication": "nope"}, {"Authentication": ro}) * 4:
+        assert c.post(URL, headers=h).status_code in (401, 403)
+    codes = [c.post(URL, headers={"Authentication": key}).status_code for _ in range(6)]
+    assert codes == [201] * 5 + [429]
+
+
+def test_per_key_429_on_the_shim(env):
+    from aliasfox.ratelimit import RateLimiter
+
+    key = key_for(env, "a", "acct-a")
+    env.app.state.key_auth._per_key = RateLimiter(1, 60)
+    c = env.anonymous()
+    assert c.post(URL, headers={"Authentication": key}).status_code == 201
+    r = c.post(URL, headers={"Authentication": key})
+    assert r.status_code == 429 and r.json() == {"error": "Too many requests"}
+    assert int(r.headers["retry-after"]) >= 1
+
+
+def test_cross_origin_post_with_key_works(env):
+    key = key_for(env, "a", "acct-a")
+    r = env.anonymous().post(URL, headers={"Authentication": key, "Origin": "https://evil.example"})
+    assert r.status_code == 201

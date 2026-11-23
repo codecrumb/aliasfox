@@ -84,7 +84,6 @@ def test_list_query_and_limit_clamp(env):
     assert [a["label"] for a in data(tool(env, key, "list_aliases", {"query": "LABEL 1"}))] == ["acct-a label 1"]
     assert [a["id"] for a in data(tool(env, key, "list_aliases"))] == ["acct-a-id-1", "acct-a-id-0"]  # newest first
     assert len(data(tool(env, key, "list_aliases", {"limit": 0}))) == 1
-    assert len(data(tool(env, key, "list_aliases", {"limit": 9999}))) == 2
     assert data(tool(env, key, "list_aliases", {"active": False})) == []
 
 
@@ -152,3 +151,55 @@ def test_protocol_edges(env):
     r = c.get("/mcp")
     assert r.status_code == 405 and r.headers["allow"] == "POST"
     assert rpc(env, key, "ping").headers["content-type"] == "application/json"
+
+
+def test_limit_is_clamped_to_200(env):
+    env.world.add_account("acct-big", 250)
+    key = key_for(env, ["read"], account="acct-big")
+    assert len(data(tool(env, key, "list_aliases", {"limit": 9999}))) == 200
+    assert len(data(tool(env, key, "list_aliases"))) == 50
+
+
+def test_scope_is_checked_before_arguments(env):
+    key = key_for(env, ["read"])
+    for name, args in (("create_alias", {}), ("delete_alias", {"id": 5}), ("update_alias", {"bogus": 1})):
+        r = tool(env, key, name, args)["result"]
+        assert r["isError"] is True and "does not allow" in r["content"][0]["text"]
+    assert tool(env, key, "nope", {})["error"]["code"] == -32602  # unknown tool stays invalid
+    assert tool(env, key_for(env, ["create"]), "create_alias", {})["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("method", ["ping", "initialize", "tools/list"])
+def test_null_params_is_like_missing_params(env, method):
+    key = key_for(env, ["read"])
+    r = env.anonymous().post(
+        "/mcp", headers={"Authorization": f"Bearer {key}"},
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": None},
+    )
+    assert r.status_code == 200 and "result" in r.json()
+
+
+def test_query_has_max_length_256_in_schema_and_enforced(env):
+    key = key_for(env, ["read"])
+    t = next(t for t in rpc(env, key, "tools/list").json()["result"]["tools"] if t["name"] == "list_aliases")
+    assert t["inputSchema"]["properties"]["query"]["maxLength"] == 256
+    assert tool(env, key, "list_aliases", {"query": "q" * 256})["result"]["isError"] is False
+    assert tool(env, key, "list_aliases", {"query": "q" * 257})["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("bad", [True, False, {"a": 1}, [1], {}])
+def test_bad_jsonrpc_id_is_invalid_request(env, bad):
+    key = key_for(env, ["read"])
+    r = env.anonymous().post(
+        "/mcp", headers={"Authorization": f"Bearer {key}"}, json={"jsonrpc": "2.0", "id": bad, "method": "ping"}
+    )
+    assert r.json()["error"]["code"] == -32600 and r.json()["id"] is None
+
+
+@pytest.mark.parametrize("ok", ["abc", 7, 1.5, None])
+def test_string_number_null_ids_are_echoed(env, ok):
+    key = key_for(env, ["read"])
+    r = env.anonymous().post(
+        "/mcp", headers={"Authorization": f"Bearer {key}"}, json={"jsonrpc": "2.0", "id": ok, "method": "ping"}
+    )
+    assert r.json() == {"jsonrpc": "2.0", "id": ok, "result": {}}

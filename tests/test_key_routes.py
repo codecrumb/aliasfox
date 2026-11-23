@@ -101,3 +101,25 @@ def test_revoke_invalidates_cache(env):
     assert ka._resolve(made["key"]) is not None  # now cached
     assert c.delete(f"/api/keys/{made['id']}").status_code == 200
     assert ka._resolve(made["key"]) is None
+
+
+def test_huge_key_id_is_never_a_500(env):
+    c, _ = env.sign_in("a")
+    for kid in (2**31, 2**63, 2**70, 0, -1):
+        assert c.delete(f"/api/keys/{kid}").status_code in (404, 422), kid
+
+
+def test_more_than_five_scopes_422(env):
+    c, _ = env.sign_in("a")
+    assert make(c, scopes=["read"] * 6).status_code == 422
+
+
+def test_duplicate_scopes_are_accepted_and_deduped(env):
+    c, _ = env.sign_in("a")
+    r = make(c, scopes=["read", "read"])
+    assert r.status_code == 201 and r.json()["scopes"] == ["read"]
+
+
+def test_whitespace_only_name_422(env):
+    c, _ = env.sign_in("a")
+    assert make(c, name="   ", preset="full").status_code == 422

@@ -26,7 +26,7 @@ TOOLS: dict[str, dict] = {
         "scope": "read",
         "description": "List Hide My Email aliases, newest first." + UNTRUSTED,
         "inputSchema": _schema({
-            "query": {"type": "string", "description": "Case-insensitive substring of address, label or note"},
+            "query": {"type": "string", "maxLength": 256, "description": "Case-insensitive substring of address, label or note"},
             "active": {"type": "boolean"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
         }, []),
@@ -123,11 +123,13 @@ def build_mcp_router(service: AliasService, key_auth: KeyAuth, guard: CreateGuar
     async def call(params: dict, key) -> dict:
         name, args = params.get("name"), params.get("arguments", {})
         tool = TOOLS.get(name) if isinstance(name, str) else None
-        if tool is None or not isinstance(args, dict):
+        if tool is None:
+            raise _Invalid
+        if tool["scope"] not in key.scopes:  # before arguments: an under-scoped key learns nothing about the schema
+            return _result(text=f"This key does not allow {name} (needs scope: {tool['scope']})", error=True)
+        if not isinstance(args, dict):
             raise _Invalid
         _check(args, tool["inputSchema"])
-        if tool["scope"] not in key.scopes:
-            return _result(text=f"This key does not allow {name} (needs scope: {tool['scope']})", error=True)
         try:
             return _result(await run(name, args, key.user_id))
         except CreateLimited as e:
@@ -152,10 +154,14 @@ def build_mcp_router(service: AliasService, key_auth: KeyAuth, guard: CreateGuar
             return _rpc(None, error=(-32700, "Parse error"), status=400)
         if not isinstance(msg, dict) or not isinstance(msg.get("method"), str):
             return _rpc(None, error=(-32600, "Invalid Request"))
-        method, params = msg["method"], msg.get("params", {})
+        method, params = msg["method"], msg.get("params")
+        if params is None:
+            params = {}
         if "id" not in msg:
             return Response(status_code=202)
         id_ = msg["id"]
+        if isinstance(id_, bool) or not isinstance(id_, (str, int, float, type(None))):
+            return _rpc(None, error=(-32600, "Invalid Request"))
         if not isinstance(params, dict):
             return _rpc(id_, error=(-32602, "Invalid params"))
         if method == "initialize":

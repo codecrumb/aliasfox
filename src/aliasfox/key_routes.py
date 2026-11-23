@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
@@ -16,7 +16,7 @@ Scope = Literal["read", "create", "edit", "deactivate", "delete"]
 class NewKey(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
     preset: Literal["bitwarden", "readonly", "assistant", "full"] | None = None
-    scopes: Annotated[list[Scope], Field(min_length=1)] | None = None
+    scopes: Annotated[list[Scope], Field(min_length=1, max_length=5)] | None = None
     expires_days: Annotated[int, Field(ge=1, le=365)] | None = None
 
     @model_validator(mode="after")
@@ -58,7 +58,7 @@ def build_key_router(store: ApiKeyStore, key_auth: KeyAuth) -> APIRouter:
         return {**_view(info), "key": key}
 
     @router.delete("/{key_id}")
-    def revoke_key(key_id: int, user_id: User):
+    def revoke_key(key_id: Annotated[int, Path(ge=1, le=2**31 - 1)], user_id: User):
         if not store.revoke(user_id, key_id):
             raise HTTPException(404, "not_found")
         key_auth.invalidate(key_id)

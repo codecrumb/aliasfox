@@ -15,6 +15,11 @@ def _err(status: int, text: str, retry_after: int | None = None) -> JSONResponse
     return JSONResponse({"error": text}, status_code=status, headers=headers)
 
 
+def _clean(text: str) -> str:
+    """Drop control characters (below 0x20 and DEL) so they never reach Apple or the logs."""
+    return "".join(ch for ch in text if ch >= " " and ch != "\x7f")
+
+
 def build_simplelogin_router(
     service: AliasService, key_auth: KeyAuth, guard: CreateGuard, settings: Settings
 ) -> APIRouter:
@@ -37,8 +42,8 @@ def build_simplelogin_router(
         except Exception:  # missing or invalid JSON means no note
             body = None
         note = body.get("note") if isinstance(body, dict) else None
-        note = note[:2048] if isinstance(note, str) else ""
-        label = hostname.strip()[:256] or "Bitwarden"
+        note = _clean(note)[:2048] if isinstance(note, str) else ""
+        label = _clean(hostname).strip()[:256] or "Bitwarden"
         try:
             alias = await create_alias(service, guard, key.user_id, label, note)
         except CreateLimited as e:
