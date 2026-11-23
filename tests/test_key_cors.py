@@ -38,11 +38,12 @@ def test_no_allow_credentials_anywhere(env):
 
 def test_foreign_origin_post_with_key_not_bad_origin(env):
     c, uid = env.sign_in("a")
+    env.connect(c, "acct-a")
     key, _ = env.app.state.api_keys.create(uid, "k", ["read", "create"])
     r = env.anonymous().post(
         "/api/v1/aliases", headers={**FOREIGN, "Authorization": f"Bearer {key}"}, json={"label": "x"}
     )
-    assert r.json().get("detail") != "bad_origin"
+    assert r.status_code == 201 and r.json()["label"] == "x"
     assert r.headers["access-control-allow-origin"] == "*"
 
 

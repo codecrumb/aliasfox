@@ -63,14 +63,20 @@ def test_create_retries_once_on_41003_then_502_on_second_failure(env, monkeypatc
         return real(self, hme, label, note)
 
     monkeypatch.setattr(FakeHmeClient, "reserve", flaky)
+    guard, seen = env.app.state.create_guard, []
+    for name in ("check", "record_error", "record_success"):
+        monkeypatch.setattr(guard, name, lambda *a, _n=name, _f=getattr(guard, name): (seen.append(_n), _f(*a))[1])
     env.world.calls.clear()
     r = api(env).post("/api/v1/aliases", headers=h, json={"label": "x"})
     assert r.status_code == 201
     assert env.world.ops_on("acct-a") == ["generate", "reserve", "generate", "reserve"]
+    assert seen == ["check", "check", "record_success"]  # the retry adds no hit and no error
 
+    seen.clear()
     fails["n"] = 5
     r = api(env).post("/api/v1/aliases", headers=h, json={"label": "x"})
     assert r.status_code == 502 and r.json()["detail"] == "apple_error"
+    assert seen == ["check", "check", "record_error"]
 
 
 def test_sixth_create_in_a_minute_is_429(env):
@@ -130,9 +136,22 @@ def test_user_id_comes_from_key_not_body(env):
     _, _, h = key_for(env, "a", "acct-a", ["create", "edit"])
     _, uid_b, _ = key_for(env, "b", "acct-b", ["read"])
     before = env.world.snapshot("acct-b")
+    env.world.calls.clear()
     c = api(env)
     r = c.post("/api/v1/aliases", headers=h, json={"label": "x", "user_id": uid_b})
-    assert r.status_code in (201, 422)
+    assert r.status_code == 201
     c.patch("/api/v1/aliases/acct-b-id-0", headers=h, json={"label": "hack", "user_id": uid_b})
     assert env.world.snapshot("acct-b") == before
-    assert env.world.ops_on("acct-b") == [op for a, op in env.world.calls if a == "acct-b"]
+    assert env.world.ops_on("acct-b") == []  # acct-b's Apple world was never called
+
+
+def test_repeated_403_consumes_no_create_budget(env, monkeypatch):
+    _, _, ro = key_for(env, "a", "acct-a", ["read"])
+    _, _, rw = key_for(env, "a", "acct-a", ["create"])
+    guard, seen = env.app.state.create_guard, []
+    monkeypatch.setattr(guard, "check", lambda *a: seen.append(a) or None)
+    c = api(env)
+    for _ in range(5):
+        assert c.post("/api/v1/aliases", headers=ro, json={"label": "x"}).status_code == 403
+    assert seen == []
+    assert c.post("/api/v1/aliases", headers=rw, json={"label": "x"}).status_code == 201
