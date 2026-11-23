@@ -65,6 +65,7 @@ const UNUSED_BY_CLIENT: Record<string, string> = {
   'GET /api/keys': 'added to the client with the dialog in Task 10',
   'POST /api/keys': 'added to the client with the dialog in Task 10',
   'DELETE /api/keys/{id}': 'added to the client with the dialog in Task 10',
+  'POST /api/alias/random/new': 'Bitwarden SimpleLogin endpoint, not called by the web client',
   'GET /api/v1/me': 'for non-browser clients with an API key',
   'GET /api/v1/aliases': 'for non-browser clients with an API key',
   'POST /api/v1/aliases': 'for non-browser clients with an API key',
