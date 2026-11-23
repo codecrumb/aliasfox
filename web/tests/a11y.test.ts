@@ -30,7 +30,7 @@ vi.mock('../src/lib/api', async (orig) => {
   const real = await orig<typeof import('../src/lib/api')>();
   return {
     ...real,
-    api: { disconnect: vi.fn(async () => ({})), connectLogin: vi.fn(), connectVerify: vi.fn(), connectResend: vi.fn(), connectCookie: vi.fn() }
+    api: { disconnect: vi.fn(async () => ({})), connectLogin: vi.fn(), connectVerify: vi.fn(), connectResend: vi.fn(), connectCookie: vi.fn(), listKeys: vi.fn(async () => []) }
   };
 });
 
@@ -386,6 +386,14 @@ const CASES: DialogCase[] = [
       await press(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
       await fireEvent.click(await screen.findByRole('option', { name: /Change forward-to address/ }));
       await screen.findByRole('dialog', { name: /forward/i });
+    }
+  },
+  {
+    name: 'ApiKeysDialog',
+    title: 'API keys',
+    open: async () => {
+      await press(search(), { key: 'k', code: 'KeyK', ctrlKey: true });
+      await fireEvent.click(await screen.findByRole('option', { name: /API keys/ }));
     }
   }
 ];

@@ -1,4 +1,4 @@
-import type { Alias, ConnectLoginResult, SessionInfo, StatusInfo } from './types';
+import type { Alias, ApiKey, ConnectLoginResult, CreatedApiKey, SessionInfo, StatusInfo } from './types';
 
 const TIMEOUT_MS = 45_000;
 // /api/config is fetched on every page load; single mode must not wait long for it.
@@ -124,5 +124,9 @@ export const api = {
   connectVerify: (b: { flow_id: string; code: string }) =>
     request<{ status: 'ok' }>('POST', '/api/connect/verify', b),
   connectResend: (b: { flow_id: string }) => request<{ status: 'ok' }>('POST', '/api/connect/resend', b),
-  disconnect: () => request<{ status: string }>('DELETE', '/api/connect')
+  disconnect: () => request<{ status: string }>('DELETE', '/api/connect'),
+  listKeys: () => request<ApiKey[]>('GET', '/api/keys'),
+  createKey: (b: { name: string; preset?: string; scopes?: string[]; expires_days?: number }) =>
+    request<CreatedApiKey>('POST', '/api/keys', b),
+  revokeKey: (id: number) => request<{ ok: boolean }>('DELETE', `/api/keys/${id}`)
 };

@@ -30,6 +30,7 @@
   import NewAlias from './NewAlias.svelte';
   import ShortcutHelp from './ShortcutHelp.svelte';
   import StatsDialog from './StatsDialog.svelte';
+  import ApiKeysDialog from './ApiKeysDialog.svelte';
 
   const SKELETON = [0, 1, 2, 3, 4, 5, 6, 7];
   const UNREADABLE =
@@ -582,6 +583,7 @@
       { id: 'filter-inactive', label: 'Filter: Inactive', current: filter === 'inactive', aliases: ['Disabled', 'Deactivated', 'Off', 'Paused'] },
       { id: 'refresh', label: 'Refresh from Apple', keys: keysFor('refresh'), aliases: ['Reload', 'Sync', 'Update', 'Fetch', 'iCloud', 'Pull', 'Resync'] },
       { id: 'stats', label: 'Stats', aliases: ['Count', 'Summary', 'Top sites', 'Statistics', 'Analytics', 'Numbers', 'Total'] },
+      { id: 'apikeys', label: 'API keys', aliases: ['Api', 'Key', 'Token', 'Bitwarden', 'MCP', 'Integration', 'Access'] },
       { id: 'export-csv', label: 'Export aliases as CSV', aliases: ['Download', 'Backup', 'Save', 'Dump', 'Spreadsheet'] },
       { id: 'export-json', label: 'Export aliases as JSON', aliases: ['Download', 'Backup', 'Save', 'Dump', 'Data'] },
       { id: 'import', label: 'Import labels and notes from CSV', aliases: ['Upload', 'Load', 'Restore', 'Labels', 'Notes'] },
@@ -644,6 +646,9 @@
         return;
       case 'stats':
         dialog = { kind: 'stats' };
+        return;
+      case 'apikeys':
+        dialog = { kind: 'apikeys' };
         return;
       case 'export-csv':
         return download('aliasfox-aliases.csv', toCsv(list), 'text/csv');
@@ -1168,6 +1173,8 @@
   <ShortcutHelp onClose={closeDialog} />
 {:else if dialog?.kind === 'stats'}
   <StatsDialog {list} onClose={closeDialog} />
+{:else if dialog?.kind === 'apikeys'}
+  <ApiKeysDialog onClose={closeDialog} />
 {:else if dialog?.kind === 'import'}
   {@const plan = dialog.plan}
   <ConfirmDialog

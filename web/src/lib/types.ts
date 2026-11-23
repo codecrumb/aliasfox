@@ -12,6 +12,18 @@ export interface Alias {
   app_bundle_id: string | null;
 }
 
+export interface ApiKey {
+  id: number;
+  name: string;
+  preset: string | null;
+  scopes: string[];
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+export type CreatedApiKey = ApiKey & { key: string };
+
 export interface SessionInfo {
   cache_key: string;
   mode: string;

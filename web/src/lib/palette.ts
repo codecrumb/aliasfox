@@ -12,6 +12,7 @@ export type Dialog =
   | { kind: 'menu' }
   | { kind: 'help' }
   | { kind: 'stats' }
+  | { kind: 'apikeys' }
   | { kind: 'import'; plan: ImportPlan }
   | { kind: 'detail' }
   | { kind: 'forward'; current: string }

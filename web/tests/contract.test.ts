@@ -42,7 +42,7 @@ const backendRoutes = (): Route[] => [
 /** Pydantic body models in api.py/auth.py: field name -> required? */
 function bodyModels(): Map<string, Map<string, boolean>> {
   const models = new Map<string, Map<string, boolean>>();
-  for (const text of [src('api.py'), src('auth.py'), src('exchange.py')]) {
+  for (const text of [src('api.py'), src('auth.py'), src('exchange.py'), src('key_routes.py')]) {
     for (const m of text.matchAll(/class (\w+)\(BaseModel\):\n((?:[ \t]+.*\n|\n)+)/g)) {
       const fields = new Map<string, boolean>();
       for (const line of m[2]!.split('\n')) {
@@ -62,9 +62,6 @@ function bodyModels(): Map<string, Map<string, boolean>> {
 // Backend /api routes the client deliberately does not call. Keep this honest: each entry needs a
 // reason, and the test fails if an entry no longer exists in the backend.
 const UNUSED_BY_CLIENT: Record<string, string> = {
-  'GET /api/keys': 'added to the client with the dialog in Task 10',
-  'POST /api/keys': 'added to the client with the dialog in Task 10',
-  'DELETE /api/keys/{id}': 'added to the client with the dialog in Task 10',
   'POST /api/alias/random/new': 'Bitwarden SimpleLogin endpoint, not called by the web client',
   'GET /api/v1/me': 'for non-browser clients with an API key',
   'GET /api/v1/aliases': 'for non-browser clients with an API key',
@@ -95,7 +92,10 @@ const SAMPLES: Record<string, unknown[]> = {
   connectLogin: [{ apple_id: 'me@icloud.com', password: 'pw' }],
   connectVerify: [{ flow_id: 'f', code: '123456' }],
   connectResend: [{ flow_id: 'f' }],
-  disconnect: []
+  disconnect: [],
+  listKeys: [],
+  createKey: [{ name: 'k', preset: 'bitwarden', expires_days: 30 }],
+  revokeKey: ['ID']
 };
 
 interface Call {
