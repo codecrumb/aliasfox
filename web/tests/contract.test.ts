@@ -65,6 +65,12 @@ const UNUSED_BY_CLIENT: Record<string, string> = {
   'GET /api/keys': 'added to the client with the dialog in Task 10',
   'POST /api/keys': 'added to the client with the dialog in Task 10',
   'DELETE /api/keys/{id}': 'added to the client with the dialog in Task 10',
+  'GET /api/v1/me': 'for non-browser clients with an API key',
+  'GET /api/v1/aliases': 'for non-browser clients with an API key',
+  'POST /api/v1/aliases': 'for non-browser clients with an API key',
+  'PATCH /api/v1/aliases/{id}': 'for non-browser clients with an API key',
+  'POST /api/v1/aliases/{id}/active': 'for non-browser clients with an API key',
+  'DELETE /api/v1/aliases/{id}': 'for non-browser clients with an API key',
 };
 
 // Sample arguments for every api.* method. A new method without a sample fails the coverage test.
