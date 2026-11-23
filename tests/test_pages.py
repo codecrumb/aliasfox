@@ -148,6 +148,7 @@ def test_privacy_names_stored_and_not_stored_items(tmp_path, monkeypatch):
         "Render",
         "password hash",
         "wrapped data key",
+        "API keys",
         "timestamps",
         "Delete account",
         "Disconnect Apple",
@@ -156,8 +157,7 @@ def test_privacy_names_stored_and_not_stored_items(tmp_path, monkeypatch):
         "no tracking",
         "broader",
         "datacenter",
-        "Draft, not legal advice",
-        "2026-11-17",
+        "2026-11-23",
     ):
         assert phrase in html, phrase
     assert "delete" in html.lower()
@@ -183,9 +183,7 @@ def test_terms_state_no_warranty_unofficial_not_affiliated_with_apple_no_guarant
         "Acceptable use",
         "suspend",
         "limitation of liability",
-        "[governing law to be set by the operator]",
-        "Draft, not legal advice",
-        "2026-11-17",
+        "2026-11-23",
         "AGPL-3.0-or-later",
     ):
         assert phrase.lower() in html.lower(), phrase
