@@ -119,6 +119,19 @@ def test_signed_in_gets_spa_index(tmp_path, monkeypatch, dist):
     assert "AliasFox manages your iCloud Hide My Email addresses" in anon.get("/").text
 
 
+def test_legal_header_link_follows_visitor(tmp_path, monkeypatch, dist):
+    env = MultiUserEnv(tmp_path, monkeypatch, ["a"], dist_dir=dist)
+    c, _ = env.sign_in("a")
+    for path in ("/privacy", "/terms"):
+        assert "Continue to app" in c.get(path).text and 'class="header-link" href="/login"' not in c.get(path).text
+        out = env.anonymous().get(path).text
+        assert 'class="header-link" href="/login"' in out or 'class="header-link" href="/signup"' in out
+    # signed out: Sign up while sign-ups are open, Log in while closed
+    for enabled, want in ((True, "/signup"), (False, "/login")):
+        t = client(tmp_path / str(enabled), monkeypatch, dist, signups_enabled=enabled).get("/terms").text
+        assert f'class="header-link" href="{want}"' in t
+
+
 def test_signed_in_without_built_spa_gets_404(tmp_path, monkeypatch):
     env = MultiUserEnv(tmp_path, monkeypatch, ["a"])
     c, _ = env.sign_in("a")

@@ -32,6 +32,12 @@ PAGES = {"/": "landing.html", "/privacy": "privacy.html", "/terms": "terms.html"
 SIGNUPS_OPEN = '<a class="button primary" href="/signup">Sign up</a>'
 SIGNUPS_CLOSED = '<p class="notice">Sign-ups are closed for now.</p>'
 
+# The header link on privacy/terms; swapped per visitor (signed in -> the app,
+# signed out -> sign up while sign-ups are open).
+HEADER_LOGIN = '<a class="header-link" href="/login">Log in</a>'
+HEADER_SIGNUP = '<a class="header-link" href="/signup">Sign up</a>'
+HEADER_APP = '<a class="header-link" href="/">Continue to app</a>'
+
 
 def _esc(value: str) -> str:
     return html.escape(value, quote=True)
@@ -143,13 +149,19 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
     for path in ("/login", "/signup"):
         app.add_api_route(path, auth_screen, methods=["GET", "HEAD"], include_in_schema=False)
 
-    @app.api_route("/privacy", methods=["GET", "HEAD"], include_in_schema=False)
-    def privacy():
-        return HTMLResponse(rendered["/privacy"], headers=html_headers)
+    out_link = HEADER_SIGNUP if settings.signups_enabled else HEADER_LOGIN
 
-    @app.api_route("/terms", methods=["GET", "HEAD"], include_in_schema=False)
-    def terms():
-        return HTMLResponse(rendered["/terms"], headers=html_headers)
+    def legal(path: str):
+        signed_out = rendered[path].replace(HEADER_LOGIN, out_link)
+        signed_in = rendered[path].replace(HEADER_LOGIN, HEADER_APP)
+
+        def view(request: Request):
+            return HTMLResponse(signed_in if has_valid_session(request) else signed_out, headers=html_headers)
+
+        app.add_api_route(path, view, methods=["GET", "HEAD"], include_in_schema=False)
+
+    legal("/privacy")
+    legal("/terms")
 
     for url, (body, media_type) in assets.items():
         def serve(body: str = body, media_type: str = media_type):
