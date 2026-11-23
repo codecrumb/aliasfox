@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import ConnectApple from './components/ConnectApple.svelte';
   import Login from './components/Login.svelte';
-  import Palette from './components/Palette.svelte';
   import SignIn from './components/SignIn.svelte';
   import SignUp from './components/SignUp.svelte';
   import StepTransition from './components/StepTransition.svelte';
@@ -127,7 +126,9 @@
     {:else if screen === 'connect' || screen === 'reconnect'}
       <ConnectApple />
     {:else if screen === 'ready'}
-      <Palette />
+      {#await import('./components/Palette.svelte') then { default: Palette }}
+        <Palette />
+      {/await}
     {:else}
       <section class="screen" data-screen="error" tabindex="-1" aria-label="Error">
         <p>Something went wrong.</p>

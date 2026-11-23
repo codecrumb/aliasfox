@@ -99,6 +99,34 @@ def test_validate_failure_raises_invalid_cookie_without_echoing_cookie(resp):
     assert "SECRETVALUE" not in str(ei.value) and "SECRETVALUE" not in repr(ei.value)
 
 
+def test_no_premium_service_with_no_icloud_plus_is_accepted():
+    """A valid cookie on an account without iCloud+ has no premium mail URL.
+    That is an entitlement answer, not a bad cookie: keep the session so the
+    UI can explain iCloud+ instead of asking for the cookie again."""
+    body = {
+        "webservices": {},
+        "dsInfo": {"dsid": "777", "isHideMyEmailFeatureAvailable": False},
+    }
+    state = connect_with_cookie(
+        COOKIE, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))
+    )
+    assert state.webservices_url == ""
+    assert state.dsid == "777"
+    assert state.hme_available is False
+
+
+def test_icloud_plus_flag_is_stored():
+    body = {
+        "webservices": {"premiummailsettings": {"url": HME_URL}},
+        "dsInfo": {"dsid": "777", "isHideMyEmailFeatureAvailable": True},
+    }
+    state = connect_with_cookie(
+        COOKIE, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))
+    )
+    assert state.webservices_url == HME_URL
+    assert state.hme_available is True
+
+
 def test_network_error_raises_apple_unreachable_without_echo():
     def handler(req):
         raise httpx.ConnectError("boom SECRETVALUE")

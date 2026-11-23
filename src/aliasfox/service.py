@@ -14,14 +14,24 @@ from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 
-from aliasfox.apple.hme import Alias, HmeClient
+from aliasfox.apple.connect import InvalidCookie, validate_state
+from aliasfox.apple.hme import Alias, HmeClient, HmeError, SessionExpired
 from aliasfox.sessions import AppleSessionState, SessionStore, SessionUnreadable
 
 log = logging.getLogger(__name__)
 
+# Apple's "slow down" reply for alias creation. A failed create with this code
+# is a quota problem, not a subscription problem, so it never triggers a
+# subscription re-check.
+RATE_LIMIT_CODES = frozenset({"-41015"})
+
 
 class NotConnected(Exception):
     """The user has no stored Apple session."""
+
+
+class HmeUnavailable(Exception):
+    """The Apple account has no active Hide My Email entitlement (no iCloud+)."""
 
 
 class AccountDeleted(Exception):
@@ -82,15 +92,93 @@ class AliasService:
     async def is_connected(self, user_id: int) -> bool:
         return await run_in_threadpool(self._store.load, user_id) is not None
 
+    async def availability(self, user_id: int) -> bool | None:
+        """The Hide My Email entitlement Apple last reported, or None if unknown."""
+        state = await run_in_threadpool(self._store.load, user_id)
+        if state is None:
+            raise NotConnected(user_id)
+        return state.hme_available
+
+    async def recheck(self, user_id: int) -> bool | None:
+        """Validate the stored session against Apple and persist what it says now.
+
+        This is how a subscription that lapsed (or was renewed) is noticed without
+        reconnecting. Apple can rotate cookies here too, so the new state is saved.
+        Raises SessionExpired when Apple rejects the cookie."""
+        async with self._lock(user_id):
+            state = await run_in_threadpool(self._store.load, user_id)
+            if state is None:
+                raise NotConnected(user_id)
+            fresh = await self._recheck_locked(user_id, state)
+            return fresh.hme_available
+
+    async def _recheck_locked(
+        self, user_id: int, state: AppleSessionState
+    ) -> AppleSessionState:
+        """Caller holds the user's lock. Validate and persist a replaced session."""
+        try:
+            url, dsid, available = await run_in_threadpool(validate_state, state)
+        except InvalidCookie:
+            raise SessionExpired(401, "session expired") from None
+        fresh = AppleSessionState(
+            cookies=state.cookies,
+            webservices_url=url or "",
+            dsid=dsid or state.dsid,
+            hme_available=available,
+            extra=state.extra,
+        )
+        await self._save_replacing(user_id, fresh)
+        return fresh
+
+    async def _create(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
+        """Create an alias under the user's lock.
+
+        A flagged-unavailable account gets one live check first, so a renewed
+        subscription is not blocked by a stale flag. A failed create triggers one
+        more check: a lapsed subscription then becomes a clear `hme_unavailable`
+        instead of a generic Apple error."""
+        async with self._lock(user_id):
+            state = await run_in_threadpool(self._store.load, user_id)
+            if state is None:
+                raise NotConnected(user_id)
+            if state.hme_available is False:
+                state = await self._recheck_locked(user_id, state)
+                if state.hme_available is False:
+                    raise HmeUnavailable(user_id)
+            try:
+                return await self._run_locked(user_id, call, state=state)
+            except SessionExpired:
+                raise
+            except HmeError as exc:
+                if str(exc.code) in RATE_LIMIT_CODES:
+                    raise
+                try:
+                    fresh = await self._recheck_locked(user_id, state)
+                except Exception:
+                    raise exc from None
+                if fresh.hme_available is False:
+                    raise HmeUnavailable(user_id) from None
+                raise
+
     async def _run(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
         """Run `call(client)` under the user's lock; caller holds no lock."""
         async with self._lock(user_id):
             return await self._run_locked(user_id, call)
 
-    async def _run_locked(self, user_id: int, call: Callable[[HmeClient], Any]) -> Any:
-        state = await run_in_threadpool(self._store.load, user_id)
+    async def _run_locked(
+        self,
+        user_id: int,
+        call: Callable[[HmeClient], Any],
+        *,
+        state: AppleSessionState | None = None,
+    ) -> Any:
+        if state is None:
+            state = await run_in_threadpool(self._store.load, user_id)
         if state is None:
             raise NotConnected(user_id)
+        if not state.webservices_url:
+            # The account validated but Apple returned no Hide My Email service.
+            raise HmeUnavailable(user_id)
         client = self._factory(state, on_state_change=self._persist(user_id))
 
         def work() -> Any:
@@ -140,6 +228,19 @@ class AliasService:
         If the user's stored data key cannot be unwrapped (secret rotated), the
         user is re-keyed first. Raises AccountDeleted if `expected_account_gen`
         no longer matches, SessionUnreadable if the user does not exist."""
+        async with self._lock(user_id):
+            await self._save_replacing(
+                user_id, state, expected_account_gen=expected_account_gen
+            )
+
+    async def _save_replacing(
+        self,
+        user_id: int,
+        state: AppleSessionState,
+        *,
+        expected_account_gen: int | None = None,
+    ) -> None:
+        """Caller holds the user's lock (connect and recheck both use this)."""
 
         def write() -> None:
             with self._write_lock:
@@ -159,9 +260,8 @@ class AliasService:
                     self._store.rekey(user_id)
                     self._store.save(user_id, state)
 
-        async with self._lock(user_id):
-            await run_in_threadpool(write)
-            self._cache.pop(user_id, None)
+        await run_in_threadpool(write)
+        self._cache.pop(user_id, None)
 
     async def disconnect(self, user_id: int) -> None:
         def delete() -> None:
@@ -189,10 +289,12 @@ class AliasService:
             return list(aliases)
 
     async def generate(self, user_id: int) -> str:
-        return await self._run(user_id, lambda c: c.generate())
+        return await self._create(user_id, lambda c: c.generate())
 
     async def reserve(self, user_id: int, hme: str, label: str, note: str = "") -> Alias:
-        return await self._mutate(user_id, lambda c: c.reserve(hme, label, note))
+        result = await self._create(user_id, lambda c: c.reserve(hme, label, note))
+        self._cache.pop(user_id, None)
+        return result
 
     async def update(
         self, user_id: int, anonymous_id: str, label: str, note: str | None

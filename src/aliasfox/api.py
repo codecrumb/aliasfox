@@ -27,7 +27,7 @@ from aliasfox.auth import COOKIE_NAME, _cookie_secure, client_ip, current_user, 
 from aliasfox.createguard import CreateGuard
 from aliasfox.crypto import derive_cache_key
 from aliasfox.ratelimit import RateLimiter
-from aliasfox.service import AccountDeleted, AliasService, NotConnected
+from aliasfox.service import AccountDeleted, AliasService, HmeUnavailable, NotConnected
 from aliasfox.sessions import SessionStore, SessionUnreadable
 from aliasfox.users import UserDirectory
 
@@ -244,12 +244,28 @@ def build_router(
 
     @router.get("/status")
     async def status(user_id: User):
-        body: dict = {"mode": settings.aliasfox_mode, "auth_enabled": settings.auth_required}
+        body: dict = {
+            "connected": False,
+            "hme_available": None,
+            "mode": settings.aliasfox_mode,
+            "auth_enabled": settings.auth_required,
+        }
         try:
-            body = {"connected": await service.is_connected(user_id), **body}
+            connected = await service.is_connected(user_id)
+            body["connected"] = connected
+            if connected:
+                try:
+                    body["hme_available"] = await service.availability(user_id)
+                except NotConnected:
+                    body["hme_available"] = None
         except SessionUnreadable:
-            body = {"connected": False, "reason": "session_unreadable", **body}
+            body["reason"] = "session_unreadable"
         return body
+
+    @router.post("/status/recheck")
+    async def status_recheck(user_id: User):
+        """Ask Apple again whether Hide My Email is enabled (iCloud+) for this account."""
+        return {"connected": True, "hme_available": await service.recheck(user_id)}
 
     # --- Apple connect -------------------------------------------------------
     # Limiter slots are reserved BEFORE touching Apple and are NOT given back on
@@ -386,6 +402,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(NotConnected)
     async def not_connected(request: Request, exc: NotConnected):
         return JSONResponse({"detail": "not_connected"}, status_code=409)
+
+    @app.exception_handler(HmeUnavailable)
+    async def hme_unavailable(request: Request, exc: HmeUnavailable):
+        return JSONResponse({"detail": "hme_unavailable"}, status_code=403)
 
     @app.exception_handler(SessionExpired)
     async def session_expired(request: Request, exc: SessionExpired):

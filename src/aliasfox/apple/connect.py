@@ -23,6 +23,7 @@ F_PREMIUMMAIL = "premiummailsettings"
 F_URL = "url"
 F_DSINFO = "dsInfo"
 F_DSID = "dsid"
+F_HME_AVAILABLE = "isHideMyEmailFeatureAvailable"
 # A usable web session carries a cookie starting with this prefix, or this
 # exact one (both seen in the spike).
 WEBAUTH_PREFIX = "X-APPLE-WEBAUTH-"
@@ -123,8 +124,13 @@ def _has_webauth(cookies: dict[str, str]) -> bool:
 
 def _validate(
     cookies: dict[str, str], transport: httpx.BaseTransport | None
-) -> tuple[str, str | None]:
-    """POST validate; return (webservices_url, dsid) or raise InvalidCookie."""
+) -> tuple[str | None, str | None, bool | None]:
+    """POST validate; return (webservices_url, dsid, hme_available).
+
+    A missing premium mail URL is only accepted when Apple says Hide My Email
+    is unavailable for this account (no iCloud+). It is the one signal that
+    lets us show an iCloud+ explanation instead of blaming the cookie.
+    """
     headers = {
         "Origin": _ORIGIN,
         "Referer": _ORIGIN + "/",
@@ -152,11 +158,26 @@ def _validate(
     ws = data.get(F_WEBSERVICES) if isinstance(data, dict) else None
     pm = ws.get(F_PREMIUMMAIL) if isinstance(ws, dict) else None
     url = pm.get(F_URL) if isinstance(pm, dict) else None
-    if not isinstance(url, str) or not url:
-        raise InvalidCookie("validate response has no premium mail service url")
-    ds = data.get(F_DSINFO)
+    ds = data.get(F_DSINFO) if isinstance(data, dict) else None
     dsid = ds.get(F_DSID) if isinstance(ds, dict) else None
-    return url, (str(dsid) if dsid is not None else None)
+    available = ds.get(F_HME_AVAILABLE) if isinstance(ds, dict) else None
+    if not isinstance(available, bool):
+        available = None
+    if not isinstance(url, str) or not url:
+        if available is False:
+            return None, (str(dsid) if dsid is not None else None), False
+        raise InvalidCookie("validate response has no premium mail service url")
+    return url, (str(dsid) if dsid is not None else None), available
+
+
+def validate_state(
+    state: AppleSessionState, *, transport: httpx.BaseTransport | None = None
+) -> tuple[str | None, str | None, bool | None]:
+    """Re-validate a stored session. Rotated cookies land in `state.cookies`."""
+    url, dsid, available = _validate(state.cookies, transport)
+    if url is not None:
+        check_webservices_url(url)
+    return url, dsid, available
 
 
 def connect_with_cookie(
@@ -168,9 +189,15 @@ def connect_with_cookie(
             f"missing web-auth token: expected a cookie named {WEBAUTH_PREFIX}* "
             f"or {WEBAUTH_EXACT}"
         )
-    url, dsid = _validate(cookies, transport)
-    check_webservices_url(url)
-    return AppleSessionState(cookies=cookies, webservices_url=url, dsid=dsid)
+    url, dsid, available = _validate(cookies, transport)
+    if url is not None:
+        check_webservices_url(url)
+    return AppleSessionState(
+        cookies=cookies,
+        webservices_url=url or "",
+        dsid=dsid,
+        hme_available=available,
+    )
 
 
 def is_session_valid(

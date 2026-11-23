@@ -374,6 +374,46 @@ def test_unusable_session_without_premiummail_fails():
     assert not os.path.exists(fac.cls.instances[0].cookie_directory)
 
 
+def _no_premiummail_factory(available):
+    fac = make_factory(requires_2fa=False)
+
+    def init(self, *a):
+        FakeService.__init__(self, *a)
+        self.webservices = {}
+        self.data = {"dsInfo": {"dsid": "999", "isHideMyEmailFeatureAvailable": available}}
+
+    fac.cls.__init__ = init
+    return fac
+
+
+def test_no_icloud_plus_login_is_kept_with_flag_false():
+    f, fac = flow(_no_premiummail_factory(False))
+    res = f.start(1, APPLE_ID, PASSWORD)
+    assert res.status == "ok"
+    assert res.state.webservices_url == ""
+    assert res.state.hme_available is False
+    assert res.state.dsid == "999"
+    assert not os.path.exists(fac.cls.instances[0].cookie_directory)
+
+
+def test_missing_premiummail_with_flag_true_still_fails():
+    f, _ = flow(_no_premiummail_factory(True))
+    with pytest.raises(AppleLoginFailed):
+        f.start(1, APPLE_ID, PASSWORD)
+
+
+def test_flag_true_is_stored_on_normal_login():
+    fac = make_factory(requires_2fa=False)
+
+    def init(self, *a):
+        FakeService.__init__(self, *a)
+        self.data = {"dsInfo": {"dsid": "999", "isHideMyEmailFeatureAvailable": True}}
+
+    fac.cls.__init__ = init
+    f, _ = flow(fac)
+    assert f.start(1, APPLE_ID, PASSWORD).state.hme_available is True
+
+
 def test_password_not_retained_by_flow():
     f, fac = flow()
     res = f.start(1, APPLE_ID, PASSWORD)

@@ -355,7 +355,7 @@ def test_full_user_journey(client, apple):
     login(client)
     st = client.get("/api/status")
     assert st.status_code == 200
-    assert st.json() == {"connected": False, "mode": "single", "auth_enabled": True}
+    assert st.json() == {"connected": False, "hme_available": None, "mode": "single", "auth_enabled": True}
     assert client.get("/api/aliases").json() == {"detail": "not_connected"}
 
     r = client.post("/api/connect/cookie", json={"cookie": COOKIE})

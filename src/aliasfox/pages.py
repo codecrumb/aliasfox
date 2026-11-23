@@ -15,6 +15,7 @@ markup inserted is fixed text from this module."""
 
 import hashlib
 import html
+import json
 import re
 from importlib import resources
 
@@ -77,6 +78,23 @@ def _template(name: str) -> str:
 ROBOTS_SINGLE = "User-agent: *\nDisallow: /\n"  # a private instance: nothing to index
 ROBOTS_MULTI = "User-agent: *\nDisallow: /api/\nDisallow: /login\nDisallow: /signup\n"
 
+LLMS_TXT = """# AliasFox
+
+> AliasFox is a self-hosted service for managing your iCloud "Hide My Email" aliases: list, search, generate, label, deactivate and delete them from your own server. It runs as a Docker Compose service.
+
+## Resources
+
+- [AliasFox on GitHub](https://github.com/codecrumb/aliasfox): the repository, quick start and configuration reference.
+- [Privacy policy](/privacy): how the site treats your data.
+- [Terms](/terms): usage terms of the service.
+"""
+
+# Passes Lighthouse's `llms-txt` audit (domain-root /llms.txt: H1, a Markdown
+# link, >= 50 chars). Entries with an `identifier`, `displayName`, `type` and
+# `url`/`data` go here once the service exposes agentic resources (MCP
+# servers, A2A agents, agent skills).
+ARD_MANIFEST = {"specVersion": "1.0", "entries": []}
+
 
 def install_pages(app: FastAPI, settings: Settings) -> None:
     """Register robots.txt, and in multi mode the public pages. Must run before
@@ -92,6 +110,18 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
     @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
     def robots():
         return PlainTextResponse(robots_txt)
+
+    @app.api_route("/llms.txt", methods=["GET", "HEAD"], include_in_schema=False)
+    def llms_txt():
+        return PlainTextResponse(LLMS_TXT, headers={"Cache-Control": NO_CACHE})
+
+    @app.api_route("/.well-known/ard.json", methods=["GET", "HEAD"], include_in_schema=False)
+    def ard_manifest():
+        return PlainTextResponse(
+            json.dumps(ARD_MANIFEST, indent=2) + "\n",
+            media_type="application/json",
+            headers={"Cache-Control": NO_CACHE},
+        )
 
     if sitemap:
         urls = "".join(f"<url><loc>{_esc(base + p)}</loc></url>" for p in ("/", "/privacy", "/terms"))

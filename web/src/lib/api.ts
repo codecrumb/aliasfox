@@ -107,6 +107,7 @@ export const api = {
   deleteAccount: () => request<{ status: string }>('DELETE', '/api/account'),
   session: () => request<SessionInfo>('GET', '/api/session'),
   status: () => request<StatusInfo>('GET', '/api/status'),
+  statusRecheck: () => request<{ connected: boolean; hme_available: boolean | null }>('POST', '/api/status/recheck'),
   listAliases: (refresh?: boolean) =>
     request<Alias[]>('GET', refresh ? '/api/aliases?refresh=true' : '/api/aliases'),
   generate: () => request<{ hme: string }>('POST', '/api/aliases/generate'),

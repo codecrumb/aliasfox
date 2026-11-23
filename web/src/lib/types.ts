@@ -35,6 +35,8 @@ export interface StatusInfo {
   mode: string;
   auth_enabled: boolean;
   reason?: string;
+  /** null/undefined: Apple did not say. */
+  hme_available?: boolean | null;
 }
 
 export type ConnectLoginResult = { status: 'ok' } | { status: 'needs_2fa'; flow_id: string };

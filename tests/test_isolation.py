@@ -332,6 +332,7 @@ PUBLIC = {
     ("HEAD", "/healthz"),
     ("GET", "/robots.txt"),
     ("HEAD", "/robots.txt"),
+    *{(m, p) for m in ("GET", "HEAD") for p in ("/llms.txt", "/.well-known/ard.json")},  # both modes
     ("GET", "/api/config"),
     ("GET", "/mcp"),  # answers 405 Allow: POST for everyone, no data
     ("POST", "/api/auth/exchange"),
