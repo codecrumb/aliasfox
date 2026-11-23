@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from aliasfox.config import ConfigError, Settings
 from aliasfox.crypto import derive_key, verify_password
-from aliasfox.middleware import scope_is_https
+from aliasfox.middleware import is_key_path, scope_is_https
 from aliasfox.ratelimit import RateLimiter, track
 from aliasfox.users import UserDirectory
 
@@ -205,7 +205,8 @@ def install_auth(
                 return JSONResponse({"detail": "bad_host"}, status_code=403)
             origin = request.headers.get("origin")
             if (
-                origin is not None
+                not is_key_path(request.url.path)  # key paths ignore cookies: no CSRF surface
+                and origin is not None
                 and request.method in UNSAFE_METHODS
                 and urlsplit(origin).netloc.lower() != host.strip().lower()
             ):

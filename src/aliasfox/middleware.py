@@ -181,3 +181,43 @@ class BodyLimitMiddleware:
             await send(message)
 
         await self.app(scope, limited_receive, guarded_send)
+
+
+def is_key_path(path: str) -> bool:
+    """Paths authenticated by API key (never cookies): no origin check, open CORS."""
+    return (
+        path in ("/api/v1", "/api/alias/random/new", "/mcp")
+        or path.startswith(("/api/v1/", "/mcp/"))
+    )
+
+
+_CORS_PREFLIGHT = [
+    (b"access-control-allow-origin", b"*"),
+    (b"access-control-allow-headers", b"Authorization, Authentication, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version"),
+    (b"access-control-allow-methods", b"GET, POST, PATCH, DELETE, OPTIONS"),
+    (b"access-control-max-age", b"600"),
+]
+
+
+class KeyCorsMiddleware:
+    """Wildcard CORS on key paths. Never credentials, never echoes Origin: keys
+    ride in a header, so no ambient authority is exposed to foreign pages."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not is_key_path(scope.get("path", "")):
+            await self.app(scope, receive, send)
+            return
+        if scope["method"] == "OPTIONS":
+            await send({"type": "http.response.start", "status": 204, "headers": _CORS_PREFLIGHT})
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Access-Control-Allow-Origin"] = "*"
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
