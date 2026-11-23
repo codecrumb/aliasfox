@@ -153,6 +153,53 @@ excerpt). A truncated cookie shows an ellipsis (`…`) in values, or is missing 
 - 429 `rate_limited`: per-user limits on `?refresh=true` (at most one real refresh per 5 seconds, sooner
   calls are served from the cache) and on generate/reserve (10 per minute).
 
+## API keys, Bitwarden and MCP
+
+An API key lets a program act on your aliases without your password. Each key has a name, an optional
+expiry and a set of scopes: `read`, `create`, `edit`, `deactivate`, `delete`. Presets: `bitwarden`
+(create), `readonly` (read), `assistant` (read, create, edit, deactivate) and `full` (all five). Requests
+made with a key use your stored Apple session, so connect Apple first.
+
+Create one in the web app: open the actions menu (Cmd/Ctrl+K) and choose "API keys". The full key is
+shown once; copy it then.
+
+**Bitwarden.** Settings > Generator > Username > Forwarded email alias > SimpleLogin. Paste the key as
+the API key and set Server URL to the site origin, for example `https://aliasfox.example.com` (no trailing
+slash). The URL must be https and public, or Bitwarden asks you to approve an unsafe URL. The alias label
+is the site hostname Bitwarden sends. It uses `POST /api/alias/random/new` and needs the `create` scope.
+
+**MCP (Claude Code and other clients that accept a header):**
+
+```sh
+claude mcp add --transport http aliasfox https://<your-site>/mcp --header "Authorization: Bearer <key>"
+```
+
+Clients that need OAuth (claude.ai web connectors) are not supported yet. Tool results leave out your
+forwarding address.
+
+**REST.** Send `Authorization: Bearer <key>`.
+
+| Method and path | Scope |
+| --- | --- |
+| `GET /api/v1/me` | any |
+| `GET /api/v1/aliases` | `read` |
+| `POST /api/v1/aliases` | `create` |
+| `PATCH /api/v1/aliases/{id}` | `edit` |
+| `POST /api/v1/aliases/{id}/active` | `deactivate` |
+| `DELETE /api/v1/aliases/{id}` | `delete` |
+
+**Limits.** 10 create calls per minute per user, shared with the web app; 120 requests per minute per key;
+after repeated Apple errors on creation a cooldown pauses creating for a few minutes. Failed key attempts are
+limited per client address, so set `TRUSTED_PROXY_HOPS` correctly behind a proxy.
+
+**`API_KEYS_ENABLED`** (default `true`). Set it to `false` and every request that uses a key (`/api/v1`,
+`/mcp`, the Bitwarden endpoint) answers 503. It does not disable `/api/keys`, so you can still list and
+revoke keys in the app.
+
+**Custody.** A key is a bearer credential: whoever holds it can do what its scopes allow until it expires or
+you revoke it, so revoke a key you think has leaked. Only a keyed hash is stored. Changing
+`ALIASFOX_SECRET_KEY` invalidates all keys.
+
 ## Web UI development
 
 The web app lives in `web/` (Svelte 5 + TypeScript + Vite). Node 22+ is needed.

@@ -66,7 +66,8 @@
   <ul>
     <li>An API key lets a program (a password manager, a script, an AI assistant) act on your aliases without your password. What it can do is limited to the permissions you chose when you created it (read, create, edit, deactivate, delete). Requests made with a key use your stored Apple session, the same way requests from the app do.</li>
     <li>Whoever holds a key can do what its permissions allow until you revoke it or it expires. The program you give the key to keeps its own copy, which AliasFox cannot protect. Give each key the fewest permissions it needs.</li>
-    <li>You can revoke a key at any time in the app, and deleting your account deletes all your keys.</li>
+    <li>A key is deleted when you revoke it, and deleting your account deletes all your keys. If your account is suspended, your keys are deleted when the server starts. If the server's secret key is ever changed, every key stops working.</li>
+    <li>Keys do not change what is stored about your aliases: the alias list is still not stored, only kept in memory for up to 60 seconds as described above. Results sent to AI assistants through a key leave out your forwarding address.</li>
   </ul>
 
   <h2 id="providers">Sign-in provider and hosting</h2>
@@ -81,7 +82,7 @@
   <h2 id="control">Disconnect or delete everything</h2>
   <ul>
     <li><strong>Disconnect Apple:</strong> in the app, open Account and choose Disconnect Apple. This deletes your stored Apple session. Your AliasFox account stays.</li>
-    <li><strong>Delete account:</strong> in the app, open Account and choose Delete account. This deletes your stored Apple session, your wrapped data key and your user record from the AliasFox database, and logs you out.</li>
+    <li><strong>Delete account:</strong> in the app, open Account and choose Delete account. This deletes your stored Apple session, your API keys, your wrapped data key and your user record from the AliasFox database, and logs you out.</li>
     <li>AliasFox asks the sign-in provider (Neon) to delete your sign-in record when you delete your account. If that request does not go through, the app tells you, and it is removed on request. {{CONTACT}}</li>
   </ul>
 
