@@ -123,6 +123,7 @@ def build_router(
     *,
     limiters: list[RateLimiter] | None = None,
     create_guard: CreateGuard | None = None,
+    key_auth=None,
 ) -> APIRouter:
     """`limiters`, when given, receives every RateLimiter made here so the
     lifespan sweep can prune them."""
@@ -337,6 +338,8 @@ def build_router(
             await service.disconnect(user_id)
             last_refresh.pop(user_id, None)
             guard.reset_user(user_id)
+            if key_auth is not None:
+                key_auth.invalidate_user(user_id)  # hot-cached keys must not outlive the rows
             login_user.reset(str(user_id))
             await run_in_threadpool(directory.delete, user_id)
             response.delete_cookie(

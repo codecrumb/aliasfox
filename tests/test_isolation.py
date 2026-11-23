@@ -493,3 +493,81 @@ def test_reconnect_after_secret_rotation_rekeys_only_that_user(tmp_path, monkeyp
     assert cb2.get("/api/status").json()["reason"] == "session_unreadable"
     for record in caplog.records:
         assert "acct-a" not in record.getMessage()
+
+
+# --- API keys: isolation and lifecycle ---------------------------------------------------
+
+
+def _bearer(env, uid, scopes=("read", "create", "edit", "deactivate", "delete")):
+    key, _ = env.app.state.api_keys.create(uid, "k", list(scopes))
+    return {"Authorization": f"Bearer {key}"}
+
+
+def test_a_key_never_touches_b_aliases(env, ab):
+    ca, a, cb, b = ab
+    h = _bearer(env, a)
+    c = env.anonymous()
+    b_world = env.world.snapshot("acct-b")
+    env.world.calls.clear()
+    assert alias_ids(c.get("/api/v1/aliases", headers=h)) == ["acct-a-id-0", "acct-a-id-1"]
+    for method, path, body in [
+        ("PATCH", "/api/v1/aliases/acct-b-id-0", {"label": "hack"}),
+        ("POST", "/api/v1/aliases/acct-b-id-0/active", {"active": False}),
+        ("DELETE", "/api/v1/aliases/acct-b-id-0", None),
+    ]:
+        assert c.request(method, path, headers=h, json=body).status_code == 502, path
+    assert c.post("/api/v1/aliases", headers=h, json={"label": "x", "user_id": b}).status_code == 201
+    r = c.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                        "params": {"name": "delete_alias", "arguments": {"id": "acct-b-id-1"}}})
+    assert r.json()["result"]["isError"] is True
+    assert env.world.snapshot("acct-b") == b_world
+    assert env.world.ops_on("acct-b") == []
+    assert env.store.load(b).cookies == {"acct": "acct-b"}
+
+
+def test_deleted_account_keys_401_with_hot_cache(env, ab):
+    ca, a, cb, b = ab
+    h = _bearer(env, a)
+    c = env.anonymous()
+    assert c.get("/api/v1/me", headers=h).status_code == 200  # now cached
+    assert env.app.state.key_auth._cache
+    assert ca.delete("/api/account").status_code == 200
+    assert c.get("/api/v1/me", headers=h).status_code == 401
+    assert env.anonymous().get("/api/v1/me", headers=_bearer(env, b)).status_code == 200  # B unaffected
+
+
+def test_account_delete_resets_create_guard_for_reused_id(env, ab):
+    ca, a, cb, b = ab
+    guard = env.app.state.create_guard
+    for _ in range(3):
+        guard.record_error(a)
+    assert guard.check(a) is not None  # cooling down
+    assert ca.delete("/api/account").status_code == 200
+    assert guard.check(a) is None
+
+
+def test_denylisted_subject_keys_deleted_at_startup(env, ab):
+    ca, a, cb, b = ab
+    _bearer(env, a)
+    _bearer(env, b)
+    denied = env.settings.model_copy(update={"subject_denylist": "sub-a"})
+    main_mod.create_app(denied, service=env.service, store=env.store, login_flow=env.flow)
+    assert env.app.state.api_keys.list_for_user(a) == []
+    assert len(env.app.state.api_keys.list_for_user(b)) == 1
+
+
+def test_api_keys_disabled_makes_key_routes_503_but_ui_works(env, ab):
+    from fastapi.testclient import TestClient
+
+    ca, a, cb, b = ab
+    h = _bearer(env, a)
+    off = main_mod.create_app(
+        env.settings.model_copy(update={"api_keys_enabled": False}),
+        service=env.service, store=env.store, login_flow=env.flow,
+    )
+    c = TestClient(off, base_url="https://aliasfox.test", headers={"X-Forwarded-For": "203.0.113.9"})
+    for method, path in [("GET", "/api/v1/me"), ("GET", "/api/v1/aliases"), ("POST", "/api/alias/random/new")]:
+        assert c.request(method, path, headers=h).status_code == 503, path
+    assert c.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}).status_code == 503
+    assert c.post("/api/auth/exchange", json={"token": "tok-a"}).status_code == 200
+    assert alias_ids(c.get("/api/aliases")) == ["acct-a-id-0", "acct-a-id-1"]

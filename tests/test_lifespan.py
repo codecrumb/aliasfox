@@ -181,3 +181,22 @@ def test_multi_mode_registers_exchange_limiter(tmp_path, monkeypatch):
     monkeypatch.setattr(main_mod, "NeonTokenVerifier", lambda **_: FakeNeonVerifier())
     app = main_mod.create_app(multi_mode_settings(tmp_path))
     assert any(l is app.state.exchange_limiter for l in app.state.limiters)
+
+
+def test_sweep_memory_evicts_key_cache_and_cooldown_state(tmp_path, monkeypatch):
+    from helpers import MultiUserEnv
+
+    env = MultiUserEnv(tmp_path, monkeypatch, ["a"])
+    c, uid = env.sign_in("a")
+    key, _ = env.app.state.api_keys.create(uid, "k", ["read"])
+    key_auth, guard = env.app.state.key_auth, env.app.state.create_guard
+    assert key_auth._resolve(key) is not None and key_auth._cache
+    for _ in range(3):
+        guard.record_error(uid)
+    assert guard._cool
+    asyncio.run(main_mod.sweep_memory(env.app, env.flow))
+    assert key_auth._cache and guard._cool  # nothing expired yet: kept
+    key_auth._clock = lambda: time.monotonic() + 10_000
+    guard._clock = lambda: time.monotonic() + 10_000
+    asyncio.run(main_mod.sweep_memory(env.app, env.flow))
+    assert key_auth._cache == {} and guard._cool == {}

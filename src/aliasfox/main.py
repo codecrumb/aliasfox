@@ -127,6 +127,8 @@ def create_app(
             store = SessionStore(engine, keyring)
             service = AliasService(store)
         api_keys = ApiKeyStore(engine, settings.secret_key)
+        if multi and (n := api_keys.delete_for_subjects(settings.denylist)):
+            log.info("deleted api keys of %d suspended user(s)", n)
     flow = login_flow or LoginFlow()
     app = FastAPI(
         title="AliasFox",
@@ -160,6 +162,7 @@ def create_app(
         build_router(
             service, store, settings, flow, directory=epochs, limiters=app.state.limiters,
             create_guard=app.state.create_guard,
+            key_auth=getattr(app.state, "key_auth", None),
         )
     )
     api_keys, key_auth = getattr(app.state, "api_keys", None), getattr(app.state, "key_auth", None)
