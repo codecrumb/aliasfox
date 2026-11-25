@@ -85,6 +85,7 @@ LLMS_TXT = """# AliasFox
 ## Resources
 
 - [AliasFox on GitHub](https://github.com/codecrumb/aliasfox): the repository, quick start and configuration reference.
+- [Live demo](/demo): try the app with sample data, no account needed.
 - [Privacy policy](/privacy): how the site treats your data.
 - [Terms](/terms): usage terms of the service.
 """
@@ -124,7 +125,7 @@ def install_pages(app: FastAPI, settings: Settings) -> None:
         )
 
     if sitemap:
-        urls = "".join(f"<url><loc>{_esc(base + p)}</loc></url>" for p in ("/", "/privacy", "/terms"))
+        urls = "".join(f"<url><loc>{_esc(base + p)}</loc></url>" for p in ("/", "/demo", "/privacy", "/terms"))
         sitemap_xml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'

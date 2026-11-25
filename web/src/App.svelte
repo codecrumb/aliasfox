@@ -9,6 +9,7 @@
   import { aliasStore } from './lib/aliases';
   import { appConfig, loadConfig } from './lib/config';
   import { sessionStore } from './lib/session';
+  import { isDemo } from './lib/demoMode';
 
   const STEPS: Record<string, number> = {
     loading: 0,
@@ -109,6 +110,13 @@
   });
 </script>
 
+{#if isDemo}
+  <aside class="demo-banner" aria-label="Demo notice">
+    <span><strong>Demo</strong> · sample data, nothing is saved</span>
+    <span class="demo-links"><a href="/signup">Sign up</a><a href="/">Home</a></span>
+  </aside>
+{/if}
+
 <h1 class="visually-hidden" aria-live="polite">{title}</h1>
 
 <main class="shell" bind:this={host}>
@@ -140,3 +148,26 @@
 </main>
 
 <Toasts />
+
+<style>
+  .demo-banner {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 50;
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3, 12px);
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+    background: #f77019;
+    color: #0b0c0f;
+  }
+  .demo-banner a {
+    color: inherit;
+    font-weight: 600;
+    margin-left: 14px;
+  }
+  :global(body:has(.demo-banner)) {
+    padding-top: 32px;
+  }
+</style>
