@@ -18,6 +18,7 @@ export type KeyId =
   | 'refresh'
   | 'filter'
   | 'sort'
+  | 'blur'
   | 'mark'
   | 'markAll'
   | 'markDown'
@@ -110,6 +111,7 @@ export const KEYMAP: readonly KeyBinding[] = [
   { id: 'refresh', keys: [['Alt', 'R']], label: 'Refresh from Apple', combos: [{ code: 'KeyR', alt: true }] },
   { id: 'filter', keys: [['Alt', 'F']], label: 'Cycle All, Active and Inactive', combos: [{ code: 'KeyF', alt: true }] },
   { id: 'sort', keys: [['Alt', 'S']], label: 'Cycle the sort order', combos: [{ code: 'KeyS', alt: true }] },
+  { id: 'blur', keys: [['Alt', 'B']], label: 'Blur or show the addresses (hover or select a row to reveal it)', combos: [{ code: 'KeyB', alt: true }] },
   { id: 'mark', keys: [['Alt', 'X']], label: 'Select or unselect this alias for a bulk action', combos: [{ code: 'KeyX', alt: true }] },
   { id: 'markAll', keys: [['Alt', 'A']], label: 'Select every alias in the list (again to unselect)', combos: [{ code: 'KeyA', alt: true }] },
   { id: 'markDown', keys: [['Shift', '↓']], label: 'Select this alias and the next one', combos: [{ key: 'ArrowDown', shift: true }] },

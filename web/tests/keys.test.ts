@@ -40,7 +40,7 @@ describe('KEYMAP / handleKey', () => {
 
   it('exposes the documented ids', () => {
     expect(KEYMAP.map((b) => b.id).sort()).toEqual(
-      ['clear', 'copy', 'delete', 'down', 'edit', 'filter', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'refresh', 'sort', 'toggle', 'up', 'mark', 'markAll', 'markDown', 'markUp', 'clearMarks', 'undo'].sort()
+      ['clear', 'copy', 'delete', 'down', 'edit', 'filter', 'first', 'help', 'last', 'menu', 'new', 'pageDown', 'pageUp', 'refresh', 'sort', 'blur', 'toggle', 'up', 'mark', 'markAll', 'markDown', 'markUp', 'clearMarks', 'undo'].sort()
     );
   });
 

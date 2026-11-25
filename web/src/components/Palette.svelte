@@ -67,6 +67,23 @@
   const searched = $derived(query($aliasStore.index, q));
   // `sort:oldest` in the search box beats the sort picked with the button or Alt+S.
   let sortMode = $state<SortMode>('newest');
+  // Blur addresses on screen (shared screens, screenshots); a per-device convenience, so localStorage.
+  let blurred = $state(readBlur());
+  function readBlur(): boolean {
+    try {
+      return localStorage.getItem('aliasfox.blur') === '1';
+    } catch {
+      return false;
+    }
+  }
+  function toggleBlur(): void {
+    blurred = !blurred;
+    try {
+      localStorage.setItem('aliasfox.blur', blurred ? '1' : '0');
+    } catch {
+      /* private mode: the setting just lasts for this visit */
+    }
+  }
   const sort = $derived(parseQuery(q).sort ?? sortMode);
   const sortLabel = $derived(SORTS.find((s) => s.id === sort)?.label ?? 'Newest');
   const results = $derived(
@@ -577,6 +594,8 @@
     return b && (mac && b.keysMac ? b.keysMac : b.keys)[0]?.map((n) => cap(n, mac));
   };
 
+  const blurKeys = $derived(keysFor('blur')?.join(' ') ?? '');
+
   const menuActions = $derived.by((): MenuAction[] => {
     const none = selected === null;
     const n = marked.size;
@@ -600,6 +619,7 @@
       { id: 'mark', label: 'Select or unselect this alias', keys: keysFor('mark'), disabled: none, aliases: ['Check', 'Pick', 'Toggle selection', 'Multi-select'] },
       { id: 'mark-all', label: 'Select all in the list', keys: keysFor('markAll'), aliases: ['Everything', 'Check all'] },
       { id: 'forward', label: 'Change forward-to address', aliases: ['Forwarding', 'Destination', 'Redirect', 'Send to', 'Inbox', 'Email'] },
+      { id: 'blur', label: blurred ? 'Show addresses' : 'Blur addresses', keys: keysFor('blur'), aliases: ['Hide', 'Privacy', 'Mask', 'Censor', 'Screenshot', 'Streaming'] },
       { id: 'sort-cycle', label: 'Cycle sort order', keys: keysFor('sort'), aliases: ['Order', 'Arrange'] },
       ...SORTS.map((s) => ({ id: `sort-${s.id}`, label: `Sort: ${s.label}`, current: sortMode === s.id })),
       { id: 'filter-cycle', label: 'Cycle filter', keys: keysFor('filter'), aliases: ['Show', 'View'] },
@@ -656,6 +676,8 @@
         return markSelected();
       case 'mark-all':
         return markAll();
+      case 'blur':
+        return toggleBlur();
       case 'filter-cycle':
         return cycleFilter();
       case 'filter-all':
@@ -725,6 +747,7 @@
       refresh: () => void refresh(),
       filter: cycleFilter,
       sort: cycleSort,
+      blur: toggleBlur,
       mark: markSelected,
       markAll,
       markDown: () => markMove(1),
@@ -1112,6 +1135,8 @@
             flash={a.anonymous_id === flashId && dialog?.kind !== 'detail'}
             marked={marked.has(a.anonymous_id)}
             markMode={marked.size > 0}
+            blurred={blurred}
+            blurKeys={blurKeys}
             hint={altHeld ? numberHint(win.start + k - numberBase) : undefined}
           />
         {/each}

@@ -264,6 +264,7 @@ list.
 | `Alt` + `R` | Refresh from Apple |
 | `Alt` + `F` | Cycle All, Active and Inactive |
 | `Alt` + `S` | Cycle the sort order |
+| `Alt` + `B` | Blur or show the addresses (hover or select a row to reveal it) |
 | `Alt` + `X` | Select or unselect this alias for a bulk action |
 | `Alt` + `A` | Select every alias in the list (again to unselect) |
 | `Shift` + `↓` | Select this alias and the next one |

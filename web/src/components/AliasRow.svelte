@@ -35,8 +35,12 @@
     marked?: boolean;
     /** Some alias is selected, so every row shows its check slot. */
     markMode?: boolean;
+    /** Hide the address until the row is hovered or selected. */
+    blurred?: boolean;
+    /** Shortcut text for the tooltip, e.g. "Alt B". */
+    blurKeys?: string;
   }
-  let { alias, id, index, total, selected, hint, flash = false, marked = false, markMode = false }: Props = $props();
+  let { alias, id, index, total, selected, hint, flash = false, marked = false, markMode = false, blurred = false, blurKeys = '' }: Props = $props();
 
   const label = $derived(cap(alias.label).trim());
   const origin = $derived(originLabel(alias.origin));
@@ -61,7 +65,7 @@
   {#if hint !== undefined}<kbd class="num" aria-hidden="true">{hint}</kbd>{/if}
   <div class="text">
     <span class="label ellipsis" class:empty={label === ''} dir="auto">{label === '' ? 'No label' : label}</span>
-    <span class="addr ellipsis">{cap(alias.hme)}</span>{#if marked}<span class="visually-hidden">, selected for bulk action</span>{/if}
+    <span class="addr ellipsis" class:blur={blurred && !selected} title={blurred && !selected ? `Address hidden. Hover or select to show; ${blurKeys} turns the blur off.` : undefined}>{cap(alias.hme)}</span>{#if marked}<span class="visually-hidden">, selected for bulk action</span>{/if}
   </div>
   {#if meta}
     <span class="meta ellipsis" dir="auto">{meta}</span>
@@ -189,6 +193,14 @@
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
+  }
+  .addr.blur {
+    filter: blur(6px);
+    transition: filter 0.1s;
+    user-select: none;
+  }
+  .row:hover .addr.blur {
+    filter: none;
   }
   .off .label,
   .off .addr {

@@ -193,6 +193,20 @@ describe('palette list', () => {
     expect(order()).toEqual(['Zed', 'Moe', 'Amy']);
   });
 
+  it('blur: Alt+B hides every address except the selected one and remembers the choice', async () => {
+    localStorage.removeItem('aliasfox.blur');
+    setList([alias(1), alias(2)]);
+    render(Palette);
+    await tick();
+    const blurred = () => document.querySelectorAll('.addr.blur').length;
+    expect(blurred()).toBe(0);
+    await key(search(), { key: 'b', code: 'KeyB', altKey: true });
+    expect(blurred()).toBe(1); // the selected row stays readable
+    expect(localStorage.getItem('aliasfox.blur')).toBe('1');
+    await key(search(), { key: 'b', code: 'KeyB', altKey: true });
+    expect(blurred()).toBe(0);
+  });
+
   it('Alt number hints show only after Alt is held for a moment', async () => {
     vi.useFakeTimers();
     try {
